@@ -42,10 +42,18 @@
   .tool:hover{filter:brightness(1.2);}
   .tool.active{outline:3px solid var(--gold);outline-offset:-1px;}
 
+  /* draggable UI panels */
+  .ui-panel{touch-action:none;}
+  .panel-head{cursor:grab;user-select:none;text-shadow:1px 1px 0 #000;
+    margin:-12px -12px 10px;padding:10px 12px 8px;border-bottom:2px solid var(--edge);
+    background:rgba(0,0,0,.14);}
+  .panel-head:active,.ui-panel.dragging .panel-head{cursor:grabbing;}
+  .ui-panel.dragging{box-shadow:inset 0 2px 0 rgba(255,255,255,.07),inset 0 -3px 0 rgba(0,0,0,.35),0 8px 18px rgba(0,0,0,.65);}
+
   /* left worldgen panel */
   #genpanel{position:absolute;top:56px;left:10px;width:250px;max-height:calc(100% - 150px);overflow-y:auto;
     padding:12px;z-index:25;}
-  #genpanel h2{font-size:10px;color:var(--gold);text-align:center;margin-bottom:10px;text-shadow:1px 1px 0 #000;}
+  #genpanel h2{font-size:10px;color:var(--gold);text-align:center;}
   .field{margin-bottom:10px;}
   .field label{display:flex;justify-content:space-between;margin-bottom:4px;color:var(--dim);}
   .field label b{color:var(--gold);}
@@ -64,7 +72,7 @@
   /* stats panel */
   #stats{position:absolute;top:56px;right:10px;width:250px;max-height:calc(100% - 150px);overflow-y:auto;
     padding:12px;z-index:25;}
-  #stats h2{font-size:10px;color:var(--gold);text-align:center;margin-bottom:8px;}
+  #stats h2{font-size:10px;color:var(--gold);text-align:center;}
   .splist{display:flex;flex-direction:column;gap:4px;margin-bottom:8px;}
   .sprow{display:flex;align-items:center;gap:6px;background:var(--panel-darker);border:2px solid var(--edge);
     border-radius:4px;padding:4px 6px;}
@@ -77,9 +85,10 @@
 
   /* inspector */
   #inspect{position:absolute;bottom:66px;right:10px;width:250px;padding:12px;z-index:26;display:none;}
-  #inspect h2{font-size:9px;color:var(--gold);text-align:center;margin-bottom:6px;}
-  .closex{position:absolute;top:6px;right:8px;width:20px;height:20px;color:#ff5a4a;background:var(--panel-darker);
-    border:2px solid var(--edge);border-radius:4px;font-size:10px;cursor:pointer;font-family:inherit;}
+  #inspect .panel-head{margin-bottom:6px;padding-right:30px;position:relative;}
+  #inspect h2{font-size:9px;color:var(--gold);text-align:center;}
+  .closex{position:absolute;top:6px;right:6px;width:20px;height:20px;color:#ff5a4a;background:var(--panel-darker);
+    border:2px solid var(--edge);border-radius:4px;font-size:10px;cursor:pointer;font-family:inherit;z-index:1;}
   .needbar{height:11px;background:#1a1f14;border:2px solid var(--edge);border-radius:3px;overflow:hidden;margin:2px 0 5px;}
   .needbar>div{height:100%;transition:width .2s;}
   .needlab{display:flex;justify-content:space-between;font-size:6px;color:var(--dim);}
@@ -121,8 +130,8 @@
 
 <div id="log"></div>
 
-<div id="genpanel" class="stone">
-  <h2>World Generator</h2>
+<div id="genpanel" class="stone ui-panel">
+  <h2 class="panel-head">World Generator</h2>
   <div class="field">
     <label>Seed <b id="v-seed">—</b></label>
     <div class="genbtns"><button class="btn" id="randseed">🎲 Randomize</button></div>
@@ -148,15 +157,17 @@
   </div>
 </div>
 
-<div id="stats" class="stone">
-  <h2>Ecosystem</h2>
+<div id="stats" class="stone ui-panel">
+  <h2 class="panel-head">Ecosystem</h2>
   <canvas id="popgraph" width="226" height="70"></canvas>
   <div class="splist" id="splist"></div>
 </div>
 
-<div id="inspect" class="stone">
-  <button class="closex" onclick="deselect()">✕</button>
-  <h2 id="i-name">—</h2>
+<div id="inspect" class="stone ui-panel">
+  <div class="panel-head">
+    <h2 id="i-name">—</h2>
+    <button class="closex" onclick="deselect()">✕</button>
+  </div>
   <div class="state" id="i-state">—</div>
   <div class="needlab"><span>❤️ Health</span><span id="i-hp">100%</span></div>
   <div class="needbar"><div id="b-hp" style="width:100%;background:var(--hp)"></div></div>
@@ -299,32 +310,50 @@ function bakeTerrain(){
   tctx.putImageData(img,0,0);
 }
 
-// water shimmer is redrawn ~12fps into its own subpixel layer with continuous math (smooth, not flickery)
-let waterFrameAt=-1;
+// water shimmer redrawn each frame with continuous phase (smooth, directional)
 function bakeWater(frameTime){
-  const f = Math.floor(frameTime*8);            // 8 steps/sec, gentle
-  if(f===waterFrameAt) return; waterFrameAt=f;
+  const t = frameTime;
   wctx.clearRect(0,0,W*TX,H*TX);
   const img=wctx.createImageData(W*TX,H*TX), d=img.data;
-  const period=48;                              // long period → slow, smooth
   for(let y=0;y<H;y++)for(let x=0;x<W;x++){
     const b=biome[idx(x,y)]; if(!isWater(b)) continue;
     const info=BIOME_INFO[b];
-    const nearLand = (inB(x-1,y)&&!isWater(biome[idx(x-1,y)]))||(inB(x+1,y)&&!isWater(biome[idx(x+1,y)]))
-                   ||(inB(x,y-1)&&!isWater(biome[idx(x,y-1)]))||(inB(x,y+1)&&!isWater(biome[idx(x,y+1)]));
+    let lx=0, ly=0;
+    for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){
+      if(!dx && !dy) continue;
+      const ax=x+dx, ay=y+dy;
+      if(inB(ax,ay) && !isWater(biome[idx(ax,ay)])){ lx-=dx; ly-=dy; }
+    }
+    const landLen=Math.hypot(lx,ly);
+    const nearLand=landLen>0.01;
+    let snx=0.707, sny=0.707, stx=-0.707, sty=0.707;
+    if(nearLand){ snx=lx/landLen; sny=ly/landLen; stx=-sny; sty=snx; }
+    const shoreStrength=nearLand? clamp(landLen/3,0,1) : 0;
     for(let sy=0;sy<TX;sy++)for(let sx=0;sx<TX;sx++){
       const px=x*TX+sx, py=y*TX+sy;
       const th=hashN(x,y,3);
-      const pos=(px+(py>>1)*3 + Math.floor(th*period) + f)% period;
-      const w=Math.pow(Math.cos(pos/period*2*Math.PI)*0.5+0.5, 4);
-      let a=w*0.5;
+      const basePhase=(px+(py>>1)*3)*0.11 - t*0.75 + th*0.35;
+      const baseWave=Math.pow(Math.sin(basePhase)*0.5+0.5, 3.5);
+      let a=baseWave*0.42;
       let col=[info.col[0]+50,info.col[1]+45,info.col[2]+35];
-      if(nearLand){                             // smooth foam pulse on shorelines
-        const fp=((Math.floor(hashN(px,py,9)*8)+f)%8)/8;
-        const ft=Math.pow(Math.cos(fp*2*Math.PI)*0.5+0.5,3);
-        a=Math.max(a, 0.25+ft*0.5); col=[228,244,252];
+      if(nearLand){
+        const along=px*stx+py*sty;
+        const wavePhase=along*0.18 - t*1.15;
+        const crest=Math.pow(Math.sin(wavePhase)*0.5+0.5, 2.2);
+        const ripple=Math.pow(Math.sin(wavePhase*0.55 + px*snx*0.12 - py*sny*0.08 - t*0.65)*0.5+0.5, 2.5);
+        const foam=crest*0.55 + ripple*0.45;
+        const foamA=0.18 + foam*(0.35 + shoreStrength*0.4);
+        if(foamA>a){
+          a=foamA;
+          const mix=foam*shoreStrength;
+          col=[
+            lerp(info.col[0]+30, 228, mix),
+            lerp(info.col[1]+28, 244, mix),
+            lerp(info.col[2]+22, 252, mix)
+          ];
+        }
       }
-      const o=(py*W*TX+px)*4; d[o]=col[0];d[o+1]=col[1];d[o+2]=col[2];d[o+3]=(a*255)|0;
+      const o=(py*W*TX+px)*4; d[o]=col[0]|0; d[o+1]=col[1]|0; d[o+2]=col[2]|0; d[o+3]=(a*255)|0;
     }
   }
   wctx.putImageData(img,0,0);
@@ -613,11 +642,16 @@ function growVegetation(dt){
 let growRow=0;
 
 /* ---------- ecosystem tick ---------- */
-let day=0, tGlobal=0, timeOfDay=0.3, isNight=false;
+let day=0, tGlobal=0, timeOfDay=0.3, lightLevel=1, isNight=false;
 let migrantTimer=0;
+function updateDayNight(){
+  const sun=Math.sin((timeOfDay-0.25)*Math.PI*2);
+  lightLevel=clamp(Math.pow(sun*0.5+0.5, 0.9), 0.08, 1);
+  isNight=lightLevel<0.28;
+}
 function tick(dt){
   timeOfDay=(timeOfDay+dt/40)%1;                    // 40s day
-  isNight = timeOfDay<0.22 || timeOfDay>0.80;
+  updateDayNight();
   day = Math.floor(tGlobal/40);
   rebuildGrid();
   for(const c of creatures){ if(!c.dead) stepCreature(c,dt); }
@@ -720,7 +754,8 @@ function drawFx(dt){
 
 /* ---------- render ---------- */
 function render(){
-  ctx.fillStyle='#0c2036'; ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle=`rgb(${lerp(12,36,lightLevel)|0},${lerp(16,52,lightLevel)|0},${lerp(36,86,lightLevel)|0})`;
+  ctx.fillRect(0,0,canvas.width,canvas.height);
   ctx.imageSmoothingEnabled=false;
   const ox=-cam.x*cam.z, oy=-cam.y*cam.z;
   if(terrC) ctx.drawImage(terrC, ox,oy, W*cam.z, H*cam.z);
@@ -732,9 +767,15 @@ function render(){
   vis.sort((a,b)=>a.y-b.y);
   for(const c of vis) drawCreature(c);
   drawFx(1/60);
-  // day-night tint
-  const night = isNight? 0.5 : Math.max(0, 0.45-Math.min(timeOfDay,1-timeOfDay)*2)*0.9;
-  if(night>0.02){ ctx.fillStyle=`rgba(20,30,70,${night})`; ctx.fillRect(0,0,canvas.width,canvas.height); }
+  // smooth day-night tint
+  const darkness=1-lightLevel;
+  if(darkness>0.015){
+    const twilight=clamp(1-Math.abs(timeOfDay-0.5)*2.2, 0, 1);
+    const warm=(1-twilight)*darkness*0.35;
+    const nr=lerp(20, 90, warm)|0, ng=lerp(28, 55, warm)|0, nb=lerp(70, 35, warm)|0;
+    ctx.fillStyle=`rgba(${nr},${ng},${nb},${darkness*0.68})`;
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+  }
   // brush ring
   if(tool!=='inspect'){ ctx.strokeStyle='rgba(255,255,255,.5)'; ctx.lineWidth=1.5;
     ctx.beginPath(); ctx.arc(mouseX,mouseY,(toolRadius())*cam.z,0,6.28); ctx.stroke(); }
@@ -767,7 +808,7 @@ function updateUI(){
   const alive=creatures.filter(c=>!c.dead);
   $('s-pop').textContent=alive.length;
   $('s-gen').textContent='Gen '+generationMax;
-  $('s-day').textContent=(isNight?'🌙 Night ':'☀️ Day ')+day;
+  $('s-day').textContent=(isNight?'🌙 Night ': lightLevel<0.55?'🌅 Dusk/Dawn ':'☀️ Day ')+day;
   // veg %
   let vs=0,vc=0; for(let i=0;i<veg.length;i+=17){ if(vegCap[i]>0.02){vs+=veg[i]/vegCap[i];vc++;} }
   $('s-veg').textContent=vc?Math.round(vs/vc*100)+'%':'0%';
@@ -918,8 +959,46 @@ function doGenerate(fresh){
 $('generate').addEventListener('click',()=>{ doGenerate(true); });
 $('restock').addEventListener('click',()=>{ if(!ready)return; stockLife(); });
 
+/* ---------- draggable UI panels ---------- */
+let panelZ=30;
+function initDraggablePanels(){
+  for(const id of ['genpanel','stats','inspect']){
+    const panel=$(id);
+    const head=panel.querySelector('.panel-head');
+    if(!head) continue;
+    head.addEventListener('pointerdown', e=>{
+      if(e.button!==0 || e.target.closest('.closex')) return;
+      e.preventDefault();
+      panelZ+=1;
+      panel.style.zIndex=panelZ;
+      panel.classList.add('dragging');
+      const rect=panel.getBoundingClientRect();
+      const offX=e.clientX-rect.left, offY=e.clientY-rect.top;
+      const onMove=ev=>{
+        panel.style.left=(ev.clientX-offX)+'px';
+        panel.style.top=(ev.clientY-offY)+'px';
+        panel.style.right='auto';
+        panel.style.bottom='auto';
+      };
+      const onUp=()=>{
+        panel.classList.remove('dragging');
+        head.releasePointerCapture(e.pointerId);
+        head.removeEventListener('pointermove', onMove);
+        head.removeEventListener('pointerup', onUp);
+        head.removeEventListener('pointercancel', onUp);
+      };
+      head.setPointerCapture(e.pointerId);
+      head.addEventListener('pointermove', onMove);
+      head.addEventListener('pointerup', onUp);
+      head.addEventListener('pointercancel', onUp);
+    });
+  }
+}
+
 /* ---------- boot ---------- */
 syncLabels();
+updateDayNight();
+initDraggablePanels();
 doGenerate(true);
 requestAnimationFrame(frame);
 </script>
