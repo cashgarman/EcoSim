@@ -1,15 +1,17 @@
 import { clamp, lerp } from './utils.js';
-import { SPECIES, SP_KEYS, GENE_KEYS, GENE_LABEL, BIOME_INFO } from './data.js';
+import { SPECIES, SP_KEYS, GENE_KEYS, GENE_LABEL, BIOME_INFO, sexSymbol } from './data.js';
 import { state, idx, inB } from './state.js';
 import { $ } from './dom.js';
 import { creatures } from './creatures.js';
 import { camera } from './camera.js';
+import { lifeStory } from './life-story.js';
 
 export class UI
 {
   constructor()
   {
     this._onFollowToggle = null;
+    this._storyRenderKey = '';
   }
 
   setFollowToggleHandler(fn)
@@ -31,6 +33,39 @@ export class UI
       el.style.opacity = 0;
       setTimeout(() => el.remove(), 1000);
     }, 8000);
+  }
+
+  notifyCreatureEvent(html, creatureId)
+  {
+    const el = document.createElement('div');
+    el.className = 'lm lm-event';
+    el.innerHTML = html;
+    if (creatureId != null) el.dataset.creatureId = String(creatureId);
+    const l = $('log');
+    l.appendChild(el);
+    while (l.children.length > 7) l.removeChild(l.firstChild);
+    setTimeout(() =>
+    {
+      el.style.transition = 'opacity 1s';
+      el.style.opacity = 0;
+      setTimeout(() => el.remove(), 1000);
+    }, 12000);
+  }
+
+  initEventLogClicks()
+  {
+    $('log').addEventListener('click', e =>
+    {
+      const row = e.target.closest('[data-creature-id]');
+      if (!row) return;
+      const id = Number(row.dataset.creatureId);
+      const target = creatures.getById(id);
+      if (target && !target.dead)
+      {
+        camera.focusCreature(target);
+        this.setSelectedCreature(target, false);
+      }
+    });
   }
 
   applyStatsPanelMode(mode)
@@ -104,6 +139,8 @@ export class UI
     if (!creature || creature.dead) return;
     state.selected = creature;
     state.lockedSelectionFromPanel = !!lockFromPanel;
+    state.inspectPanelTab = 'stats';
+    this.applyInspectTab('stats');
     $('inspect').style.display = 'block';
     this.drawInspector();
     if (state.followSelected && this._onFollowToggle)
@@ -135,15 +172,53 @@ export class UI
     this.drawGraph();
   }
 
+  applyInspectTab(tab)
+  {
+    state.inspectPanelTab = tab;
+    document.querySelectorAll('.inspect-tab').forEach(btn =>
+    {
+      btn.classList.toggle('active', btn.dataset.inspectTab === tab);
+    });
+    $('inspect-tab-stats').classList.toggle('hidden', tab !== 'stats');
+    $('inspect-tab-story').classList.toggle('hidden', tab !== 'story');
+    if (tab === 'story') this._storyRenderKey = '';
+  }
+
+  initInspectTabs()
+  {
+    document.querySelectorAll('.inspect-tab').forEach(btn =>
+    {
+      btn.addEventListener('click', () =>
+      {
+        this.applyInspectTab(btn.dataset.inspectTab);
+        if (state.selected) this.drawInspector();
+      });
+    });
+    $('i-story').addEventListener('click', e =>
+    {
+      const link = e.target.closest('[data-creature-id]');
+      if (!link) return;
+      const id = Number(link.dataset.creatureId);
+      const target = creatures.getById(id);
+      if (target && !target.dead) this.setSelectedCreature(target, false);
+    });
+  }
+
   drawInspector()
   {
     const c = state.selected;
     if (!c) { this.deselect(); return; }
     const S = SPECIES[c.sp];
-    $('i-name').textContent = `${S.emoji} ${S.label} ${c.dead ? '†' : ''} · gen ${c.gen}`;
+    $('i-name').textContent = `${S.emoji} ${S.label} ${sexSymbol(c.sex)} · gen ${c.gen}${c.dead ? ' †' : ''}`;
     const stg = !creatures.isAdult(c) ? 'juvenile' : c.age > c.genome.lifespan * 0.75 ? 'elder' : 'adult';
     const stateName = this.creatureStateLabel(c.state);
     $('i-state').textContent = c.dead ? ('Died: ' + c.cause) : `${stateName} · ${stg} · age ${c.age.toFixed(1)}${c.pregnant > 0 ? ' · 🤰' : ''}`;
+    if (state.inspectPanelTab === 'stats') this.drawInspectorStats(c);
+    else this.drawInspectorLifeStory(c);
+  }
+
+  drawInspectorStats(c)
+  {
     const set = (id, bid, v, unit) =>
     {
       $(id).textContent = Math.round(v) + (unit || '%');
@@ -164,6 +239,69 @@ export class UI
       gh += `<div class="gene"><span>${GENE_LABEL[k]}</span><b>${disp}</b></div>`;
     }
     $('i-genes').innerHTML = gh;
+  }
+
+  formatStoryEntry(ev)
+  {
+    const prefix = `<span class="story-meta">Day ${ev.day} · age ${ev.age.toFixed(1)} · </span>`;
+    const target = lifeStory.targetLabel(ev.targetId, ev.targetSp);
+    const targetHtml = target
+      ? ` <span class="story-link" data-creature-id="${ev.targetId ?? ''}">${target}</span>`
+      : '';
+    switch (ev.kind)
+    {
+      case 'appeared':
+        return `${prefix}Appeared in the world`;
+      case 'born':
+      {
+        const sexTag = ev.detail?.startsWith('sex:') ? ` · ${sexSymbol(ev.detail.slice(4))}` : '';
+        return `${prefix}Born${sexTag}${target ? ` · mother ${targetHtml}` : ''}`;
+      }
+      case 'decision':
+      {
+        const label = this.creatureStateLabel(ev.decision);
+        if (ev.from)
+        {
+          return `${prefix}Chose to ${label.toLowerCase()}${target ? ` (${targetHtml})` : ''}`;
+        }
+        return `${prefix}Started ${label.toLowerCase()}`;
+      }
+      case 'mated':
+        return `${prefix}Mated with${targetHtml || ' a partner'}${ev.detail ? ` · ${ev.detail}` : ''}`;
+      case 'gaveBirth':
+        return `${prefix}Gave birth to ${ev.detail || '1'} offspring`;
+      case 'hunted':
+        return `${prefix}Caught prey${targetHtml}`;
+      case 'preyedOn':
+        return `${prefix}Attacked by${targetHtml || ' a predator'}`;
+      case 'stage':
+        return `${prefix}Became ${ev.detail || 'older'}`;
+      case 'died':
+        return `${prefix}Died (${ev.detail || 'unknown'})`;
+      default:
+        return `${prefix}${ev.kind}`;
+    }
+  }
+
+  drawInspectorLifeStory(c)
+  {
+    lifeStory.initCreature(c);
+    const events = c.lifeStory.events;
+    const key = `${c.id}:${events.length}:${events[events.length - 1]?.seq ?? 0}`;
+    if (key === this._storyRenderKey) return;
+    this._storyRenderKey = key;
+    const box = $('i-story');
+    if (!events.length)
+    {
+      box.innerHTML = '<div class="story-empty">No life events recorded yet.</div>';
+      return;
+    }
+    let html = '';
+    for (let i = events.length - 1; i >= 0; i--)
+    {
+      html += `<div class="story-entry">${this.formatStoryEntry(events[i])}</div>`;
+    }
+    box.innerHTML = html;
   }
 
   drawGraph()
@@ -429,7 +567,7 @@ export class UI
       if (!head) continue;
       head.addEventListener('pointerdown', e =>
       {
-        if (e.button !== 0 || e.target.closest('.closex') || e.target.closest('.panel-ui-btn')) return;
+        if (e.button !== 0 || e.target.closest('.closex') || e.target.closest('.panel-ui-btn') || e.target.closest('.inspect-tab')) return;
         e.preventDefault();
         state.panelZ += 1;
         panel.style.zIndex = state.panelZ;

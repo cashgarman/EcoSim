@@ -116,6 +116,7 @@ export const state = {
   hoveredGraphSpecies: null,
   graphHoverIndex: -1,
   statsPanelMode: 'normal',
+  inspectPanelTab: 'stats',
   popHistory: {},
   histTimer: 0,
   graphCapacity: 226,

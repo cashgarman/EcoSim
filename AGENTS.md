@@ -19,12 +19,15 @@ EcoSim/
 │   ├── app.js              # GameApp boot + main loop
 │   ├── state.js            # Shared mutable state + grid helpers
 │   ├── dom.js              # DOM helper ($)
-│   ├── data.js             # Biomes, species, genes (exported constants)
+│   ├── data.js             # Biome enums + loadSpeciesData() from JSON
+│   ├── data/
+│   │   └── species.json    # Species stats, gestation, mate cooldown, genes
 │   ├── utils.js            # Seeded RNG, fbm noise (exported functions)
 │   ├── nav.js              # Passability, LOS, bounded grid pathfinding
 │   ├── world.js            # World — procedural generation + veg growth
 │   ├── camera.js           # Camera — pan/zoom/clamp transforms
 │   ├── creatures.js        # CreatureSystem — AI, genetics, spatial hash
+│   ├── life-story.js       # LifeStory — per-creature debounced decision log + serialize
 │   ├── simulation.js       # Simulation — tick, day/night, migrants
 │   ├── ui.js               # UI — panels, inspector, graph, log
 │   ├── input.js            # InputManager — canvas/panel/keyboard input
@@ -138,7 +141,11 @@ Sliders in left panel map to these. `SEED` drives `setRngSeed(SEED)` at generati
 - Dead creatures pruned periodically (`creatures.filter`); selected dead creature kept for inspector
 - `stockLife()` seeds scaled by density + world area (`sqrt(area/64)`), clamped to ~45% of `MAX_POP`
 
-### Species (`SPECIES` in `data.js`)
+### Species (`data/species.json` via [`js/data.js`](js/data.js))
+
+Loaded at boot with `loadSpeciesData()`. Each species entry includes `label`, `emoji`, `diet`, `shape`, `col`, `base` genes, `gestationSec` `[min,max]`, `mateCooldownSec` `[min,max]`, `stockWeight`, plus optional `hunts` / `preyOf`.
+
+Helpers: `sampleGestation(sp)`, `sampleMateCooldown(sp)`, `sexSymbol(sex)`.
 
 | Key | Diet | Hunts | Prey of | Shape |
 |-----|------|-------|---------|-------|
@@ -164,7 +171,9 @@ Sliders in left panel map to these. `SEED` drives `setRngSeed(SEED)` at generati
   state, tx, ty, target, mateCd, pregnant, litterQ,
   walk, dead, cause,
   parentIds[], offspringIds[],
-  matePartner?, matePartnerId?
+  matePartner?, matePartnerId?,
+  sex,                   // 'female' | 'male' (random at birth/spawn)
+  lifeStory?             // in-memory event log (see Life Story below)
 }
 ```
 
@@ -203,7 +212,19 @@ Sliders in left panel map to these. `SEED` drives `setRngSeed(SEED)` at generati
 
 **Predation:** In range → rng catch `0.10 + agg*0.10` → prey −30−size×15 hp; kill refills hunter hunger/energy.
 
-**Mating:** Within 1 tile; lower `id` carries pregnancy. Herbivores: gestation 2–3.5s, cooldown 3–5s. Carnivores: 3.5–5.5s / 6–10s. Litter size from `genome.litter`.
+**Mating:** Opposite sex only; **female-only pregnancy**. Gestation and mate cooldown from per-species `gestationSec` / `mateCooldownSec` in [`data/species.json`](data/species.json). Neither partner may already be pregnant. Within 1 tile; litter size from `genome.litter`. CPU and GPU sim both persist `mateCd` / `pregnant` in creature buffer `lv.z` / `lv.w`.
+
+### Life story (`lifeStory` on creature)
+
+Each creature carries an append-only in-memory log via [`js/life-story.js`](js/life-story.js):
+
+- **`lifeStory.events[]`** — JSON-serializable entries (`seq`, `t`, `day`, `age`, `kind`, optional `decision`, `from`, `targetId`, `targetSp`, `detail`); capped at 300 (oldest dropped).
+- **Kinds:** `appeared` · `born` · `decision` · `mated` · `gaveBirth` · `hunted` · `preyedOn` · `stage` · `died`
+- **Debounced decisions:** AI state commits after `DECISION_DEBOUNCE_SEC` (2.5 sim s) in the same behavior; rapid oscillation (e.g. flee ↔ wander) is not logged per frame.
+- **CPU hooks:** `stepCreature` → `observeDecision` / `observeAge`; `die`, `giveBirth`, mate, hunt → immediate `record()` calls.
+- **GPU hooks:** `consumeCreatureReadback` / `consumeSelectedReadback` → `observeFromSnapshot` (state debounce + pregnant/death transitions).
+- **Export:** `lifeStory.serializeCreature(c)` / `serializeAll()` for future DB persistence.
+- **GPU gaps:** GPU-born slots use synthetic ids; pedigree empty on GPU path; hunt may log `preyedOn`/`died` on prey without predator `hunted`.
 
 ### Spatial hash
 
@@ -319,7 +340,7 @@ Driven by quality `detail` tier and `cam.z`:
 |-------|-----|---------|
 | World Generator | `#genpanel` | Seed, size, sliders, Generate, Restock |
 | Ecosystem | `#stats` | Pop counts, graph, species row selection |
-| Inspector | `#inspect` | Selected creature stats/genes |
+| Inspector | `#inspect` | Selected creature stats/genes + **Life Story** tab |
 
 ### Top bar stats
 
@@ -342,6 +363,16 @@ Day/night, population, max generation, avg vegetation %, speed slider (0–10×)
 - **Terrain tooltip** (`#terrain-tip`, bottom-right) — biome name + color dot under cursor; shows "Off map" outside grid
 - **Creature tooltip** (`#creature-tip`) — species dot + behavior label above sprite; when following, pins to selected creature instead of hover hit-test
 - Selected creature draws a solid behavior-target line (color by state) + animated pedigree dashes to parents (gold) and offspring (blue) via `CreatureRenderer`
+
+### Inspector tabs (`inspectPanelTab`)
+
+- **Stats** (default) — need bars + genome grid (`#inspect-tab-stats`); header shows sex (♀/♂)
+- **Life Story** — scrollable debounced decision + milestone timeline (`#i-story`, newest first); clickable creature links when target still alive
+- Tab bar mirrors stats panel `.btn.active` pattern; resets to Stats on new selection
+
+### Mate/birth notifications (`#log`)
+
+Clickable `.lm-event` rows (`notifyCreatureEvent`) for mating and birth with species + sex. Click pans camera (`camera.focusCreature`) and selects that animal. CPU path notifies from `creatures.notify()`; GPU path from `lifeStory.setEventNotify()` on readback transitions.
 
 ### Tools (code present; toolbar HTML currently absent)
 
@@ -398,6 +429,7 @@ CSS for `#toolbar` exists; DOM toolbar was removed or not yet added. Re-add `<di
 | `world.js` | `World` | `generate`, `biomeAt`, `computeLandBounds`, `growVegetation` |
 | `camera.js` | `Camera` | pan/zoom, `w2s`/`s2w`, `clampCam`, `centerCam` |
 | `creatures.js` | `CreatureSystem` | `makeCreature`, `stepCreature`, genetics, spatial hash |
+| `life-story.js` | `LifeStory` | debounced decision log, milestone events, `serializeCreature` / `serializeAll` |
 | `simulation.js` | `Simulation` | `tick`, day/night, migrant re-seed |
 | `render/terrain-renderer.js` | `TerrainRenderer` | `bakeTerrain`, `bakeWater`, `bakeVegetation`, infinite ocean |
 | `render/creature-renderer.js` | `CreatureRenderer` | `drawCreature`, `renderHighlights2d`, `renderHighlightsOverlay`, pedigree lines |
@@ -405,7 +437,7 @@ CSS for `#toolbar` exists; DOM toolbar was removed or not yet added. Re-add `<di
 | `render/quality.js` | `QualityController` | adaptive tiers, `effectiveHighlight`, F2 perf HUD |
 | `render/pipeline.js` | `RenderPipeline` | `render()` layer orchestration (3 canvases) |
 | `gpu/simulation-backend.js` | `GpuSimulationBackend` | compute simulation passes, spatial bins, global awareness, conflict resolution, readback; exports `gpuBehaviorToState()` |
-| `ui.js` | `UI` | stats, graph, inspector, log, terrain/creature tooltips, worldgen labels, stats panel modes |
+| `ui.js` | `UI` | stats, graph, inspector (Stats + Life Story tabs), log, terrain/creature tooltips, worldgen labels, stats panel modes |
 | `input.js` | `InputManager` | canvas/panel/keyboard handlers; **F2** perf HUD toggle |
 | `app.js` | `GameApp` | boot, `doGenerate`, `frame` loop; exposes `window.runGpuBenchmark(seconds)` in console |
 
@@ -426,6 +458,8 @@ CSS for `#toolbar` exists; DOM toolbar was removed or not yet added. Re-add `<di
 | Quality tier thresholds | `quality.js` `updateTier` | Perf vs fidelity (detail, highlight, decimation) |
 | `effectiveHighlight` | `quality.js` | Panel hover/lock/selection highlight floor |
 | `navRadius` / `navReplanInterval` | `quality.js` | Pathfinding search radius and replan cadence (GPU params 13–14) |
+| `DECISION_DEBOUNCE_SEC` | `life-story.js` | Min time in a behavior before logging a decision |
+| `MAX_LIFE_EVENTS` | `life-story.js` | Per-creature event ring buffer size |
 | Species `base` / `hunts` / `preyOf` | `data.js` | Food web balance |
 
 ---
@@ -444,8 +478,8 @@ CSS for `#toolbar` exists; DOM toolbar was removed or not yet added. Re-add `<di
 
 ### Add a species
 
-1. Add entry to `SPECIES` in `data.js` (diet, base stats, hunts/preyOf, shape, col)
-2. `SP_KEYS` auto-updates from `Object.keys(SPECIES)`
+1. Add entry to `species` in [`data/species.json`](data/species.json) (diet, base stats, hunts/preyOf, shape, col, gestationSec, mateCooldownSec, stockWeight)
+2. `SP_KEYS` auto-updates on next `loadSpeciesData()`
 3. Add spawn weight in `CreatureSystem.stockLife()` plan object if desired
 4. Optional: toolbar spawn button `data-tool="spawn-{key}"`
 

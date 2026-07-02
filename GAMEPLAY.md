@@ -1,7 +1,7 @@
 # Wildlands — Game Design Document
 
 > **Status:** Sandbox is playable today; Challenge mode / Essence / scenarios below are **design intent**, not yet implemented.  
-> **Companion docs:** `AGENTS.md` (simulation architecture), `js/data.js` (species/biomes).  
+> **Companion docs:** `AGENTS.md` (simulation architecture), [`data/species.json`](data/species.json) (species stats, gestation, genes).  
 > **Last updated:** 2026-07-02
 
 ---

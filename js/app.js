@@ -1,5 +1,5 @@
 import { setRngSeed } from './utils.js';
-import { SP_KEYS } from './data.js';
+import { SP_KEYS, loadSpeciesData, SPECIES, sexSymbol } from './data.js';
 import { state, rendererMode, simulationMode } from './state.js';
 import { $ } from './dom.js';
 import { world } from './world.js';
@@ -14,6 +14,7 @@ import { renderPipeline } from './render/pipeline.js';
 import { webGpuRenderer } from './render/webgpu-renderer.js';
 import { quality } from './render/quality.js';
 import { gpuSimulationBackend } from './gpu/simulation-backend.js';
+import { lifeStory } from './life-story.js';
 
 export class GameApp
 {
@@ -23,9 +24,12 @@ export class GameApp
     this.uiT = 0;
   }
 
-  init()
+  async init()
   {
     setRngSeed(state.SEED);
+    $('loading').classList.remove('hidden');
+    $('loadmsg').textContent = 'Loading species…';
+    await loadSpeciesData();
 
     const canvas = document.getElementById('world');
     const gpuCanvas = document.getElementById('world-gpu');
@@ -36,8 +40,27 @@ export class GameApp
     inputManager.init(canvas);
 
     ui.initPopHistory();
+    ui.initInspectTabs();
+    ui.initEventLogClicks();
     ui.setFollowToggleHandler(enabled => ui.setFollowMode(enabled));
     creatures.setLogger(msg => ui.log(msg));
+    creatures.setNotifyFn((html, creatureId) => ui.notifyCreatureEvent(html, creatureId));
+    lifeStory.setEventNotify((kind, c) =>
+    {
+      if (!c) return;
+      const S = SPECIES[c.sp];
+      if (kind === 'mated')
+      {
+        ui.notifyCreatureEvent(`${S.emoji} ${S.label} ${sexSymbol(c.sex)} mated`, c.id);
+      }
+      else if (kind === 'born')
+      {
+        ui.notifyCreatureEvent(
+          `${S.emoji} ${S.label} ${sexSymbol(c.sex)} born <b>(gen ${c.gen})</b>`,
+          c.id,
+        );
+      }
+    });
 
     ui.syncLabels();
     ui.initWorldgenSliders();
@@ -48,6 +71,7 @@ export class GameApp
     initToolButtons();
 
     window.deselect = () => ui.deselect();
+    window.lifeStory = lifeStory;
     window.runGpuBenchmark = (seconds = 12) =>
     {
       const samples = [];
@@ -240,4 +264,8 @@ export class GameApp
 }
 
 const app = new GameApp();
-app.init();
+app.init().catch(err =>
+{
+  console.error('Wildlands boot failed:', err);
+  $('loadmsg').textContent = 'Failed to load species config.';
+});

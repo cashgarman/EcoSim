@@ -117,11 +117,22 @@
     display:flex;justify-content:space-between;font-size:6px;}
   .gene b{color:var(--gold);}
   .state{text-align:center;color:var(--blue);margin:6px 0;font-size:8px;}
+  .inspect-tabs{display:flex;gap:4px;margin:4px 0 6px;}
+  .inspect-tabs .btn{flex:1;padding:4px 2px;font-size:6px;}
+  .inspect-tabs .btn.active{outline:2px solid var(--gold);background:var(--panel-darker);}
+  #inspect-tab-story.hidden{display:none!important;}
+  .story-log{max-height:220px;overflow-y:auto;margin-top:4px;display:flex;flex-direction:column;gap:3px;}
+  .story-entry{font-size:6px;line-height:1.45;padding:3px 5px;background:var(--panel-darker);border:2px solid var(--edge);border-radius:3px;}
+  .story-entry .story-meta{color:var(--dim);}
+  .story-link{color:var(--blue);cursor:pointer;text-decoration:underline;}
+  .story-empty{font-size:6px;color:var(--dim);text-align:center;padding:8px 4px;}
 
   #log{position:absolute;left:270px;top:56px;z-index:15;display:flex;flex-direction:column;gap:4px;pointer-events:none;max-width:300px;}
   .lm{font-size:6px;padding:4px 7px;background:rgba(20,26,16,.85);border:2px solid var(--edge);border-radius:4px;
     animation:fi .3s;line-height:1.6;}
   .lm b{color:var(--gold);}
+  .lm-event{pointer-events:auto;cursor:pointer;}
+  .lm-event:hover{border-color:var(--gold);}
   @keyframes fi{from{opacity:0;transform:translateX(-6px);}to{opacity:1;}}
 
   #loading{position:absolute;inset:0;z-index:60;background:#0c100a;display:flex;flex-direction:column;
@@ -253,6 +264,11 @@
     <button class="closex" onclick="deselect()">✕</button>
   </div>
   <div class="state" id="i-state">—</div>
+  <div class="inspect-tabs">
+    <button class="btn inspect-tab active" data-inspect-tab="stats" type="button">Stats</button>
+    <button class="btn inspect-tab" data-inspect-tab="story" type="button">Life Story</button>
+  </div>
+  <div id="inspect-tab-stats">
   <div class="needlab"><span>❤️ Health</span><span id="i-hp">100%</span></div>
   <div class="needbar"><div id="b-hp" style="width:100%;background:var(--hp)"></div></div>
   <div class="needlab"><span>🍖 Fullness</span><span id="i-hun">100%</span></div>
@@ -262,6 +278,10 @@
   <div class="needlab"><span>⚡ Energy</span><span id="i-ene">100%</span></div>
   <div class="needbar"><div id="b-ene" style="width:100%;background:#d8c23a"></div></div>
   <div class="genes" id="i-genes"></div>
+  </div>
+  <div id="inspect-tab-story" class="hidden">
+    <div id="i-story" class="story-log"></div>
+  </div>
 </div>
 
 <div id="terrain-tip" class="stone hidden">

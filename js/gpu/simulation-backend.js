@@ -2,6 +2,7 @@ import { state, CELL, GPU_SIM_MAX_CREATURES } from '../state.js';
 import { SP_KEYS, SPECIES, SPECIES_INDEX, buildGpuSpeciesTables } from '../data.js';
 import { buildPassMaskUpload } from '../nav.js';
 import { quality } from '../render/quality.js';
+import { lifeStory } from '../life-story.js';
 
 const CELL_CAP = 64;
 const CREATURE_STRIDE_VEC4 = 8;
@@ -9,8 +10,21 @@ const CREATURE_STRIDE_FLOATS = CREATURE_STRIDE_VEC4 * 4;
 const PARAM_FLOATS = 18;
 const WORLD_STRIDE = 6;
 const COUNTERS_LEN = 8;
-const SPECIES_SUM_LEN = SP_KEYS.length * 3;
-const PREY_OWNER_BASE = COUNTERS_LEN + SPECIES_SUM_LEN;
+
+function speciesSumLen()
+{
+  return SP_KEYS.length * 3;
+}
+
+function preyOwnerBase()
+{
+  return COUNTERS_LEN + speciesSumLen();
+}
+
+function speciesMetaBase()
+{
+  return SP_KEYS.length * 2;
+}
 
 export function gpuBehaviorToState(stateCode)
 {
@@ -27,13 +41,20 @@ export function gpuBehaviorToState(stateCode)
   ][st] || 'wander';
 }
 
-const GPU_SIM_SHADER = `
+function buildGpuSimShader()
+{
+  const spCount = Math.max(1, SP_KEYS.length);
+  const spSumLen = spCount * 3;
+  const preyBase = COUNTERS_LEN + spSumLen;
+  const metaBase = spCount * 2;
+  return `
 const CREATURE_STRIDE: u32 = ${CREATURE_STRIDE_VEC4}u;
 const CELL_CAP: u32 = ${CELL_CAP}u;
 const WORLD_STRIDE: u32 = ${WORLD_STRIDE}u;
 const COUNTERS_LEN: u32 = ${COUNTERS_LEN}u;
-const SPECIES_SUM_LEN: u32 = ${SPECIES_SUM_LEN}u;
-const PREY_OWNER_BASE: u32 = ${PREY_OWNER_BASE}u;
+const SPECIES_SUM_LEN: u32 = ${spSumLen}u;
+const PREY_OWNER_BASE: u32 = ${preyBase}u;
+const SPECIES_META_BASE: u32 = ${metaBase}u;
 const POOL_CAP: u32 = ${GPU_SIM_MAX_CREATURES}u;
 const FOOD_OWNER_BASE: u32 = PREY_OWNER_BASE + POOL_CAP;
 
@@ -394,6 +415,7 @@ fn decideAndClaim(@builtin(global_invocation_id) gid: vec3<u32>)
   let b = creatureBase(i);
   let pv = creatures[b + 0u];
   var nv = creatures[b + 1u];
+  let lv = creatures[b + 2u];
   var tv = creatures[b + 3u];
   let mv = creatures[b + 4u];
   if (mv.w < 0.5) { return; }
@@ -450,8 +472,14 @@ fn decideAndClaim(@builtin(global_invocation_id) gid: vec3<u32>)
         }
         if (osp == sp && d2 < mateDist2 && nv.y > 45.0 && nv.z > 45.0)
         {
-          mateDist2 = d2;
-          mateId = oi;
+          let ol = creatures[ob + 2u];
+          let osex = creatures[ob + 7u].y;
+          let mySex = creatures[b + 7u].y;
+          if (osex != mySex && ol.w <= 0.0 && ol.z <= 0.0 && lv.w <= 0.0 && lv.z <= 0.0)
+          {
+            mateDist2 = d2;
+            mateId = oi;
+          }
         }
       }
     }
@@ -547,7 +575,7 @@ fn decideAndClaim(@builtin(global_invocation_id) gid: vec3<u32>)
   {
     st = 5.0;
   }
-  else if (mateId != 0xffffffffu && nv.y > 45.0 && nv.z > 40.0)
+  else if (mateId != 0xffffffffu && nv.y > 45.0 && nv.z > 40.0 && lv.w <= 0.0 && lv.z <= 0.0)
   {
     st = 6.0;
     let mb = creatureBase(mateId);
@@ -578,11 +606,6 @@ fn decideAndClaim(@builtin(global_invocation_id) gid: vec3<u32>)
   tv.x = tx;
   tv.y = ty;
   tv.w = st;
-
-  var lv = creatures[b + 2u];
-  lv.z = tx;
-  lv.w = ty;
-  creatures[b + 2u] = lv;
   creatures[b + 3u] = tv;
 }
 
@@ -595,7 +618,6 @@ fn planNavStep(@builtin(global_invocation_id) gid: vec3<u32>)
   let b = creatureBase(i);
   let pv = creatures[b + 0u];
   var tv = creatures[b + 3u];
-  let lv = creatures[b + 2u];
   let mv = creatures[b + 4u];
   var sv = creatures[b + 6u];
   if (mv.w < 0.5) { return; }
@@ -622,7 +644,7 @@ fn planNavStep(@builtin(global_invocation_id) gid: vec3<u32>)
   let shouldPlan = stuck || ((p_u(7u) + i) % replanEvery) == 0u;
   if (!shouldPlan) { return; }
 
-  let wp = planNavWaypoint(pv.x, pv.y, lv.z, lv.w, w, h, canSwim, navR);
+  let wp = planNavWaypoint(pv.x, pv.y, tv.x, tv.y, w, h, canSwim, navR);
   tv.x = wp.x;
   tv.y = wp.y;
   sv.z = sv.z + 1.0;
@@ -655,6 +677,22 @@ fn resolveIntegrate(@builtin(global_invocation_id) gid: vec3<u32>)
   nv.w = max(0.0, nv.w - (0.6 * load + movingCost) * dt);
   lv.x = lv.x + dt / 24.0;
   lv.y = max(4.5, lv.y);
+  if (lv.z > 0.0) { lv.z = max(0.0, lv.z - dt); }
+  if (lv.w > 0.0)
+  {
+    lv.w = lv.w - dt;
+    if (lv.w <= 0.0)
+    {
+      let litter = max(1.0, creatures[b + 7u].w);
+      var n = u32(litter);
+      for (var bk: u32 = 0u; bk < n; bk++)
+      {
+        let bslot = atomicAdd(&simAtomics[2u], 1u);
+        simLists[POOL_CAP * 2u + bslot] = i;
+      }
+      creatures[b + 7u].w = 0.0;
+    }
+  }
 
   let tile = worldIndex(i32(round(pv.x)), i32(round(pv.y)), i32(p_u(2u)), i32(p_u(3u)));
   let localT = worldTempAt(tile);
@@ -700,6 +738,47 @@ fn resolveIntegrate(@builtin(global_invocation_id) gid: vec3<u32>)
         setWorldVeg(tile, veg - bite);
         nv.y = min(100.0, nv.y + bite * 26.0);
         atomicAdd(&simAtomics[3u], u32(bite * 1000.0));
+      }
+    }
+  }
+
+  if (tv.w == 6.0 && tv.z >= 0.0)
+  {
+    let mateId = u32(tv.z + 0.5);
+    if (mateId < creatureCount)
+    {
+      let mb = creatureBase(mateId);
+      let mp = creatures[mb + 0u];
+      let ml = creatures[mb + 2u];
+      let dMate = distance(vec2<f32>(pv.x, pv.y), vec2<f32>(mp.x, mp.y));
+      if (dMate < 1.0)
+      {
+        let mySex = creatures[b + 7u].y;
+        let mateSex = creatures[mb + 7u].y;
+        if (mySex != mateSex && lv.w <= 0.0 && ml.w <= 0.0 && lv.z <= 0.0 && ml.z <= 0.0)
+        {
+          var femaleB = b;
+          var maleB = mb;
+          if (mySex > 0.5) { femaleB = mb; maleB = b; }
+          var flv = creatures[femaleB + 2u];
+          var mlv = creatures[maleB + 2u];
+          let fsp = u32(creatures[femaleB + 4u].x + 0.5);
+          let mateCfg = speciesTables[SPECIES_META_BASE + fsp];
+          let gestRoll = hash3(f32(femaleB), f32(maleB), p_f(7u));
+          let cdRoll = hash3(f32(femaleB), f32(maleB), p_f(7u) + 1.0);
+          let gestation = mix(mateCfg.x, mateCfg.y, gestRoll);
+          let cd = mix(mateCfg.z, mateCfg.w, cdRoll);
+          flv.w = gestation;
+          flv.z = cd;
+          mlv.z = cd * 0.6;
+          let litterGene = creatures[femaleB + 6u].x;
+          let litterRoll = hash3(f32(femaleB), p_f(7u), 14.0);
+          creatures[femaleB + 7u].w = max(1.0, round(litterGene * mix(0.7, 1.15, litterRoll)));
+          creatures[femaleB + 2u] = flv;
+          creatures[maleB + 2u] = mlv;
+          if (b == femaleB) { nv.w = max(0.0, nv.w - 20.0); }
+          else if (b == maleB) { nv.w = max(0.0, nv.w - 12.0); }
+        }
       }
     }
   }
@@ -756,12 +835,7 @@ fn resolveIntegrate(@builtin(global_invocation_id) gid: vec3<u32>)
 
   if (nv.y < 5.0 || nv.z < 5.0) { atomicAdd(&simAtomics[4u], 1u); }
 
-  if (mv.w > 0.5 && tv.w == 6.0 && nv.w > 80.0 && nv.y > 75.0 && hash3(f32(i), p_f(7u), 9.0) < 0.0012)
-  {
-    let bslot = atomicAdd(&simAtomics[2u], 1u);
-    simLists[POOL_CAP * 2u + bslot] = i;
-  }
-
+  creatures[b + 2u] = lv;
   creatures[b + 0u] = pv;
   creatures[b + 1u] = nv;
   creatures[b + 2u] = lv;
@@ -813,8 +887,9 @@ fn spawnFromBirthQueue(@builtin(global_invocation_id) gid: vec3<u32>)
   creatures[cb + 3u] = vec4<f32>(pp.x, pp.y, -1.0, 0.0);
   creatures[cb + 4u] = vec4<f32>(pm.x, pm.y, pm.z, 1.0);
   creatures[cb + 5u] = pg;
+  let sexRoll = hash3(f32(child), p_f(7u), 13.0);
   creatures[cb + 6u] = vec4<f32>(ps.x, ps.y, ps.z + 1.0, 0.0);
-  creatures[cb + 7u] = vec4<f32>(1.0, 0.0, 0.0, 0.0);
+  creatures[cb + 7u] = vec4<f32>(1.0, select(0.0, 1.0, sexRoll > 0.5), 0.0, 0.0);
 }
 
 @compute @workgroup_size(128)
@@ -841,7 +916,7 @@ fn composeRenderData(@builtin(global_invocation_id) gid: vec3<u32>)
   let pv = creatures[b + 0u];
   let mv = creatures[b + 4u];
   let sp = u32(mv.x + 0.5);
-  let col = speciesTables[${SP_KEYS.length}u + sp];
+  let col = speciesTables[${spCount}u + sp];
   let out = i * 8u;
   renderData[out + 0u] = pv.x;
   renderData[out + 1u] = pv.y;
@@ -853,6 +928,7 @@ fn composeRenderData(@builtin(global_invocation_id) gid: vec3<u32>)
   renderData[out + 7u] = select(0.0, 0.95, mv.w > 0.5);
 }
 `;
+}
 
 function createStorageBuffer(device, size, usage)
 {
@@ -899,18 +975,24 @@ function gEncodeState(c)
 function buildSpeciesTableBuffer()
 {
   const { table, colors } = buildGpuSpeciesTables();
-  const packed = new Float32Array(SP_KEYS.length * 8);
-  for (let i = 0; i < SP_KEYS.length; i++)
+  const spCount = SP_KEYS.length;
+  const packed = new Float32Array(spCount * 12);
+  for (let i = 0; i < spCount; i++)
   {
-    packed[i * 4 + 0] = table[i * 8 + 0];
-    packed[i * 4 + 1] = table[i * 8 + 1];
-    packed[i * 4 + 2] = table[i * 8 + 2];
-    packed[i * 4 + 3] = table[i * 8 + 3];
-    const colorBase = SP_KEYS.length * 4 + i * 4;
+    packed[i * 4 + 0] = table[i * 12 + 0];
+    packed[i * 4 + 1] = table[i * 12 + 1];
+    packed[i * 4 + 2] = table[i * 12 + 2];
+    packed[i * 4 + 3] = table[i * 12 + 3];
+    const colorBase = spCount * 4 + i * 4;
     packed[colorBase + 0] = colors[i * 4 + 0];
     packed[colorBase + 1] = colors[i * 4 + 1];
     packed[colorBase + 2] = colors[i * 4 + 2];
     packed[colorBase + 3] = colors[i * 4 + 3];
+    const metaBase = spCount * 8 + i * 4;
+    packed[metaBase + 0] = table[i * 12 + 8];
+    packed[metaBase + 1] = table[i * 12 + 9];
+    packed[metaBase + 2] = table[i * 12 + 10];
+    packed[metaBase + 3] = table[i * 12 + 11];
   }
   return packed;
 }
@@ -956,6 +1038,8 @@ function writeCreatureToArray(data, base, c)
   data[base + 26] = g.gen;
   data[base + 27] = c.walk || 0;
   data[base + 28] = g.dir;
+  data[base + 29] = c.sex === 'male' ? 1 : 0;
+  data[base + 30] = c.litterQ || 0;
 }
 
 export class GpuSimulationBackend
@@ -987,7 +1071,7 @@ export class GpuSimulationBackend
     }
     try
     {
-      const mod = dev.createShaderModule({ code: GPU_SIM_SHADER });
+      const mod = dev.createShaderModule({ code: buildGpuSimShader() });
       const bindGroupLayout = dev.createBindGroupLayout({ entries: GPU_SIM_BIND_GROUP_LAYOUT });
       const layout = dev.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] });
 
@@ -1032,9 +1116,9 @@ export class GpuSimulationBackend
     const worldBytes = tiles * WORLD_STRIDE * 4;
     const cellCountsBytes = cells * 4;
     const cellEntriesBytes = cells * CELL_CAP * 4;
-    const simAtomicsBytes = (PREY_OWNER_BASE + this.maxCreatures + tiles) * 4;
+    const simAtomicsBytes = (preyOwnerBase() + this.maxCreatures + tiles) * 4;
     const simListsBytes = this.maxCreatures * 3 * 4;
-    const speciesBytes = SP_KEYS.length * 8 * 4;
+    const speciesBytes = Math.max(1, SP_KEYS.length) * 12 * 4;
     const renderBytes = this.maxCreatures * 8 * 4;
 
     state.gpuWorldBuffers = {
@@ -1218,7 +1302,7 @@ export class GpuSimulationBackend
     const creatureCount = Math.max(1, state.gpuRenderCreatureCount);
     const tileCount = Math.max(1, state.W * state.H);
     const cellCount = Math.max(1, state.gpuSimCellCols * state.gpuSimCellRows);
-    const speciesTriples = Math.max(1, SPECIES_SUM_LEN);
+    const speciesTriples = Math.max(1, speciesSumLen());
 
     const encoder = dev.createCommandEncoder();
     const pass = encoder.beginComputePass();
@@ -1337,6 +1421,7 @@ export class GpuSimulationBackend
         const spIdx = Math.max(0, Math.min(SP_KEYS.length - 1, Math.round(floatData[base + 16])));
         const aliveFlag = floatData[base + 19] > 0.5;
         let c = slotMap.get(i);
+        const isNewGpuCreature = !c;
         if (!c)
         {
           if (!aliveFlag) continue;
@@ -1372,10 +1457,14 @@ export class GpuSimulationBackend
         c.gpuNeedsUpload = false;
         c.walk = floatData[base + 27];
         c.dir = floatData[base + 28] >= 0 ? 1 : -1;
+        c.sex = floatData[base + 29] > 0.5 ? 'male' : 'female';
+        c.litterQ = floatData[base + 30] || 0;
+        if (!c.lifeStory) lifeStory.initCreature(c);
         if (c.dead && !c.cause)
         {
           c.cause = c.age >= c.genome.lifespan ? 'old age' : 'exhaustion';
         }
+        lifeStory.observeFromSnapshot(c, isNewGpuCreature);
         if (aliveFlag) alive.push(c);
       }
       state.gpuSimMirror = alive;
@@ -1424,10 +1513,13 @@ export class GpuSimulationBackend
       c.dead = !aliveFlag;
       c.walk = floatData[27];
       c.dir = floatData[28] >= 0 ? 1 : -1;
+      c.sex = floatData[29] > 0.5 ? 'male' : 'female';
+      c.litterQ = floatData[30] || 0;
       if (c.dead && !c.cause)
       {
         c.cause = c.age >= c.genome.lifespan ? 'old age' : 'exhaustion';
       }
+      lifeStory.observeFromSnapshot(c, false);
       rb.unmap();
       this.selectedReadbackPending = false;
     }).catch(() =>

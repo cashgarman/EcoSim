@@ -10,7 +10,7 @@ export class QualityController
     this.tier = 0;
     this.renderDecimation = 1;
     this.frameCounter = 0;
-    this.perfHudEnabled = false;
+    this.perfHudEnabled = true;
     this.perfHudLastMs = 16.7;
   }
 

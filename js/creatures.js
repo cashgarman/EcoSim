@@ -1,5 +1,5 @@
 import { rng, ri, rf, gauss, clamp, lerp } from './utils.js';
-import { B, SPECIES, SP_KEYS, GENE_KEYS, GENE_RANGE, isWater } from './data.js';
+import { B, SPECIES, SP_KEYS, GENE_KEYS, GENE_RANGE, isWater, sampleGestation, sampleMateCooldown, sexSymbol } from './data.js';
 import { state, MAX_POP, idx, inB, gkey, CELL } from './state.js';
 import {
   atWaterEdge,
@@ -9,17 +9,34 @@ import {
   pickRandomWalkableTile,
 } from './nav.js';
 import { quality } from './render/quality.js';
+import { lifeStory } from './life-story.js';
 
 export class CreatureSystem
 {
   constructor()
   {
     this._logFn = null;
+    this._notifyFn = null;
   }
 
   setLogger(fn)
   {
     this._logFn = fn;
+  }
+
+  setNotifyFn(fn)
+  {
+    this._notifyFn = fn;
+  }
+
+  notify(html, creatureId)
+  {
+    if (this._notifyFn) this._notifyFn(html, creatureId);
+  }
+
+  randomSex()
+  {
+    return rng() < 0.5 ? 'female' : 'male';
   }
 
   log(msg)
@@ -83,13 +100,14 @@ export class CreatureSystem
     return slot;
   }
 
-  makeCreature(sp, x, y, genome, gen)
+  makeCreature(sp, x, y, genome, gen, recordStory = true, sex)
   {
     const S = SPECIES[sp];
     const g = genome || this.newGenome(sp);
     const c = {
       id: state.nextId++,
       sp,
+      sex: sex || this.randomSex(),
       x,
       y,
       vx: 0,
@@ -117,9 +135,11 @@ export class CreatureSystem
       gpuSlot: this.allocateGpuSlot(),
       gpuNeedsUpload: true,
     };
+    lifeStory.initCreature(c);
     state.creatures.push(c);
     if ((gen || 1) > state.generationMax) state.generationMax = gen || 1;
     state.gpuSimDirtyFromCpu = true;
+    if (recordStory) lifeStory.recordAppeared(c, 'spawned');
     return c;
   }
 
@@ -273,28 +293,37 @@ export class CreatureSystem
     const partner = c.matePartner || c.genome;
     const fatherId = c.matePartnerId ?? null;
     let born = 0;
+    let firstBaby = null;
     for (let i = 0; i < q; i++)
     {
       if (state.creatures.filter(x => !x.dead).length >= MAX_POP) break;
       const cg = this.breedGenome(c.genome, partner);
-      const baby = this.makeCreature(c.sp, c.x + rf(-0.8, 0.8), c.y + rf(-0.8, 0.8), cg, c.gen + 1);
+      const baby = this.makeCreature(c.sp, c.x + rf(-0.8, 0.8), c.y + rf(-0.8, 0.8), cg, c.gen + 1, false, this.randomSex());
       baby.age = 0;
       baby.hunger = 70;
       baby.thirst = 70;
       baby.energy = 80;
       this.linkBirthParents(baby, c, fatherId);
+      lifeStory.recordBorn(baby, c.id, fatherId, baby.sex);
+      if (!firstBaby) firstBaby = baby;
       born++;
     }
     c.matePartnerId = null;
-    if (born > 0 && rng() < 0.25)
+    if (born > 0) lifeStory.recordGaveBirth(c, born);
+    if (firstBaby)
     {
-      this.log(`${SPECIES[c.sp].emoji} A ${SPECIES[c.sp].label.toLowerCase()} bore ${born} young <b>(gen ${c.gen + 1})</b>`);
+      const S = SPECIES[c.sp];
+      this.notify(
+        `${S.emoji} ${S.label} ${sexSymbol(firstBaby.sex)} born <b>(gen ${firstBaby.gen})</b>`,
+        firstBaby.id,
+      );
     }
   }
 
   die(c, cause)
   {
     if (c.dead) return;
+    lifeStory.recordDied(c, cause);
     c.dead = true;
     c.gpuNeedsUpload = true;
     state.gpuSimDirtyFromCpu = true;
@@ -345,7 +374,8 @@ export class CreatureSystem
       {
         if (d < pdist) { pdist = d; prey = o; }
       }
-      if (o.sp === c.sp && this.isAdult(o) && this.isAdult(c) && o.mateCd <= 0 && c.mateCd <= 0
+      if (o.sp === c.sp && o.sex !== c.sex && this.isAdult(o) && this.isAdult(c)
+        && o.mateCd <= 0 && c.mateCd <= 0
         && o.pregnant <= 0 && c.pregnant <= 0 && o.energy > 45 && c.energy > 45)
       {
         if (d < mdist) { mdist = d; mate = o; }
@@ -357,7 +387,7 @@ export class CreatureSystem
     else if (c.thirst < 30 || (c.state === 'thirst' && c.thirst < 55)) st = 'thirst';
     else if (c.hunger < 55) st = (S.diet === 0 ? 'graze' : (prey ? 'hunt' : (S.diet === 2 ? 'graze' : 'huntSearch')));
     else if (c.energy < 18) st = 'rest';
-    else if (mate && c.hunger > 45 && c.thirst > 40) st = 'mate';
+    else if (mate && c.pregnant <= 0 && c.hunger > 45 && c.thirst > 40) st = 'mate';
     else if (S.diet >= 1 && prey && c.hunger < 75) st = 'hunt';
     else st = 'wander';
     c.state = st;
@@ -445,6 +475,7 @@ export class CreatureSystem
               {
                 c.hunger = Math.min(100, c.hunger + 50);
                 c.energy = Math.min(100, c.energy + 12);
+                lifeStory.recordHunted(c, prey);
               }
             }
           }
@@ -467,20 +498,27 @@ export class CreatureSystem
           this.moveTo(c, speed, dt);
           if (mdist < 1.0)
           {
-            const carrier = c.id < mate.id ? c : mate;
-            const other = carrier === c ? mate : c;
-            if (carrier.pregnant <= 0 && carrier.mateCd <= 0)
+            const female = c.sex === 'female' ? c : mate;
+            const male = c.sex === 'male' ? c : mate;
+            if (female.sex === 'female' && male.sex === 'male'
+              && female.pregnant <= 0 && female.mateCd <= 0 && male.mateCd <= 0)
             {
-              const fast = SPECIES[c.sp].diet === 0;
-              carrier.pregnant = fast ? rf(2, 3.5) : rf(3.5, 5.5);
-              carrier.matePartner = other.genome;
-              carrier.matePartnerId = other.id;
-              carrier.litterQ = Math.max(1, Math.round(g.litter * rf(0.7, 1.15)));
-              const cd = fast ? rf(3, 5) : rf(6, 10);
-              carrier.mateCd = cd;
-              other.mateCd = cd * 0.6;
-              carrier.energy -= 20;
-              other.energy -= 12;
+              female.pregnant = sampleGestation(c.sp);
+              female.matePartner = male.genome;
+              female.matePartnerId = male.id;
+              female.litterQ = Math.max(1, Math.round(g.litter * rf(0.7, 1.15)));
+              const cd = sampleMateCooldown(c.sp);
+              female.mateCd = cd;
+              male.mateCd = cd * 0.6;
+              female.energy -= 20;
+              male.energy -= 12;
+              lifeStory.recordMated(female, male.id, male.sp, female.sex, male.sex);
+              lifeStory.recordMated(male, female.id, female.sp, male.sex, female.sex);
+              const S = SPECIES[c.sp];
+              this.notify(
+                `${S.emoji} ${S.label} ${sexSymbol(female.sex)} mated with ${sexSymbol(male.sex)} ${S.label.toLowerCase()}`,
+                female.id,
+              );
             }
           }
         }
@@ -490,6 +528,12 @@ export class CreatureSystem
       default:
         this.wander(c);
         this.moveTo(c, speed * 0.7, dt);
+    }
+
+    if (state.simBackend !== 'gpu')
+    {
+      lifeStory.observeDecision(c, c.state, c.target);
+      lifeStory.observeAge(c);
     }
 
     const sp2 = Math.hypot(c.vx, c.vy);
@@ -531,7 +575,8 @@ export class CreatureSystem
     const areaScale = Math.max(0.5, state.worldAreaKm2 / 64);
     const scaledBudget = 260 * Math.sqrt(areaScale);
     const budget = Math.min(Math.floor(MAX_POP * 0.45), Math.floor(lerp(0, scaledBudget, density)));
-    const plan = { rabbit: 0.34, deer: 0.22, boar: 0.12, fox: 0.12, wolf: 0.1, hawk: 0.1 };
+    const plan = {};
+    for (const sp of SP_KEYS) plan[sp] = SPECIES[sp].stockWeight ?? (1 / SP_KEYS.length);
     for (const sp of SP_KEYS)
     {
       const n = Math.round(budget * plan[sp]);

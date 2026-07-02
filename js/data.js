@@ -1,3 +1,5 @@
+import { rf } from './utils.js';
+
 export const B = {
   DEEP: 0,
   OCEAN: 1,
@@ -41,20 +43,31 @@ export function isWater(biomeId)
   return biomeId <= B.LAKE;
 }
 
-export const SPECIES = {
-  rabbit: {label: "Rabbit", emoji: "🐇", diet: 0, base: {size: 0.6, speed: 1.6, sense: 7, metab: 1.0, litter: 3.2, lifespan: 9, temp: 0.55, tol: 0.3, hue: 32, agg: 0}, col: [200, 180, 150], preyOf: ["fox", "wolf", "hawk"], shape: "small"},
-  deer: {label: "Deer", emoji: "🦌", diet: 0, base: {size: 1.2, speed: 1.5, sense: 9, metab: 1.1, litter: 1.4, lifespan: 16, temp: 0.5, tol: 0.35, hue: 26, agg: 0}, col: [168, 120, 72], preyOf: ["wolf"], shape: "tall"},
-  boar: {label: "Boar", emoji: "🐗", diet: 2, base: {size: 1.1, speed: 1.1, sense: 7, metab: 1.05, litter: 2.2, lifespan: 14, temp: 0.5, tol: 0.4, hue: 20, agg: 0.4}, col: [110, 86, 72], preyOf: ["wolf"], shape: "stocky"},
-  fox: {label: "Fox", emoji: "🦊", diet: 1, base: {size: 0.7, speed: 1.7, sense: 10, metab: 1.1, litter: 2.4, lifespan: 11, temp: 0.5, tol: 0.4, hue: 22, agg: 0.7}, col: [214, 110, 50], hunts: ["rabbit"], shape: "small"},
-  wolf: {label: "Wolf", emoji: "🐺", diet: 1, base: {size: 1.15, speed: 1.55, sense: 12, metab: 1.2, litter: 2.0, lifespan: 13, temp: 0.45, tol: 0.45, hue: 210, agg: 0.85}, col: [130, 132, 140], hunts: ["rabbit", "deer", "boar"], shape: "tall"},
-  hawk: {label: "Hawk", emoji: "🦅", diet: 1, base: {size: 0.55, speed: 2.1, sense: 16, metab: 1.0, litter: 1.4, lifespan: 15, temp: 0.5, tol: 0.5, hue: 28, agg: 0.75}, col: [150, 110, 70], hunts: ["rabbit"], shape: "bird"},
-};
+export let SPECIES = {};
+export let SP_KEYS = [];
+export let SPECIES_INDEX = {};
+export let GENE_KEYS = [];
+export let GENE_RANGE = {};
+export let GENE_LABEL = {};
 
-export const SP_KEYS = Object.keys(SPECIES);
-export const SPECIES_INDEX = Object.fromEntries(SP_KEYS.map((k, i) => [k, i]));
-export const GENE_KEYS = ["size", "speed", "sense", "metab", "litter", "lifespan", "temp", "tol", "hue", "agg"];
-export const GENE_RANGE = {size: [0.35, 2.2], speed: [0.6, 2.6], sense: [3, 20], metab: [0.6, 1.6], litter: [1, 5], lifespan: [5, 28], temp: [0, 1], tol: [0.15, 0.7], hue: [0, 360], agg: [0, 1]};
-export const GENE_LABEL = {size: "Size", speed: "Speed", sense: "Sense", metab: "Metab", litter: "Litter", lifespan: "Lifespan", temp: "ClimatePref", tol: "Tolerance", hue: "Hue", agg: "Aggression"};
+export function sampleGestation(sp)
+{
+  const range = SPECIES[sp]?.gestationSec;
+  if (!range) return 3;
+  return rf(range[0], range[1]);
+}
+
+export function sampleMateCooldown(sp)
+{
+  const range = SPECIES[sp]?.mateCooldownSec;
+  if (!range) return 5;
+  return rf(range[0], range[1]);
+}
+
+export function sexSymbol(sex)
+{
+  return sex === 'male' ? '♂' : '♀';
+}
 
 function speciesMask(speciesList)
 {
@@ -70,7 +83,7 @@ function speciesMask(speciesList)
 
 export function buildGpuSpeciesTables()
 {
-  const stride = 8;
+  const stride = 12;
   const table = new Float32Array(SP_KEYS.length * stride);
   const colors = new Float32Array(SP_KEYS.length * 4);
   for (let i = 0; i < SP_KEYS.length; i++)
@@ -88,6 +101,10 @@ export function buildGpuSpeciesTables()
     table[i * stride + 5] = s.base.metab;
     table[i * stride + 6] = s.base.sense;
     table[i * stride + 7] = s.base.lifespan;
+    table[i * stride + 8] = s.gestationSec[0];
+    table[i * stride + 9] = s.gestationSec[1];
+    table[i * stride + 10] = s.mateCooldownSec[0];
+    table[i * stride + 11] = s.mateCooldownSec[1];
 
     colors[i * 4 + 0] = s.col[0] / 255;
     colors[i * 4 + 1] = s.col[1] / 255;
@@ -95,4 +112,18 @@ export function buildGpuSpeciesTables()
     colors[i * 4 + 3] = 1;
   }
   return { table, colors };
+}
+
+export async function loadSpeciesData(url = './data/species.json')
+{
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to load species config (${res.status})`);
+  const data = await res.json();
+  SPECIES = data.species;
+  SP_KEYS = Object.keys(SPECIES);
+  SPECIES_INDEX = Object.fromEntries(SP_KEYS.map((k, i) => [k, i]));
+  GENE_KEYS = data.geneKeys;
+  GENE_RANGE = data.geneRange;
+  GENE_LABEL = data.geneLabel;
+  return data;
 }

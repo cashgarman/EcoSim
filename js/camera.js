@@ -109,10 +109,16 @@ export class Camera
     if (!state.followSelected) return;
     if (state.selected && !state.selected.dead)
     {
-      state.cam.x = state.selected.x - this.canvas.width / (2 * state.cam.z);
-      state.cam.y = state.selected.y - this.canvas.height / (2 * state.cam.z);
-      this.clampCam();
+      this.focusCreature(state.selected);
     }
+  }
+
+  focusCreature(c)
+  {
+    if (!c || !this.canvas) return;
+    state.cam.x = c.x - this.canvas.width / (2 * state.cam.z);
+    state.cam.y = c.y - this.canvas.height / (2 * state.cam.z);
+    this.clampCam();
   }
 }
 
