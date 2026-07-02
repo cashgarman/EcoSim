@@ -282,7 +282,7 @@ export class UI
       graze: 'Grazing',
       hunt: 'Hunting',
       huntSearch: 'Stalking',
-      mate: 'Courting',
+      mate: 'Mating',
       rest: 'Resting',
     }[st] || st;
   }

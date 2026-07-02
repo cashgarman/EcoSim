@@ -18,22 +18,22 @@ export const B = {
 };
 
 export const BIOME_INFO = {
-  [B.DEEP]: {name: "Deep Ocean", col: [30, 72, 120], water: true, veg: 0},
-  [B.OCEAN]: {name: "Ocean", col: [46, 108, 168], water: true, veg: 0},
-  [B.LAKE]: {name: "Lake", col: [62, 132, 200], water: true, veg: 0},
-  [B.BEACH]: {name: "Beach", col: [222, 206, 150], veg: 0.08},
-  [B.DESERT]: {name: "Desert", col: [224, 200, 132], veg: 0.06},
-  [B.SAVANNA]: {name: "Savanna", col: [196, 182, 98], veg: 0.5},
-  [B.GRASS]: {name: "Grassland", col: [126, 178, 84], veg: 0.75},
-  [B.SHRUB]: {name: "Shrubland", col: [154, 170, 98], veg: 0.45},
-  [B.FOREST]: {name: "Forest", col: [70, 132, 64], veg: 0.85},
-  [B.RAINFOREST]: {name: "Rainforest", col: [44, 112, 58], veg: 1.0},
-  [B.SWAMP]: {name: "Swamp", col: [84, 112, 74], veg: 0.7},
-  [B.TAIGA]: {name: "Taiga", col: [92, 130, 102], veg: 0.4},
-  [B.TUNDRA]: {name: "Tundra", col: [158, 162, 142], veg: 0.2},
-  [B.SNOW]: {name: "Snow", col: [236, 240, 244], veg: 0.04},
-  [B.MOUNTAIN]: {name: "Mountains", col: [132, 128, 122], veg: 0.1},
-  [B.PEAK]: {name: "Peak", col: [226, 228, 232], veg: 0.02},
+  [B.DEEP]: {name: "Deep Ocean", col: [30, 72, 120], water: true, passable: false, veg: 0},
+  [B.OCEAN]: {name: "Ocean", col: [46, 108, 168], water: true, passable: false, veg: 0},
+  [B.LAKE]: {name: "Lake", col: [62, 132, 200], water: true, passable: false, veg: 0},
+  [B.BEACH]: {name: "Beach", col: [222, 206, 150], passable: true, veg: 0.08},
+  [B.DESERT]: {name: "Desert", col: [224, 200, 132], passable: true, veg: 0.06},
+  [B.SAVANNA]: {name: "Savanna", col: [196, 182, 98], passable: true, veg: 0.5},
+  [B.GRASS]: {name: "Grassland", col: [126, 178, 84], passable: true, veg: 0.75},
+  [B.SHRUB]: {name: "Shrubland", col: [154, 170, 98], passable: true, veg: 0.45},
+  [B.FOREST]: {name: "Forest", col: [70, 132, 64], passable: true, veg: 0.85},
+  [B.RAINFOREST]: {name: "Rainforest", col: [44, 112, 58], passable: true, veg: 1.0},
+  [B.SWAMP]: {name: "Swamp", col: [84, 112, 74], passable: true, veg: 0.7},
+  [B.TAIGA]: {name: "Taiga", col: [92, 130, 102], passable: true, veg: 0.4},
+  [B.TUNDRA]: {name: "Tundra", col: [158, 162, 142], passable: true, veg: 0.2},
+  [B.SNOW]: {name: "Snow", col: [236, 240, 244], passable: true, veg: 0.04},
+  [B.MOUNTAIN]: {name: "Mountains", col: [132, 128, 122], passable: true, veg: 0.1},
+  [B.PEAK]: {name: "Peak", col: [226, 228, 232], passable: false, veg: 0.02},
 };
 
 export function isWater(biomeId)

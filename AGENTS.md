@@ -6,10 +6,11 @@
 
 | Item | Value |
 |------|-------|
-| Entry point | `wildlands-ecosim.html` (open in browser, no build step) |
+| Entry point | `wildlands-ecosim.html` (serve over HTTP — ES modules block `file://`) |
 | Modules | `js/` — ES module classes (see tree below) |
-| Run | Serve or open `wildlands-ecosim.html` locally |
+| Run | `python -m http.server 8765` from repo root → `http://127.0.0.1:8765/wildlands-ecosim.html` |
 | Stack | Vanilla JS ES modules, Canvas 2D + WebGPU compute simulation + WebGPU creature overlay |
+| Game design | `GAMEPLAY.md` — player-facing rules and planned Challenge mode |
 
 ```
 EcoSim/
@@ -20,6 +21,7 @@ EcoSim/
 │   ├── dom.js              # DOM helper ($)
 │   ├── data.js             # Biomes, species, genes (exported constants)
 │   ├── utils.js            # Seeded RNG, fbm noise (exported functions)
+│   ├── nav.js              # Passability, LOS, bounded grid pathfinding
 │   ├── world.js            # World — procedural generation + veg growth
 │   ├── camera.js           # Camera — pan/zoom/clamp transforms
 │   ├── creatures.js        # CreatureSystem — AI, genetics, spatial hash
@@ -36,6 +38,7 @@ EcoSim/
 │       ├── webgpu-renderer.js    # WebGpuRenderer — instanced creature quads
 │       ├── quality.js            # QualityController — adaptive perf tiers
 │       └── pipeline.js           # RenderPipeline — layer orchestration
+├── GAMEPLAY.md             # Game design doc (sandbox today + Challenge mode plan)
 └── AGENTS.md               # This file
 ```
 
@@ -58,7 +61,7 @@ flowchart TB
   end
   subgraph sim [Simulation Loop tick]
     cpuPath[CPU path rebuildGrid + stepCreature]
-    gpuPath[GPU path clearBins/bin/intent/resolve/integrate]
+    gpuPath[GPU path clearBins/decide/planNav/integrate]
     veg[Vegetation growth + food consumption]
     migrant[Migrant re-seed]
   end
@@ -194,7 +197,9 @@ Sliders in left panel map to these. `SEED` drives `setRngSeed(SEED)` at generati
 
 **Perception:** `nearby(c, senseR)` via spatial hash (see below). Night: speed ×0.6, wander→rest if energy <75.
 
-**Movement:** `moveTo` steers to `(tx,ty)`; blocks water (except `shape==='bird'`) and peaks. Birds are only swimmers.
+**Movement:** Goals are chosen by the state machine, then [`js/nav.js`](js/nav.js) **`planGridStep`** computes the next walkable tile (bounded reverse BFS with line-of-sight fast path). CPU uses `moveTowardGoal`; GPU runs a matching **`planNavStep`** compute pass that writes waypoints into `(tx, ty)` before integration. Water and peaks are impassible for ground walkers; birds swim. Thirsty creatures drink in place when `atWaterEdge()` — no movement while adjacent to water.
+
+**Passability:** `BIOME_INFO[].passable` plus optional `state.passMask` (bit 0 = blocked). Packed into GPU `worldData` stride index 5 on upload. Mark future impassible tiles by setting `passMask[i] |= 1` and calling `gpuSimulationBackend.uploadWorld()`.
 
 **Predation:** In range → rng catch `0.10 + agg*0.10` → prey −30−size×15 hp; kill refills hunter hunger/energy.
 
@@ -260,7 +265,8 @@ Prevents permanent food-web collapse.
   2. **`webgpu_canvas_sprites`** — when `detail >= 2 && cam.z > 4.2`: GPU overlay cleared, full Canvas pixel sprites + highlights on `#world`
   3. **`canvas`** — full Canvas fallback if GPU init/submit fails
 - In GPU sim mode, compute writes a render buffer directly and `WebGpuRenderer.renderGpuBuffer()` draws without CPU repacking creature instances
-- Compute uses **one bind group, 8 storage buffers** (WebGPU per-stage limit): `creatures`, packed `worldData` (temp/moist/veg/cap/biome), `cellCounts`, `cellEntries`, packed `simAtomics` (counters/species sums/prey+food owners), `simLists` (alive/dead/birth), read-only `speciesTables`, `renderData`
+- Compute uses **one bind group, 8 storage buffers + 1 uniform** (WebGPU per-stage limit): `creatures`, packed `worldData` (temp/moist/veg/cap/biome), `cellCounts`, `cellEntries`, packed `simAtomics` (counters/species sums/prey+food owners), `simLists` (alive/dead/birth), read-only `speciesTables`, `renderData`, plus `params` uniform
+- **Compute pass order** (`GpuSimulationBackend.step()`): `clearCells` → `clearCounters` → `binCreatures` → `decideAndClaim` → **`planNavStep`** → `resolveIntegrate` → `spawnFromBirthQueue` → `growVegetation` → `composeRenderData`
 - While GPU sim is initializing (`gpuSimInitPending`), CPU creature ticks are skipped so seeded populations are not depleted before upload
 - GPU creature records now keep stable `gpuSlot` indices; CPU sync writes changed slots only (no full stale re-upload each tick), which prevents migration/prune snap-back
 - GPU behavior state is decoded from compute state codes (`wander/flee/thirst/graze/hunt/rest/mate/huntSearch`) for inspector/tooltips instead of showing a raw `gpu` placeholder
@@ -319,15 +325,23 @@ Driven by quality `detail` tier and `cam.z`:
 
 Day/night, population, max generation, avg vegetation %, speed slider (0–10×), Follow button.
 
-### Selection
+### Ecosystem panel (`#stats`)
+
+- **Panel modes** (`statsPanelMode`): normal · minimized (`−`) · maximized (`□`)
+- **Pop graph** — species-colored lines; updates every 5 UI ticks (~1 Hz)
+- **Maximized graph** — taller canvas (220 px), hover crosshair + `#popgraph-tip` sample tooltip
+- **Species rows** — count + max gen per species; click/hover for map highlights (see Selection)
+
+### Selection & map overlays
 
 - Click creature (inspect tool) → inspector
-- Double-click or **F** → follow camera
+- Double-click or **F** → follow camera (`followSelected`); camera tracks selected via `Camera.followSelected()`
 - Species row **click** → lock selection to nearest of that species (`lockedSpeciesFromPanel`); gold glow on all of that species on map
 - Species row **hover** → `hoveredGraphSpecies`; graph line + row outline highlight; blue glow on all of that species on map (persists at low quality via `effectiveHighlight`)
-- `lockedSelectionFromPanel` prevents canvas click from clearing
-- Hover creature on map → floating creature tooltip at sprite (species color dot + current behavior label)
-- Selected creature draws a solid line to its current creature target (when behavior has one, e.g. flee/hunt/mate)
+- `lockedSelectionFromPanel` prevents canvas click from clearing until click-away
+- **Terrain tooltip** (`#terrain-tip`, bottom-right) — biome name + color dot under cursor; shows "Off map" outside grid
+- **Creature tooltip** (`#creature-tip`) — species dot + behavior label above sprite; when following, pins to selected creature instead of hover hit-test
+- Selected creature draws a solid behavior-target line (color by state) + animated pedigree dashes to parents (gold) and offspring (blue) via `CreatureRenderer`
 
 ### Tools (code present; toolbar HTML currently absent)
 
@@ -364,7 +378,18 @@ CSS for `#toolbar` exists; DOM toolbar was removed or not yet added. Re-add `<di
 |--------|------|
 | `B`, `BIOME_INFO`, `isWater` | Biome definitions |
 | `SPECIES`, `SP_KEYS` | Species catalog |
+| `SPECIES_INDEX`, `buildGpuSpeciesTables()` | GPU species lookup tables |
 | `GENE_KEYS`, `GENE_RANGE`, `GENE_LABEL` | Genetics |
+
+### `js/nav.js`
+
+| Export | Role |
+|--------|------|
+| `isTileWalkable`, `tilePassFlags`, `buildPassMaskUpload` | Passability from biome + `passMask` |
+| `lineOfSightClear` | Bresenham walkability check |
+| `snapWalkableGoal`, `nearestWaterEdgeTarget`, `pickRandomWalkableTile` | Goal selection helpers |
+| `planGridStep` | Bounded reverse BFS next-step planner (CPU; mirrored in GPU shader) |
+| `atWaterEdge` | Shoreline drink detection |
 
 ### Domain modules (classes)
 
@@ -379,10 +404,10 @@ CSS for `#toolbar` exists; DOM toolbar was removed or not yet added. Re-add `<di
 | `render/webgpu-renderer.js` | `WebGpuRenderer` | WebGPU instanced creature circles |
 | `render/quality.js` | `QualityController` | adaptive tiers, `effectiveHighlight`, F2 perf HUD |
 | `render/pipeline.js` | `RenderPipeline` | `render()` layer orchestration (3 canvases) |
-| `gpu/simulation-backend.js` | `GpuSimulationBackend` | compute simulation passes, spatial bins, global awareness, conflict resolution, readback |
-| `ui.js` | `UI` | stats, graph, inspector, log, worldgen labels |
+| `gpu/simulation-backend.js` | `GpuSimulationBackend` | compute simulation passes, spatial bins, global awareness, conflict resolution, readback; exports `gpuBehaviorToState()` |
+| `ui.js` | `UI` | stats, graph, inspector, log, terrain/creature tooltips, worldgen labels, stats panel modes |
 | `input.js` | `InputManager` | canvas/panel/keyboard handlers; **F2** perf HUD toggle |
-| `app.js` | `GameApp` | boot, `doGenerate`, `frame` loop |
+| `app.js` | `GameApp` | boot, `doGenerate`, `frame` loop; exposes `window.runGpuBenchmark(seconds)` in console |
 
 ---
 
@@ -400,6 +425,7 @@ CSS for `#toolbar` exists; DOM toolbar was removed or not yet added. Re-add `<di
 | Migrant timer/thresholds | `tick` ~1126 | Extinction recovery |
 | Quality tier thresholds | `quality.js` `updateTier` | Perf vs fidelity (detail, highlight, decimation) |
 | `effectiveHighlight` | `quality.js` | Panel hover/lock/selection highlight floor |
+| `navRadius` / `navReplanInterval` | `quality.js` | Pathfinding search radius and replan cadence (GPU params 13–14) |
 | Species `base` / `hunts` / `preyOf` | `data.js` | Food web balance |
 
 ---
@@ -436,6 +462,12 @@ CSS for `#toolbar` exists; DOM toolbar was removed or not yet added. Re-add `<di
 3. Use in `stepCreature` or rendering as needed
 4. Inspector auto-lists `GENE_KEYS`
 
+### Mark a tile impassible
+
+1. Set `state.passMask[idx(x,y)] |= 1` (see `PASS_GROUND_BLOCKED` in `nav.js`)
+2. If GPU sim active, call `gpuSimulationBackend.uploadWorld()` to refresh passability buffer
+3. Pathfinding (`planGridStep` / GPU `planNavStep`) will route around blocked tiles automatically
+
 ### Add a creature behavior state
 
 1. Add detection logic in `stepCreature` priority block
@@ -468,6 +500,7 @@ CSS for `#toolbar` exists; DOM toolbar was removed or not yet added. Re-add `<di
 - **Selected creature readback** — selected/followed creature receives a faster single-slot readback cadence for smoother inspector bars/camera tracking
 - **Pedigree/target lines under GPU** — behavior-target and pedigree lines draw on `#world`; may be obscured by WebGPU circles at default zoom
 - **Large pop → circles** — WebGPU circle LOD + quality tier reduction is intentional; zoom in + tier 0 for full sprites
+- **ES modules require HTTP** — use `python -m http.server 8765`; opening the HTML file directly will fail module loads
 - **Git:** html + js/ tracked; no package.json
 
 ---
@@ -483,4 +516,4 @@ Sections to revise:
 - New UI panels or tools → UI & Input
 - Perf/render pipeline changes → Rendering
 
-*Last synced with codebase: 2026-07-02 (GPU simulation backend update)*
+*Last synced with codebase: 2026-07-02 (GPU sim, UX overlays, dev-server note)*

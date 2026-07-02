@@ -1,11 +1,13 @@
 import { state, CELL, GPU_SIM_MAX_CREATURES } from '../state.js';
 import { SP_KEYS, SPECIES, SPECIES_INDEX, buildGpuSpeciesTables } from '../data.js';
+import { buildPassMaskUpload } from '../nav.js';
+import { quality } from '../render/quality.js';
 
 const CELL_CAP = 64;
 const CREATURE_STRIDE_VEC4 = 8;
 const CREATURE_STRIDE_FLOATS = CREATURE_STRIDE_VEC4 * 4;
-const PARAM_FLOATS = 16;
-const WORLD_STRIDE = 5;
+const PARAM_FLOATS = 18;
+const WORLD_STRIDE = 6;
 const COUNTERS_LEN = 8;
 const SPECIES_SUM_LEN = SP_KEYS.length * 3;
 const PREY_OWNER_BASE = COUNTERS_LEN + SPECIES_SUM_LEN;
@@ -72,7 +74,218 @@ fn worldMoistAt(tile: u32) -> f32 { return worldData[tile * WORLD_STRIDE + 1u]; 
 fn worldVegAt(tile: u32) -> f32 { return worldData[tile * WORLD_STRIDE + 2u]; }
 fn worldVegCapAt(tile: u32) -> f32 { return worldData[tile * WORLD_STRIDE + 3u]; }
 fn worldBiomeAt(tile: u32) -> u32 { return u32(worldData[tile * WORLD_STRIDE + 4u]); }
+fn worldPassAt(tile: u32) -> f32 { return worldData[tile * WORLD_STRIDE + 5u]; }
 fn setWorldVeg(tile: u32, value: f32) { worldData[tile * WORLD_STRIDE + 2u] = value; }
+
+const NAV_R: i32 = 32;
+const NAV_SIDE: u32 = 65u;
+const NAV_CELLS: u32 = 4225u;
+const PASS_GROUND_BLOCKED: u32 = 1u;
+
+fn tileWalkableAt(wx: i32, wy: i32, w: i32, h: i32, canSwim: bool) -> bool
+{
+  if (wx < 0 || wy < 0 || wx >= w || wy >= h) { return false; }
+  let tile = worldIndex(wx, wy, w, h);
+  let bi = worldBiomeAt(tile);
+  if (bi == 15u) { return false; }
+  if (bi <= 2u) { return canSwim; }
+  let passFlags = u32(worldPassAt(tile));
+  if ((passFlags & PASS_GROUND_BLOCKED) != 0u) { return false; }
+  return true;
+}
+
+fn atWaterEdgeXY(px: f32, py: f32, w: i32, h: i32) -> bool
+{
+  let ix = i32(round(px));
+  let iy = i32(round(py));
+  for (var ddy = -1; ddy <= 1; ddy++)
+  {
+    for (var ddx = -1; ddx <= 1; ddx++)
+    {
+      let ti = worldIndex(ix + ddx, iy + ddy, w, h);
+      if (worldBiomeAt(ti) <= 2u) { return true; }
+    }
+  }
+  return false;
+}
+
+fn losClear(fx: i32, fy: i32, gx: i32, gy: i32, w: i32, h: i32, canSwim: bool) -> bool
+{
+  var x = fx;
+  var y = fy;
+  var dx = abs(gx - fx);
+  var dy = abs(gy - fy);
+  var sx = select(-1, 1, fx < gx);
+  var sy = select(-1, 1, fy < gy);
+  var err = dx - dy;
+  loop
+  {
+    if (!tileWalkableAt(x, y, w, h, canSwim)) { return false; }
+    if (x == gx && y == gy) { return true; }
+    let e2 = err * 2;
+    if (e2 > -dy) { err = err - dy; x = x + sx; }
+    if (e2 < dx) { err = err + dx; y = y + sy; }
+  }
+  return false;
+}
+
+fn navCellIndex(cx: i32, cy: i32, side: i32) -> u32
+{
+  return u32(cy * side + cx);
+}
+
+fn planNavWaypoint(
+  px: f32, py: f32, goalX: f32, goalY: f32,
+  w: i32, h: i32, canSwim: bool, radius: i32,
+) -> vec2<f32>
+{
+  var gx = i32(round(goalX));
+  var gy = i32(round(goalY));
+  let fx = i32(round(px));
+  let fy = i32(round(py));
+  if (!tileWalkableAt(gx, gy, w, h, canSwim))
+  {
+    var foundSnap = false;
+    var snapX = gx;
+    var snapY = gy;
+    for (var sdy = -8; sdy <= 8; sdy++)
+    {
+      for (var sdx = -8; sdx <= 8; sdx++)
+      {
+        let lx = gx + sdx;
+        let ly = gy + sdy;
+        if (!tileWalkableAt(lx, ly, w, h, canSwim)) { continue; }
+        snapX = lx;
+        snapY = ly;
+        foundSnap = true;
+        sdy = 9;
+        break;
+      }
+    }
+    if (!foundSnap) { return vec2<f32>(px, py); }
+    gx = snapX;
+    gy = snapY;
+  }
+  if (fx == gx && fy == gy) { return vec2<f32>(f32(gx) + 0.5, f32(gy) + 0.5); }
+  if (losClear(fx, fy, gx, gy, w, h, canSwim)) { return vec2<f32>(goalX, goalY); }
+
+  let R = min(radius, NAV_R);
+  let side = R * 2 + 1;
+  var ox = i32(floor((f32(fx) + f32(gx)) * 0.5)) - R;
+  var oy = i32(floor((f32(fy) + f32(gy)) * 0.5)) - R;
+  let maxOx = max(0, w - side);
+  let maxOy = max(0, h - side);
+  ox = clamp(ox, 0, maxOx);
+  oy = clamp(oy, 0, maxOy);
+
+  let glx = gx - ox;
+  let gly = gy - oy;
+  let flx = fx - ox;
+  let fly = fy - oy;
+  if (glx < 0 || gly < 0 || glx >= side || gly >= side) { return vec2<f32>(f32(gx) + 0.5, f32(gy) + 0.5); }
+  if (flx < 0 || fly < 0 || flx >= side || fly >= side) { return vec2<f32>(f32(gx) + 0.5, f32(gy) + 0.5); }
+
+  var dist: array<i32, 4225>;
+  for (var di: u32 = 0u; di < NAV_CELLS; di++) { dist[di] = -1; }
+  var q: array<u32, 4225>;
+  var qh: u32 = 0u;
+  var qt: u32 = 0u;
+  let gi = navCellIndex(glx, gly, side);
+  dist[gi] = 0;
+  q[qt] = gi;
+  qt = qt + 1u;
+
+  while (qh < qt)
+  {
+    let ci = q[qh];
+    qh = qh + 1u;
+    let cx = ci % u32(side);
+    let cy = ci / u32(side);
+    let cd = dist[ci];
+    if (cd >= R) { continue; }
+    for (var nd: u32 = 0u; nd < 8u; nd++)
+    {
+      var ddx = 0;
+      var ddy = 0;
+      if (nd == 0u) { ddx = 0; ddy = 1; }
+      else if (nd == 1u) { ddx = 1; ddy = 0; }
+      else if (nd == 2u) { ddx = 0; ddy = -1; }
+      else if (nd == 3u) { ddx = -1; ddy = 0; }
+      else if (nd == 4u) { ddx = 1; ddy = 1; }
+      else if (nd == 5u) { ddx = 1; ddy = -1; }
+      else if (nd == 6u) { ddx = -1; ddy = 1; }
+      else { ddx = -1; ddy = -1; }
+      let nx = i32(cx) + ddx;
+      let ny = i32(cy) + ddy;
+      if (nx < 0 || ny < 0 || nx >= side || ny >= side) { continue; }
+      let ni = navCellIndex(nx, ny, side);
+      if (dist[ni] >= 0) { continue; }
+      let wx = ox + nx;
+      let wy = oy + ny;
+      if (!tileWalkableAt(wx, wy, w, h, canSwim)) { continue; }
+      dist[ni] = cd + 1;
+      q[qt] = ni;
+      qt = qt + 1u;
+    }
+  }
+
+  let fi = navCellIndex(flx, fly, side);
+  if (dist[fi] >= 0)
+  {
+    var bestD = dist[fi];
+    var bestX = flx;
+    var bestY = fly;
+    for (var sd: u32 = 0u; sd < 8u; sd++)
+    {
+      var sdx = 0;
+      var sdy = 0;
+      if (sd == 0u) { sdx = 0; sdy = 1; }
+      else if (sd == 1u) { sdx = 1; sdy = 0; }
+      else if (sd == 2u) { sdx = 0; sdy = -1; }
+      else if (sd == 3u) { sdx = -1; sdy = 0; }
+      else if (sd == 4u) { sdx = 1; sdy = 1; }
+      else if (sd == 5u) { sdx = 1; sdy = -1; }
+      else if (sd == 6u) { sdx = -1; sdy = 1; }
+      else { sdx = -1; sdy = -1; }
+      let nx = flx + sdx;
+      let ny = fly + sdy;
+      if (nx < 0 || ny < 0 || nx >= side || ny >= side) { continue; }
+      let ni = navCellIndex(nx, ny, side);
+      let nd = dist[ni];
+      if (nd >= 0 && nd < bestD)
+      {
+        bestD = nd;
+        bestX = nx;
+        bestY = ny;
+      }
+    }
+    if (bestD < dist[fi])
+    {
+      return vec2<f32>(f32(ox + bestX) + 0.5, f32(oy + bestY) + 0.5);
+    }
+  }
+
+  var fbScore = 1000000;
+  var fbX = flx;
+  var fbY = fly;
+  for (var cy = 0; cy < side; cy++)
+  {
+    for (var cx = 0; cx < side; cx++)
+    {
+      let ni = navCellIndex(cx, cy, side);
+      if (dist[ni] < 0) { continue; }
+      let md = abs(gx - (ox + cx)) + abs(gy - (oy + cy));
+      let score = dist[ni] * 1000 + md;
+      if (score < fbScore)
+      {
+        fbScore = score;
+        fbX = cx;
+        fbY = cy;
+      }
+    }
+  }
+  return vec2<f32>(f32(ox + fbX) + 0.5, f32(oy + fbY) + 0.5);
+}
 
 fn hash11(x: f32) -> f32
 {
@@ -259,9 +472,51 @@ fn decideAndClaim(@builtin(global_invocation_id) gid: vec3<u32>)
     ty = pv.y + dir.y * 6.0;
     tv.z = f32(threatId);
   }
-  else if (nv.z < 30.0)
+  else if (nv.z < 30.0 || (tv.w == 2.0 && nv.z < 55.0))
   {
     st = 2.0;
+    var bestDist2 = 1e12;
+    var foundWater = false;
+    let searchR = i32(min(24.0, sense + 6.0));
+    let px = i32(round(pv.x));
+    let py = i32(round(pv.y));
+    for (var sdy = -searchR; sdy <= searchR; sdy++)
+    {
+      for (var sdx = -searchR; sdx <= searchR; sdx++)
+      {
+        let lx = px + sdx;
+        let ly = py + sdy;
+        if (lx < 0 || ly < 0 || lx >= i32(p_u(2u)) || ly >= i32(p_u(3u))) { continue; }
+        let landTile = worldIndex(lx, ly, i32(p_u(2u)), i32(p_u(3u)));
+        let landBi = worldBiomeAt(landTile);
+        if (landBi <= 2u || landBi == 15u) { continue; }
+        var hasWater = false;
+        for (var wdy = -1; wdy <= 1; wdy++)
+        {
+          for (var wdx = -1; wdx <= 1; wdx++)
+          {
+            let wt = worldIndex(lx + wdx, ly + wdy, i32(p_u(2u)), i32(p_u(3u)));
+            if (worldBiomeAt(wt) <= 2u) { hasWater = true; }
+          }
+        }
+        if (!hasWater) { continue; }
+        let dd = f32(sdx) * f32(sdx) + f32(sdy) * f32(sdy);
+        if (dd < bestDist2)
+        {
+          bestDist2 = dd;
+          tx = f32(lx) + 0.5;
+          ty = f32(ly) + 0.5;
+          foundWater = true;
+        }
+      }
+    }
+    if (!foundWater)
+    {
+      let wanderX = hash3(f32(i), p_f(7u), 3.0) * 12.0 - 6.0;
+      let wanderY = hash3(f32(i), p_f(7u), 4.0) * 12.0 - 6.0;
+      tx = clamp(pv.x + wanderX, 1.0, f32(p_u(2u)) - 2.0);
+      ty = clamp(pv.y + wanderY, 1.0, f32(p_u(3u)) - 2.0);
+    }
   }
   else if (nv.y < 55.0)
   {
@@ -320,18 +575,59 @@ fn decideAndClaim(@builtin(global_invocation_id) gid: vec3<u32>)
     ty = clamp(pv.y + wanderY, 1.0, f32(p_u(3u)) - 2.0);
   }
 
-  let nextTile = worldIndex(i32(round(tx)), i32(round(ty)), i32(p_u(2u)), i32(p_u(3u)));
-  let bi = worldBiomeAt(nextTile);
-  if ((bi <= 2u && !canSwim) || bi == 15u)
-  {
-    tx = pv.x;
-    ty = pv.y;
-  }
-
   tv.x = tx;
   tv.y = ty;
   tv.w = st;
+
+  var lv = creatures[b + 2u];
+  lv.z = tx;
+  lv.w = ty;
+  creatures[b + 2u] = lv;
   creatures[b + 3u] = tv;
+}
+
+@compute @workgroup_size(128)
+fn planNavStep(@builtin(global_invocation_id) gid: vec3<u32>)
+{
+  let i = gid.x;
+  let creatureCount = p_u(4u);
+  if (i >= creatureCount) { return; }
+  let b = creatureBase(i);
+  let pv = creatures[b + 0u];
+  var tv = creatures[b + 3u];
+  let lv = creatures[b + 2u];
+  let mv = creatures[b + 4u];
+  var sv = creatures[b + 6u];
+  if (mv.w < 0.5) { return; }
+
+  let st = tv.w;
+  if (st == 5.0) { return; }
+
+  let sp = u32(mv.x + 0.5);
+  let canSwim = speciesTables[sp].w > 0.5;
+  let w = i32(p_u(2u));
+  let h = i32(p_u(3u));
+
+  if (st == 2.0 && atWaterEdgeXY(pv.x, pv.y, w, h))
+  {
+    tv.x = pv.x;
+    tv.y = pv.y;
+    creatures[b + 3u] = tv;
+    return;
+  }
+
+  let navR = i32(p_f(13u));
+  let replanEvery = max(1u, p_u(14u));
+  let stuck = abs(pv.z) + abs(pv.w) < 0.02;
+  let shouldPlan = stuck || ((p_u(7u) + i) % replanEvery) == 0u;
+  if (!shouldPlan) { return; }
+
+  let wp = planNavWaypoint(pv.x, pv.y, lv.z, lv.w, w, h, canSwim, navR);
+  tv.x = wp.x;
+  tv.y = wp.y;
+  sv.z = sv.z + 1.0;
+  creatures[b + 3u] = tv;
+  creatures[b + 6u] = sv;
 }
 
 @compute @workgroup_size(128)
@@ -409,21 +705,13 @@ fn resolveIntegrate(@builtin(global_invocation_id) gid: vec3<u32>)
   }
 
   var drinking = false;
-  if (tv.w == 2.0)
+  let atEdge = atWaterEdgeXY(pv.x, pv.y, i32(p_u(2u)), i32(p_u(3u)));
+  if (tv.w == 2.0 || (atEdge && nv.z < 55.0))
   {
-    let ix = i32(round(pv.x));
-    let iy = i32(round(pv.y));
-    for (var ddy = -1; ddy <= 1; ddy++)
+    if (atEdge)
     {
-      for (var ddx = -1; ddx <= 1; ddx++)
-      {
-        let ti = worldIndex(ix + ddx, iy + ddy, i32(p_u(2u)), i32(p_u(3u)));
-        if (worldBiomeAt(ti) <= 2u)
-        {
-          nv.z = min(100.0, nv.z + 60.0 * dt);
-          drinking = true;
-        }
-      }
+      nv.z = min(100.0, nv.z + 60.0 * dt);
+      drinking = true;
     }
   }
 
@@ -438,11 +726,22 @@ fn resolveIntegrate(@builtin(global_invocation_id) gid: vec3<u32>)
     speed = 0.0;
   }
 
+  let sp = u32(mv.x + 0.5);
+  let speciesInfo = speciesTables[sp];
+  let canSwim = speciesInfo.w > 0.5;
+
   let dx = tv.x - pv.x;
   let dy = tv.y - pv.y;
   let d = max(0.001, length(vec2<f32>(dx, dy)));
-  let nx = pv.x + dx / d * speed * 2.2 * dt;
-  let ny = pv.y + dy / d * speed * 2.2 * dt;
+  var nx = pv.x + dx / d * speed * 2.2 * dt;
+  var ny = pv.y + dy / d * speed * 2.2 * dt;
+  let stepTile = worldIndex(i32(round(nx)), i32(round(ny)), i32(p_u(2u)), i32(p_u(3u)));
+  if (!tileWalkableAt(i32(round(nx)), i32(round(ny)), i32(p_u(2u)), i32(p_u(3u)), canSwim))
+  {
+    nx = pv.x;
+    ny = pv.y;
+    sv.z = sv.z + 2.0;
+  }
   pv.z = (nx - pv.x) / max(0.0005, dt);
   pv.w = (ny - pv.y) / max(0.0005, dt);
   pv.x = nx;
@@ -670,6 +969,8 @@ export class GpuSimulationBackend
     this.selectedReadbackEveryMs = 40;
     this.selectedReadbackPending = false;
     this.selectedReadbackAt = 0;
+    this.countersReadbackPending = false;
+    this.worldReadbackPending = false;
     this.cpuCreatureIndexById = new Map();
   }
 
@@ -695,6 +996,7 @@ export class GpuSimulationBackend
         clearCounters: dev.createComputePipeline({ layout, compute: { module: mod, entryPoint: 'clearCounters' } }),
         binCreatures: dev.createComputePipeline({ layout, compute: { module: mod, entryPoint: 'binCreatures' } }),
         decideAndClaim: dev.createComputePipeline({ layout, compute: { module: mod, entryPoint: 'decideAndClaim' } }),
+        planNavStep: dev.createComputePipeline({ layout, compute: { module: mod, entryPoint: 'planNavStep' } }),
         resolveIntegrate: dev.createComputePipeline({ layout, compute: { module: mod, entryPoint: 'resolveIntegrate' } }),
         spawnFromBirthQueue: dev.createComputePipeline({ layout, compute: { module: mod, entryPoint: 'spawnFromBirthQueue' } }),
         growVegetation: dev.createComputePipeline({ layout, compute: { module: mod, entryPoint: 'growVegetation' } }),
@@ -796,6 +1098,7 @@ export class GpuSimulationBackend
     if (!state.gpuWorldBuffers || !state.gpuDevice) return;
     const tiles = state.W * state.H;
     const packed = new Float32Array(tiles * WORLD_STRIDE);
+    const passFlags = buildPassMaskUpload();
     for (let i = 0; i < tiles; i++)
     {
       const base = i * WORLD_STRIDE;
@@ -804,6 +1107,7 @@ export class GpuSimulationBackend
       packed[base + 2] = state.veg[i];
       packed[base + 3] = state.vegCap[i];
       packed[base + 4] = state.biome[i];
+      packed[base + 5] = passFlags[i];
     }
     state.gpuDevice.queue.writeBuffer(state.gpuWorldBuffers.worldData, 0, packed.buffer, packed.byteOffset, packed.byteLength);
   }
@@ -891,6 +1195,9 @@ export class GpuSimulationBackend
     arr[10] = SP_KEYS.length;
     arr[11] = state.growStride;
     arr[12] = state.growRow;
+    const navCfg = quality.config();
+    arr[13] = navCfg.navRadius;
+    arr[14] = navCfg.navReplanInterval;
     state.gpuDevice.queue.writeBuffer(state.gpuSimParamBuffer, 0, arr.buffer, arr.byteOffset, arr.byteLength);
   }
 
@@ -920,22 +1227,35 @@ export class GpuSimulationBackend
     this.dispatch(pass, state.gpuSimPipelines.clearCounters, Math.ceil(Math.max(COUNTERS_LEN, speciesTriples) / 64));
     this.dispatch(pass, state.gpuSimPipelines.binCreatures, Math.ceil(creatureCount / 128));
     this.dispatch(pass, state.gpuSimPipelines.decideAndClaim, Math.ceil(creatureCount / 128));
+    this.dispatch(pass, state.gpuSimPipelines.planNavStep, Math.ceil(creatureCount / 128));
     this.dispatch(pass, state.gpuSimPipelines.resolveIntegrate, Math.ceil(creatureCount / 128));
     this.dispatch(pass, state.gpuSimPipelines.spawnFromBirthQueue, Math.ceil(creatureCount / 128));
     this.dispatch(pass, state.gpuSimPipelines.growVegetation, Math.ceil(tileCount / 128));
     this.dispatch(pass, state.gpuSimPipelines.composeRenderData, Math.ceil(creatureCount / 128));
     pass.end();
 
-    encoder.copyBufferToBuffer(state.gpuSimBuffers.simAtomics, 0, state.gpuSimBuffers.countersReadback, 0, 64);
+    const countersRb = state.gpuSimBuffers.countersReadback;
+    if (!this.countersReadbackPending && countersRb && countersRb.mapState === 'unmapped')
+    {
+      encoder.copyBufferToBuffer(state.gpuSimBuffers.simAtomics, 0, countersRb, 0, 64);
+      this.countersReadbackPending = true;
+    }
     const now = performance.now();
-    if (!state.gpuSimReadbackPending && now - state.gpuSimLastReadbackAt > this.readbackEveryMs)
+    const renderRb = state.gpuSimBuffers.renderReadback;
+    if (
+      !state.gpuSimReadbackPending
+      && renderRb
+      && renderRb.mapState === 'unmapped'
+      && now - state.gpuSimLastReadbackAt > this.readbackEveryMs
+    )
     {
       const bytes = state.gpuRenderCreatureCount * CREATURE_STRIDE_FLOATS * 4;
       const copyBytes = roundUp(bytes, 256);
-      encoder.copyBufferToBuffer(state.gpuSimBuffers.creatures, 0, state.gpuSimBuffers.renderReadback, 0, copyBytes);
+      encoder.copyBufferToBuffer(state.gpuSimBuffers.creatures, 0, renderRb, 0, copyBytes);
       state.gpuSimReadbackPending = true;
       state.gpuSimLastReadbackAt = now;
     }
+    const selectedRb = state.gpuSimBuffers.selectedReadback;
     const selectedSlot = state.selected?.gpuSlot;
     if (
       state.selected
@@ -943,24 +1263,31 @@ export class GpuSimulationBackend
       && selectedSlot >= 0
       && selectedSlot < state.gpuRenderCreatureCount
       && !this.selectedReadbackPending
+      && selectedRb
+      && selectedRb.mapState === 'unmapped'
       && now - this.selectedReadbackAt > this.selectedReadbackEveryMs
     )
     {
       encoder.copyBufferToBuffer(
         state.gpuSimBuffers.creatures,
         selectedSlot * CREATURE_STRIDE_FLOATS * 4,
-        state.gpuSimBuffers.selectedReadback,
+        selectedRb,
         0,
         CREATURE_STRIDE_FLOATS * 4,
       );
       this.selectedReadbackPending = true;
       this.selectedReadbackAt = now;
     }
-    dev.queue.submit([encoder.finish()]);
+    const cmd = encoder.finish();
+    dev.queue.submit([cmd]);
 
-    this.consumeCountersReadback();
-    this.consumeCreatureReadback();
-    this.consumeSelectedReadback();
+    dev.queue.onSubmittedWorkDone().then(() =>
+    {
+      if (this.countersReadbackPending) this.consumeCountersReadback();
+      if (state.gpuSimReadbackPending) this.consumeCreatureReadback();
+      if (this.selectedReadbackPending) this.consumeSelectedReadback();
+    });
+
     if ((this.tickCounter % 18) === 0) this.syncWorldBackToCpu();
     return true;
   }
@@ -968,7 +1295,7 @@ export class GpuSimulationBackend
   consumeCountersReadback()
   {
     const rb = state.gpuSimBuffers?.countersReadback;
-    if (!rb || rb.mapState !== 'unmapped') return;
+    if (!rb || !this.countersReadbackPending || rb.mapState !== 'unmapped') return;
     rb.mapAsync(GPUMapMode.READ).then(() =>
     {
       const arr = new Uint32Array(rb.getMappedRange());
@@ -978,9 +1305,11 @@ export class GpuSimulationBackend
       state.gpuTelemetry.herbivoreIntake = (arr[3] || 0) / 1000;
       state.gpuTelemetry.starvationRisk = arr[4] || 0;
       rb.unmap();
+      this.countersReadbackPending = false;
     }).catch(() =>
     {
       if (rb.mapState === 'mapped') rb.unmap();
+      this.countersReadbackPending = false;
     });
   }
 
@@ -1110,7 +1439,7 @@ export class GpuSimulationBackend
 
   syncWorldBackToCpu()
   {
-    if (!state.gpuWorldBuffers || !state.gpuDevice) return;
+    if (!state.gpuWorldBuffers || !state.gpuDevice || this.worldReadbackPending) return;
     const bytes = state.W * state.H * WORLD_STRIDE * 4;
     if (!state.gpuSimReadbackBuffer || state.gpuSimReadbackBuffer.size !== roundUp(bytes, 256))
     {
@@ -1119,23 +1448,37 @@ export class GpuSimulationBackend
         usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
       });
     }
+    if (state.gpuSimReadbackBuffer.mapState !== 'unmapped') return;
     const enc = state.gpuDevice.createCommandEncoder();
     enc.copyBufferToBuffer(state.gpuWorldBuffers.worldData, 0, state.gpuSimReadbackBuffer, 0, bytes);
-    state.gpuDevice.queue.submit([enc.finish()]);
-    state.gpuSimReadbackBuffer.mapAsync(GPUMapMode.READ).then(() =>
+    const dev = state.gpuDevice;
+    dev.queue.submit([enc.finish()]);
+    this.worldReadbackPending = true;
+    dev.queue.onSubmittedWorkDone().then(() =>
     {
-      const packed = new Float32Array(state.gpuSimReadbackBuffer.getMappedRange());
-      let stock = 0;
-      for (let i = 0; i < state.veg.length; i++)
+      const rb = state.gpuSimReadbackBuffer;
+      if (!rb || rb.mapState !== 'unmapped')
       {
-        state.veg[i] = packed[i * WORLD_STRIDE + 2];
-        stock += state.veg[i];
+        this.worldReadbackPending = false;
+        return;
       }
-      state.gpuTelemetry.vegetationStock = stock;
-      state.gpuSimReadbackBuffer.unmap();
-    }).catch(() =>
-    {
-      if (state.gpuSimReadbackBuffer.mapState === 'mapped') state.gpuSimReadbackBuffer.unmap();
+      rb.mapAsync(GPUMapMode.READ).then(() =>
+      {
+        const packed = new Float32Array(rb.getMappedRange());
+        let stock = 0;
+        for (let i = 0; i < state.veg.length; i++)
+        {
+          state.veg[i] = packed[i * WORLD_STRIDE + 2];
+          stock += state.veg[i];
+        }
+        state.gpuTelemetry.vegetationStock = stock;
+        rb.unmap();
+        this.worldReadbackPending = false;
+      }).catch(() =>
+      {
+        if (rb.mapState === 'mapped') rb.unmap();
+        this.worldReadbackPending = false;
+      });
     });
   }
 }

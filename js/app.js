@@ -118,8 +118,7 @@ export class GameApp
           }
           else if (inited)
           {
-            state.simBackend = 'gpu';
-            state.gpuSimEnabled = true;
+            // GPU sim is enabled after setupForCurrentWorld() in doGenerate().
           }
           else if (!state.gpuSimInitReason)
           {
@@ -161,7 +160,7 @@ export class GameApp
       for (const k of SP_KEYS) state.popHistory[k] = [];
 
       creatures.stockLife();
-      if (state.gpuSimEnabled)
+      if (simulationMode === 'gpu_hybrid' && gpuSimulationBackend.initialized)
       {
         try
         {
@@ -170,6 +169,7 @@ export class GameApp
           {
             state.simBackend = 'cpu';
             state.gpuSimEnabled = false;
+            if (!state.gpuSimInitReason) state.gpuSimInitReason = 'setup-failed';
           }
         }
         catch (err)

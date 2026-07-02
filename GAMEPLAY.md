@@ -1,8 +1,58 @@
-# Wildlands — Game Design Document (Preliminary)
+# Wildlands — Game Design Document
 
-> **Status:** Draft v0.1 — design intent only; not yet implemented.  
+> **Status:** Sandbox is playable today; Challenge mode / Essence / scenarios below are **design intent**, not yet implemented.  
 > **Companion docs:** `AGENTS.md` (simulation architecture), `js/data.js` (species/biomes).  
 > **Last updated:** 2026-07-02
+
+---
+
+## Current Sandbox (Implemented)
+
+The live build is **Creative mode** — unlimited observation and intervention, no objectives or Essence costs.
+
+### How to run
+
+```powershell
+cd I:\EcoSim
+python -m http.server 8765
+```
+
+Open **http://127.0.0.1:8765/wildlands-ecosim.html** (append `?v=1` to bust browser cache after edits).
+
+### Player verbs today
+
+| Verb | How |
+|------|-----|
+| Generate worlds | Seed, size presets, sea/temp/moist/relief/animals sliders → **Generate** |
+| Restock | Re-seed populations on current map |
+| Observe | Pop graph, species rows, inspector, event log |
+| Inspect creature | Default tool; click on map |
+| Follow lineage | Select creature → **Follow** button, **F**, or double-click |
+| Highlight species | Hover or click species row in Ecosystem panel |
+| Read terrain | Bottom-right biome tooltip under cursor |
+| Read behavior | Creature tooltip above sprite (or pinned while following) |
+| Speed up time | Top-bar slider 0–10× |
+| Debug perf | **F2** toggles perf HUD (render backend, frame ms, quality tier, GPU sim telemetry) |
+
+### Map & UI overlays (shipped)
+
+- **Terrain tooltip** — biome name + color swatch; "Off map" outside the grid
+- **Creature tooltip** — species dot + behavior label (`Wandering`, `Hunting`, etc.); follows selected animal in follow mode
+- **Species highlights** — blue glow on graph hover, gold glow on row click-lock; kept visible at low quality when panel focus or selection is active
+- **Selection lines** — solid behavior-target line (color by state) + dashed pedigree links to parents (gold) and offspring (blue)
+- **Ecosystem panel** — minimize / maximize; expanded graph shows hover sample tooltip
+- **Infinite ocean** — off-map deep water around the landmass
+- **Camera** — pan (right/middle drag), wheel zoom, clamped to land bounds; follow centers on selection
+
+### Simulation backend
+
+- **GPU path** (default when WebGPU available): creature AI, vegetation, spatial bins, and render-instance packing on compute shaders; throttled readback for inspector/graph
+- **CPU fallback**: full `stepCreature` loop if GPU init fails or adapter limits are exceeded
+- **Migrants** on — built-in extinction recovery (see Difficulty & Migrants)
+
+### Tools (wired, toolbar DOM missing)
+
+Logic in `js/tools.js` — inspect, spawn-{species}, rain, drought, meteor, cull. CSS for `#toolbar` exists; HTML buttons not yet in `wildlands-ecosim.html`, so only **inspect** is reachable from the UI unless toolbar is restored.
 
 ---
 
@@ -39,20 +89,21 @@ Emotional hooks:
 
 ## Game Modes
 
-### Creative (current sandbox)
+### Creative (current sandbox — shipped)
 
 **Purpose:** Exploration, streaming, learning the sim, stress-free play.
 
 | Rule | Behavior |
 |------|----------|
 | Worldgen | Full access to seed, size, sea/temp/moist/relief/animals sliders |
-| Tools | Free, unlimited (once toolbar is exposed) |
+| Tools | Free, unlimited in code; toolbar UI not exposed yet (inspect only from UI) |
 | Restock | Available anytime |
 | Migrants | On (sim's built-in recovery) |
 | Objectives | None |
-| Speed | 0–10× as today |
+| Speed | 0–10× |
+| Sim backend | GPU compute when WebGPU available; CPU fallback |
 
-Creative remains the default entry point. No regression to current behavior.
+Creative is the default and only mode today. Challenge/Essence work must not regress this behavior.
 
 ### Challenge (new — primary "game" mode)
 
@@ -91,7 +142,7 @@ flowchart LR
 ```
 
 1. **Setup** — Load scenario: world cfg, starting populations, objective list, Essence budget, tool unlocks.
-2. **Observe** — Pop graph, species rows, inspector, terrain tooltip, hovered-creature state tooltip, event log.
+2. **Observe** — Pop graph (min/max), species row hover/lock, inspector, terrain tooltip, creature behavior tooltip (hover or follow), event log, F2 perf HUD.
 3. **Intervene** — Select tool, click map; Essence deducted if allowed.
 4. **Simulate** — Day/night, AI, veg growth, optional scheduled events.
 5. **Judge** — End-of-day (or continuous) objective evaluation.
@@ -273,7 +324,21 @@ Display as a small meter in Challenge mode (new UI element).
 
 ---
 
-## UI Additions (Challenge Mode)
+## UI — Current vs Challenge (Planned)
+
+### Shipped in sandbox
+
+| Element | Placement | Purpose |
+|---------|-----------|---------|
+| World Generator | `#genpanel` | Seed, size, sliders, Generate, Restock |
+| Ecosystem stats | `#stats` | Pop graph (min/max modes), species rows, hover/lock highlights |
+| Inspector | `#inspect` | Selected creature stats/genes |
+| Top bar | `#topbar` | Day/night, pop, gen, veg %, speed, Follow |
+| Terrain / creature tips | overlay | Biome + behavior readouts |
+| Event log | `#log` | Births, deaths, migrations (7 entries, fade) |
+| Perf HUD | `#perfhud` | F2 — backend, frame ms, quality tier, GPU sim stats |
+
+### Planned for Challenge mode
 
 | Element | Placement | Purpose |
 |---------|-----------|---------|
@@ -285,12 +350,7 @@ Display as a small meter in Challenge mode (new UI element).
 | **Results overlay** | Full screen | Win/lose, score, stars, graph snapshot |
 | **Tool cooldown pips** | On toolbar buttons | Small radial or numeric cooldown |
 
-Existing panels remain: World Generator (collapsed in Challenge), Ecosystem stats, Inspector, event log.
-
-Map readability overlays in current build:
-- Terrain tile tooltip (bottom-right) with biome name/color.
-- Hovered-creature tooltip above sprite showing current behavior state.
-- Selected-creature relation lines: solid line to active behavior target (color-coded by behavior) plus dashed pedigree links.
+Existing panels remain in Challenge: World Generator (collapsed), Ecosystem stats, Inspector, event log, map overlays above.
 
 ### Top bar (Challenge)
 
@@ -327,9 +387,10 @@ These sim behaviors are **not** overridden for game feel without explicit scenar
 - Genetics (`breedGenome`, mutation rates)
 - Climate stress from local temp vs genome
 - Spatial hash perception
+- Grid pathfinding around water, peaks, and `passMask` blocked tiles (`js/nav.js`; GPU `planNavStep`)
 - Day/night movement penalties
 - Carcass → veg feedback on death
-- `MAX_POP = 900` cap
+- `MAX_POP = 6000` cap
 
 Game layer reads sim state; it does not fake population numbers.
 
@@ -338,6 +399,21 @@ Game layer reads sim state; it does not fake population numbers.
 ## Implementation Roadmap
 
 Phased delivery on top of the existing module layout.
+
+### Already landed (architecture + sandbox UX)
+
+| Area | Status |
+|------|--------|
+| ES module split (`js/` domains) | Done |
+| WebGPU hybrid render (circles / sprites / fallback) | Done |
+| GPU compute simulation + CPU fallback | Done |
+| Shared grid pathfinding (CPU/GPU `nav.js`) | Done |
+| Adaptive quality tiers + F2 perf HUD | Done |
+| Terrain tooltip, infinite ocean, camera clamp/follow | Done |
+| Pop graph, species hover/lock highlights, inspector | Done |
+| Pedigree + behavior-target lines | Done |
+| Ecosystem panel min/max + graph tooltip | Done |
+| Migrant recovery, genetics, day/night | Done |
 
 ### Phase 0 — Foundation (MVP "it's a game")
 
@@ -407,6 +483,7 @@ Not required for MVP. Placeholders:
 
 Update this file when:
 
+- Sandbox UX or controls change (tooltips, follow, graph, panels)
 - Objectives, costs, or scenario schema change
 - New game modes ship
 - Migrants / difficulty rules change
@@ -414,4 +491,4 @@ Update this file when:
 
 Keep `AGENTS.md` focused on sim architecture; keep `GAMEPLAY.md` focused on player-facing rules and content.
 
-*Preliminary draft — expect tuning numbers to move after first playtests.*
+*Sandbox synced with codebase: 2026-07-02. Challenge-mode numbers remain preliminary until playtests.*

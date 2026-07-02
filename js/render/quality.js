@@ -16,10 +16,10 @@ export class QualityController
 
   config()
   {
-    if (this.tier === 0) return { detail: 2, highlight: 2, waterMul: 1, vegMul: 1, decimation: 1 };
-    if (this.tier === 1) return { detail: 1, highlight: 1, waterMul: 0.8, vegMul: 1.35, decimation: 1 };
-    if (this.tier === 2) return { detail: 1, highlight: 0, waterMul: 0.6, vegMul: 1.8, decimation: 1 };
-    return { detail: 0, highlight: 0, waterMul: 0.45, vegMul: 2.3, decimation: 2 };
+    if (this.tier === 0) return { detail: 2, highlight: 2, waterMul: 1, vegMul: 1, decimation: 1, navRadius: 64, navReplanInterval: 8 };
+    if (this.tier === 1) return { detail: 1, highlight: 1, waterMul: 0.8, vegMul: 1.35, decimation: 1, navRadius: 48, navReplanInterval: 8 };
+    if (this.tier === 2) return { detail: 1, highlight: 0, waterMul: 0.6, vegMul: 1.8, decimation: 1, navRadius: 48, navReplanInterval: 12 };
+    return { detail: 0, highlight: 0, waterMul: 0.45, vegMul: 2.3, decimation: 2, navRadius: 32, navReplanInterval: 16 };
   }
 
   effectiveHighlight(baseHighlight)
@@ -51,12 +51,28 @@ export class QualityController
     }
     hud.style.display = 'block';
     const tierName = ['high', 'medium', 'low', 'emergency'][this.tier] || 'high';
-    const simInfo = state.simBackend === 'gpu'
-      ? ` | sim: gpu | step: ${(state.gpuTelemetry.simStepMs || 0).toFixed(2)}ms | alive: ${state.gpuTelemetry.aliveCount} | births: ${state.gpuTelemetry.birthCount} | intake: ${state.gpuTelemetry.herbivoreIntake.toFixed(2)}`
-      : (state.gpuSimInitReason
-        ? ` | sim: cpu (${state.gpuSimInitReason})`
-        : ' | sim: cpu');
-    hud.textContent = `backend: ${state.rendererBackend} | frame: ${this.perfHudLastMs.toFixed(2)}ms | avg: ${this.frameMsAvg.toFixed(2)}ms | tier: ${tierName} | visible: ${visibleCount}${simInfo}`;
+    const gpuSim = state.simBackend === 'gpu' && state.gpuSimEnabled;
+    hud.classList.toggle('gpu-sim', gpuSim);
+    $('perf-backend').textContent = state.rendererBackend || 'canvas';
+    $('perf-frame').textContent = `${this.perfHudLastMs.toFixed(2)}ms`;
+    $('perf-avg').textContent = `${this.frameMsAvg.toFixed(2)}ms`;
+    $('perf-tier').textContent = tierName;
+    $('perf-visible').textContent = String(visibleCount);
+    const simEl = $('perf-sim');
+    if (gpuSim)
+    {
+      simEl.textContent = 'gpu';
+      $('perf-step').textContent = `${(state.gpuTelemetry.simStepMs || 0).toFixed(2)}ms`;
+      $('perf-alive').textContent = String(state.gpuTelemetry.aliveCount ?? 0);
+      $('perf-births').textContent = String(state.gpuTelemetry.birthCount ?? 0);
+      $('perf-intake').textContent = (state.gpuTelemetry.herbivoreIntake ?? 0).toFixed(2);
+    }
+    else
+    {
+      simEl.textContent = state.gpuSimInitReason
+        ? `cpu (${state.gpuSimInitReason})`
+        : 'cpu';
+    }
   }
 
   toggleHud()

@@ -67,6 +67,7 @@ export class World
     state.biome = new Uint8Array(n);
     state.veg = new Float32Array(n);
     state.vegCap = new Float32Array(n);
+    state.passMask = new Uint8Array(n);
 
     const { cfg } = state;
     const eS = ri(1, 9999), mS = ri(1, 9999), tS = ri(1, 9999), lS = ri(1, 9999);

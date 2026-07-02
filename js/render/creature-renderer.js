@@ -351,17 +351,34 @@ export class CreatureRenderer
       hunt: '245,102,72',
       flee: '255,220,108',
       mate: '236,124,214',
+      thirst: '120,180,255',
+      graze: '130,200,120',
+      huntSearch: '245,102,72',
     }[st] || '220,220,220';
   }
 
   drawSelectedTargetLine(camera, focus)
   {
-    if (!focus || focus.dead || focus.target == null) return;
-    const target = creatures.getById(focus.target);
-    if (!target || target.dead) return;
+    if (!focus || focus.dead) return;
+    if (focus.state === 'rest' || focus.state === 'wander') return;
+
+    let wx = focus.tx;
+    let wy = focus.ty;
+    if (focus.target != null)
+    {
+      const target = creatures.getById(focus.target);
+      if (target && !target.dead)
+      {
+        wx = target.x;
+        wy = target.y;
+      }
+    }
+
+    if (Math.hypot(wx - focus.x, wy - focus.y) < 0.15) return;
+
     const ctx = this.ctx;
     const sx1 = camera.w2sX(focus.x), sy1 = camera.w2sY(focus.y);
-    const sx2 = camera.w2sX(target.x), sy2 = camera.w2sY(target.y);
+    const sx2 = camera.w2sX(wx), sy2 = camera.w2sY(wy);
     const rgb = this.targetLineColorForState(focus.state);
 
     ctx.save();

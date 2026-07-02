@@ -128,7 +128,23 @@
     align-items:center;justify-content:center;gap:14px;}
   #loading .t{font-size:12px;color:var(--gold);}
   #loading .b{font-size:7px;color:var(--dim);}
-  #perfhud{position:absolute;left:10px;bottom:10px;z-index:40;padding:7px 9px;font-size:7px;line-height:1.5;display:none;}
+  #perfhud{
+    position:absolute;left:10px;bottom:10px;z-index:40;padding:7px 9px;font-size:7px;line-height:1.5;
+    display:none;font-variant-numeric:tabular-nums;width:530px;
+  }
+  .perf-row{display:flex;flex-wrap:nowrap;}
+  .perf-row+.perf-row{margin-top:2px;}
+  .perf-item{position:relative;display:flex;align-items:baseline;gap:3px;flex:none;white-space:nowrap;padding-right:10px;}
+  .perf-item:not(:last-child)::after{content:'|';position:absolute;right:1px;top:0;color:var(--dim);}
+  .perf-item-w1{width:128px;}
+  .perf-item-w2{width:256px;}
+  .perf-lbl{width:46px;flex:none;color:var(--dim);}
+  .perf-lbl::after{content:':';}
+  .perf-val{width:68px;flex:none;text-align:right;color:var(--text);}
+  .perf-item-w2 .perf-val{width:196px;}
+  .perf-row-gpu{display:none;}
+  #perfhud.gpu-sim .perf-row-gpu{display:flex;}
+  #perfhud:not(.gpu-sim) .perf-item-gpu-only{visibility:hidden;}
   #terrain-tip{
     position:absolute;bottom:10px;right:10px;z-index:22;display:flex;align-items:center;gap:6px;
     padding:6px 9px;pointer-events:none;min-width:118px;
@@ -153,7 +169,24 @@
 <canvas id="world-hl"></canvas>
 
 <div id="loading"><div class="t">WILDLANDS</div><div class="b" id="loadmsg">Generating world…</div></div>
-<div id="perfhud" class="stone"></div>
+<div id="perfhud" class="stone">
+  <div class="perf-row">
+    <div class="perf-item perf-item-w1"><span class="perf-lbl">backend</span><span class="perf-val" id="perf-backend">canvas</span></div>
+    <div class="perf-item perf-item-w1"><span class="perf-lbl">frame</span><span class="perf-val" id="perf-frame">0.00ms</span></div>
+    <div class="perf-item perf-item-w1"><span class="perf-lbl">avg</span><span class="perf-val" id="perf-avg">0.00ms</span></div>
+    <div class="perf-item perf-item-w1"><span class="perf-lbl">tier</span><span class="perf-val" id="perf-tier">high</span></div>
+  </div>
+  <div class="perf-row">
+    <div class="perf-item perf-item-w1"><span class="perf-lbl">visible</span><span class="perf-val" id="perf-visible">0</span></div>
+    <div class="perf-item perf-item-w2"><span class="perf-lbl">sim</span><span class="perf-val" id="perf-sim">cpu</span></div>
+    <div class="perf-item perf-item-w1 perf-item-gpu-only"><span class="perf-lbl">step</span><span class="perf-val" id="perf-step">0.00ms</span></div>
+  </div>
+  <div class="perf-row perf-row-gpu">
+    <div class="perf-item perf-item-w1"><span class="perf-lbl">alive</span><span class="perf-val" id="perf-alive">0</span></div>
+    <div class="perf-item perf-item-w1"><span class="perf-lbl">births</span><span class="perf-val" id="perf-births">0</span></div>
+    <div class="perf-item perf-item-w1"><span class="perf-lbl">intake</span><span class="perf-val" id="perf-intake">0.00</span></div>
+  </div>
+</div>
 
 <div id="topbar" class="stone">
   <div class="stat">🌍 <span id="s-day">Day 0</span></div><div class="div"></div>

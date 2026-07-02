@@ -1,6 +1,14 @@
 import { rng, ri, rf, gauss, clamp, lerp } from './utils.js';
 import { B, SPECIES, SP_KEYS, GENE_KEYS, GENE_RANGE, isWater } from './data.js';
 import { state, MAX_POP, idx, inB, gkey, CELL } from './state.js';
+import {
+  atWaterEdge,
+  nearestWaterEdgeTarget,
+  planGridStep,
+  snapWalkableGoal,
+  pickRandomWalkableTile,
+} from './nav.js';
+import { quality } from './render/quality.js';
 
 export class CreatureSystem
 {
@@ -188,61 +196,40 @@ export class CreatureSystem
     return out;
   }
 
-  nearestWater(x, y, r)
-  {
-    let best = null, bd = r * r;
-    const ix = Math.round(x), iy = Math.round(y);
-    for (let dy = -r; dy <= r; dy++)
-    {
-      for (let dx = -r; dx <= r; dx++)
-      {
-        const nx = ix + dx, ny = iy + dy;
-        if (!inB(nx, ny)) continue;
-        if (isWater(state.biome[idx(nx, ny)]))
-        {
-          const d = dx * dx + dy * dy;
-          if (d < bd) { bd = d; best = { x: nx, y: ny }; }
-        }
-      }
-    }
-    return best;
-  }
-
-  atWaterEdge(c)
-  {
-    const ix = Math.round(c.x), iy = Math.round(c.y);
-    for (let dy = -1; dy <= 1; dy++)
-    {
-      for (let dx = -1; dx <= 1; dx++)
-      {
-        const nx = ix + dx, ny = iy + dy;
-        if (inB(nx, ny) && isWater(state.biome[idx(nx, ny)])) return true;
-      }
-    }
-    return false;
-  }
-
   wander(c)
   {
+    const canSwim = SPECIES[c.sp].shape === 'bird';
     if (Math.hypot(c.tx - c.x, c.ty - c.y) < 0.6 || rng() < 0.02)
     {
-      c.tx = clamp(c.x + rf(-6, 6), 1, state.W - 2);
-      c.ty = clamp(c.y + rf(-6, 6), 1, state.H - 2);
+      const t = pickRandomWalkableTile(c.x, c.y, 6, canSwim);
+      c.tx = clamp(t.x, 1, state.W - 2);
+      c.ty = clamp(t.y, 1, state.H - 2);
     }
   }
 
-  moveTo(c, speed, dt)
+  moveTowardGoal(c, goalX, goalY, speed, dt)
   {
-    const dx = c.tx - c.x, dy = c.ty - c.y, d = Math.hypot(dx, dy);
+    const canSwim = SPECIES[c.sp].shape === 'bird';
+    const navR = quality.config().navRadius;
+    if (c.state === 'thirst' && atWaterEdge(c.x, c.y))
+    {
+      c.vx *= 0.7;
+      c.vy *= 0.7;
+      return;
+    }
+    const wp = planGridStep(c.x, c.y, goalX, goalY, canSwim, navR);
+    const tx = wp ? wp.x : goalX;
+    const ty = wp ? wp.y : goalY;
+    c.tx = tx;
+    c.ty = ty;
+
+    const dx = tx - c.x, dy = ty - c.y, d = Math.hypot(dx, dy);
     if (d < 0.05) { c.vx *= 0.7; c.vy *= 0.7; return; }
     const nx = c.x + dx / d * speed * 2.2 * dt;
     const ny = c.y + dy / d * speed * 2.2 * dt;
-    const canSwim = SPECIES[c.sp].shape === 'bird';
     const bi = inB(Math.round(nx), Math.round(ny)) ? state.biome[idx(Math.round(nx), Math.round(ny))] : B.OCEAN;
     if ((isWater(bi) && !canSwim) || bi === B.PEAK)
     {
-      c.tx = c.x + rf(-4, 4);
-      c.ty = c.y + rf(-4, 4);
       c.vx *= 0.5;
       c.vy *= 0.5;
       return;
@@ -251,6 +238,11 @@ export class CreatureSystem
     c.vy = (ny - c.y) / dt;
     c.x = nx;
     c.y = ny;
+  }
+
+  moveTo(c, speed, dt)
+  {
+    this.moveTowardGoal(c, c.tx, c.ty, speed, dt);
   }
 
   findFood(c, r)
@@ -362,7 +354,7 @@ export class CreatureSystem
 
     let st = 'wander';
     if (threat) st = 'flee';
-    else if (c.thirst < 30) st = 'thirst';
+    else if (c.thirst < 30 || (c.state === 'thirst' && c.thirst < 55)) st = 'thirst';
     else if (c.hunger < 55) st = (S.diet === 0 ? 'graze' : (prey ? 'hunt' : (S.diet === 2 ? 'graze' : 'huntSearch')));
     else if (c.energy < 18) st = 'rest';
     else if (mate && c.hunger > 45 && c.thirst > 40) st = 'mate';
@@ -375,23 +367,38 @@ export class CreatureSystem
     if (!this.isAdult(c)) speed *= 0.8;
     if (state.isNight) { speed *= 0.6; if (st === 'wander' && c.energy < 75) st = 'rest'; }
 
+    const canSwim = SPECIES[c.sp].shape === 'bird';
+
+    const applySnappedGoal = (gx, gy) =>
+    {
+      const sn = snapWalkableGoal(Math.round(gx), Math.round(gy), canSwim, 8);
+      if (sn) { c.tx = sn.x + 0.5; c.ty = sn.y + 0.5; }
+      else { c.tx = gx; c.ty = gy; }
+    };
+
     switch (st)
     {
       case 'flee':
       {
+        if (atWaterEdge(c.x, c.y) && c.thirst < 55)
+        {
+          c.thirst = Math.min(100, c.thirst + 60 * dt);
+          c.vx *= 0.7;
+          c.vy *= 0.7;
+          break;
+        }
         c.target = threat ? threat.id : null;
         const a = Math.atan2(c.y - threat.y, c.x - threat.x);
-        c.tx = c.x + Math.cos(a) * 6;
-        c.ty = c.y + Math.sin(a) * 6;
+        applySnappedGoal(c.x + Math.cos(a) * 6, c.y + Math.sin(a) * 6);
         this.moveTo(c, speed * 1.25, dt);
         break;
       }
       case 'thirst':
       {
-        if (this.atWaterEdge(c)) { c.thirst = Math.min(100, c.thirst + 60 * dt); }
+        if (atWaterEdge(c.x, c.y)) { c.thirst = Math.min(100, c.thirst + 60 * dt); }
         else
         {
-          const w = this.nearestWater(c.x, c.y, senseR + 6);
+          const w = nearestWaterEdgeTarget(c.x, c.y, senseR + 6);
           if (w) { c.tx = w.x; c.ty = w.y; }
           else this.wander(c);
           this.moveTo(c, speed, dt);
@@ -411,7 +418,7 @@ export class CreatureSystem
         else
         {
           const t = this.findFood(c, senseR);
-          if (t) { c.tx = t.x; c.ty = t.y; }
+          if (t) applySnappedGoal(t.x, t.y);
           else this.wander(c);
           this.moveTo(c, speed, dt);
         }
@@ -425,8 +432,7 @@ export class CreatureSystem
       {
         if (prey)
         {
-          c.tx = prey.x;
-          c.ty = prey.y;
+          applySnappedGoal(prey.x, prey.y);
           c.target = prey.id;
           this.moveTo(c, speed * 1.15, dt);
           if (pdist < this.eSize(c) * 0.6 + 0.5)
@@ -457,8 +463,7 @@ export class CreatureSystem
         if (mate)
         {
           c.target = mate.id;
-          c.tx = mate.x;
-          c.ty = mate.y;
+          applySnappedGoal(mate.x, mate.y);
           this.moveTo(c, speed, dt);
           if (mdist < 1.0)
           {
