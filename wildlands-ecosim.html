@@ -169,58 +169,36 @@
   <div class="genes" id="i-genes"></div>
 </div>
 
-<script>
-"use strict";
+<script type="module">
+import {
+  setRngSeed,
+  rng,
+  ri,
+  rf,
+  pick,
+  gauss,
+  clamp,
+  lerp,
+  hashN,
+  fbm
+} from "./js/utils.js";
+import {
+  B,
+  BIOME_INFO,
+  isWater,
+  SPECIES,
+  SP_KEYS,
+  GENE_KEYS,
+  GENE_RANGE,
+  GENE_LABEL
+} from "./js/data.js";
 /* =====================================================================
    WILDLANDS — a procedural biome + genetic ecosystem simulator
    ===================================================================== */
 
 /* ---------- rng ---------- */
 let SEED = (Math.random()*1e9)>>>0;
-function makeRng(s){ let a=s>>>0; return ()=>{ a=(a*1664525+1013904223)>>>0; return a/4294967296; }; }
-let rng = makeRng(SEED);
-function ri(a,b){ return a+Math.floor(rng()*(b-a+1)); }
-function rf(a,b){ return a+rng()*(b-a); }
-function pick(arr){ return arr[Math.floor(rng()*arr.length)]; }
-function gauss(){ return (rng()+rng()+rng()+rng()-2)/2; }   // approx normal, ~[-1,1]
-function clamp(v,a,b){ return v<a?a:v>b?b:v; }
-function lerp(a,b,t){ return a+(b-a)*t; }
-
-/* ---------- value-noise (fractal) ---------- */
-function hashN(x,y,s){ let h=(x*374761393+y*668265263+s*40499)>>>0; h=(h^(h>>13))*1274126177>>>0; return ((h^(h>>16))>>>0)/4294967296; }
-function vnoise(x,y,s){
-  const xi=Math.floor(x),yi=Math.floor(y),xf=x-xi,yf=y-yi;
-  const u=xf*xf*(3-2*xf),v=yf*yf*(3-2*yf);
-  const a=hashN(xi,yi,s),b=hashN(xi+1,yi,s),c=hashN(xi,yi+1,s),d=hashN(xi+1,yi+1,s);
-  return a+(b-a)*u+(c-a)*v+(a-b-c+d)*u*v;
-}
-function fbm(x,y,s,oct,freq,pers){
-  let amp=1,f=freq,sum=0,norm=0;
-  for(let o=0;o<oct;o++){ sum+=amp*vnoise(x*f,y*f,s+o*97); norm+=amp; amp*=pers; f*=2; }
-  return sum/norm;
-}
-
-/* ---------- biomes ---------- */
-const B = {DEEP:0,OCEAN:1,LAKE:2,BEACH:3,DESERT:4,SAVANNA:5,GRASS:6,SHRUB:7,FOREST:8,RAINFOREST:9,SWAMP:10,TAIGA:11,TUNDRA:12,SNOW:13,MOUNTAIN:14,PEAK:15};
-const BIOME_INFO = {
-  [B.DEEP]:{name:'Deep Ocean',col:[30,72,120],water:true,veg:0},
-  [B.OCEAN]:{name:'Ocean',col:[46,108,168],water:true,veg:0},
-  [B.LAKE]:{name:'Lake',col:[62,132,200],water:true,veg:0},
-  [B.BEACH]:{name:'Beach',col:[222,206,150],veg:0.08},
-  [B.DESERT]:{name:'Desert',col:[224,200,132],veg:0.06},
-  [B.SAVANNA]:{name:'Savanna',col:[196,182,98],veg:0.5},
-  [B.GRASS]:{name:'Grassland',col:[126,178,84],veg:0.75},
-  [B.SHRUB]:{name:'Shrubland',col:[154,170,98],veg:0.45},
-  [B.FOREST]:{name:'Forest',col:[70,132,64],veg:0.85},
-  [B.RAINFOREST]:{name:'Rainforest',col:[44,112,58],veg:1.0},
-  [B.SWAMP]:{name:'Swamp',col:[84,112,74],veg:0.7},
-  [B.TAIGA]:{name:'Taiga',col:[92,130,102],veg:0.4},
-  [B.TUNDRA]:{name:'Tundra',col:[158,162,142],veg:0.2},
-  [B.SNOW]:{name:'Snow',col:[236,240,244],veg:0.04},
-  [B.MOUNTAIN]:{name:'Mountains',col:[132,128,122],veg:0.1},
-  [B.PEAK]:{name:'Peak',col:[226,228,232],veg:0.02},
-};
-const isWater = b => b<=B.LAKE;
+setRngSeed(SEED);
 
 /* ---------- world state ---------- */
 let W=240, H=150;
@@ -251,7 +229,7 @@ function biomeAt(e, t, m){
 }
 
 function generateWorld(){
-  rng = makeRng(SEED);
+  setRngSeed(SEED);
   const dims = {s:[160,100], m:[240,150], l:[320,196]}[cfg.size];
   W=dims[0]; H=dims[1];
   elev=new Float32Array(W*H); temp=new Float32Array(W*H); moist=new Float32Array(W*H);
@@ -377,20 +355,7 @@ function centerCam(){ cam.z=Math.min(innerWidth/W, innerHeight/H)*0.9; cam.x=W/2
 const w2sX=wx=>(wx-cam.x)*cam.z, w2sY=wy=>(wy-cam.y)*cam.z;
 const s2wX=sx=>cam.x+sx/cam.z, s2wY=sy=>cam.y+sy/cam.z;
 
-/* ---------- species definitions ---------- */
-// diet: 0 herbivore, 1 carnivore, 2 omnivore
-const SPECIES = {
-  rabbit:{label:'Rabbit', emoji:'🐇', diet:0, base:{size:0.6,speed:1.6,sense:7,metab:1.0,litter:3.2,lifespan:9,temp:0.55,tol:0.3,hue:32,agg:0}, col:[200,180,150], preyOf:['fox','wolf','hawk'], shape:'small'},
-  deer:{label:'Deer', emoji:'🦌', diet:0, base:{size:1.2,speed:1.5,sense:9,metab:1.1,litter:1.4,lifespan:16,temp:0.5,tol:0.35,hue:26,agg:0}, col:[168,120,72], preyOf:['wolf'], shape:'tall'},
-  boar:{label:'Boar', emoji:'🐗', diet:2, base:{size:1.1,speed:1.1,sense:7,metab:1.05,litter:2.2,lifespan:14,temp:0.5,tol:0.4,hue:20,agg:0.4}, col:[110,86,72], preyOf:['wolf'], shape:'stocky'},
-  fox:{label:'Fox', emoji:'🦊', diet:1, base:{size:0.7,speed:1.7,sense:10,metab:1.1,litter:2.4,lifespan:11,temp:0.5,tol:0.4,hue:22,agg:0.7}, col:[214,110,50], hunts:['rabbit'], shape:'small'},
-  wolf:{label:'Wolf', emoji:'🐺', diet:1, base:{size:1.15,speed:1.55,sense:12,metab:1.2,litter:2.0,lifespan:13,temp:0.45,tol:0.45,hue:210,agg:0.85}, col:[130,132,140], hunts:['rabbit','deer','boar'], shape:'tall'},
-  hawk:{label:'Hawk', emoji:'🦅', diet:1, base:{size:0.55,speed:2.1,sense:16,metab:1.0,litter:1.4,lifespan:15,temp:0.5,tol:0.5,hue:28,agg:0.75}, col:[150,110,70], hunts:['rabbit'], shape:'bird'},
-};
-const SP_KEYS=Object.keys(SPECIES);
-const GENE_KEYS=['size','speed','sense','metab','litter','lifespan','temp','tol','hue','agg'];
-const GENE_RANGE={size:[0.35,2.2],speed:[0.6,2.6],sense:[3,20],metab:[0.6,1.6],litter:[1,5],lifespan:[5,28],temp:[0,1],tol:[0.15,0.7],hue:[0,360],agg:[0,1]};
-const GENE_LABEL={size:'Size',speed:'Speed',sense:'Sense',metab:'Metab',litter:'Litter',lifespan:'Lifespan',temp:'ClimatePref',tol:'Tolerance',hue:'Hue',agg:'Aggression'};
+/* ---------- species definitions (imported from ./js/data.js) ---------- */
 
 /* ---------- creatures ---------- */
 let creatures=[];
