@@ -1,0 +1,962 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wildlands — Procedural Ecosystem</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --panel:#3d4636; --panel-dark:#2c3327; --panel-darker:#20261c; --edge:#141810;
+    --text:#e8e4d0; --gold:#f2b53e; --dim:#9aa38a; --hp:#4fd455; --blue:#57b8e8;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;user-select:none;}
+  html,body{width:100%;height:100%;overflow:hidden;background:#0c100a;}
+  body{font-family:'Press Start 2P',monospace;color:var(--text);font-size:8px;}
+  canvas#world{position:absolute;inset:0;width:100%;height:100%;image-rendering:pixelated;cursor:crosshair;}
+  .stone{background:linear-gradient(180deg,var(--panel),var(--panel-dark));border:3px solid var(--edge);
+    box-shadow:inset 0 2px 0 rgba(255,255,255,.07),inset 0 -3px 0 rgba(0,0,0,.35),0 4px 10px rgba(0,0,0,.5);border-radius:6px;}
+  .btn{font-family:inherit;font-size:8px;color:var(--text);background:var(--panel-darker);
+    border:2px solid var(--edge);border-radius:4px;cursor:pointer;padding:6px 8px;}
+  .btn:hover{filter:brightness(1.25);}
+  .btn.gold{background:var(--gold);color:#2a2413;border-color:#7a5b17;}
+  .btn.active{outline:2px solid var(--gold);}
+
+  /* top bar */
+  #topbar{position:absolute;top:8px;left:50%;transform:translateX(-50%);display:flex;gap:9px;
+    align-items:center;padding:7px 13px;z-index:20;flex-wrap:wrap;justify-content:center;max-width:96vw;}
+  #topbar .stat{display:flex;gap:5px;align-items:center;color:var(--gold);}
+  #topbar .stat span{color:var(--text);}
+  #topbar .div{width:2px;height:15px;background:var(--edge);}
+  .spd{width:26px;height:22px;font-family:inherit;font-size:8px;}
+  .spd.active{background:var(--gold);color:#2a2413;border-color:#7a5b17;}
+
+  /* toolbar */
+  #toolbar{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);display:flex;gap:6px;
+    padding:8px 10px;z-index:20;align-items:flex-end;flex-wrap:wrap;justify-content:center;max-width:96vw;}
+  .tg{display:flex;gap:4px;padding:4px;background:var(--panel-darker);border:2px solid var(--edge);
+    border-radius:5px;position:relative;margin-top:13px;}
+  .tg .glab{position:absolute;top:-13px;left:3px;font-size:6px;color:var(--dim);letter-spacing:1px;}
+  .tool{width:38px;height:38px;display:flex;align-items:center;justify-content:center;font-size:16px;
+    background:linear-gradient(180deg,#4c5641,#343c2c);border:2px solid var(--edge);border-radius:5px;cursor:pointer;}
+  .tool:hover{filter:brightness(1.2);}
+  .tool.active{outline:3px solid var(--gold);outline-offset:-1px;}
+
+  /* left worldgen panel */
+  #genpanel{position:absolute;top:56px;left:10px;width:250px;max-height:calc(100% - 150px);overflow-y:auto;
+    padding:12px;z-index:25;}
+  #genpanel h2{font-size:10px;color:var(--gold);text-align:center;margin-bottom:10px;text-shadow:1px 1px 0 #000;}
+  .field{margin-bottom:10px;}
+  .field label{display:flex;justify-content:space-between;margin-bottom:4px;color:var(--dim);}
+  .field label b{color:var(--gold);}
+  input[type=range]{width:100%;-webkit-appearance:none;height:12px;background:var(--panel-darker);
+    border:2px solid var(--edge);border-radius:4px;cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:14px;background:var(--gold);
+    border:2px solid var(--edge);border-radius:2px;cursor:pointer;}
+  input[type=range]::-moz-range-thumb{width:12px;height:14px;background:var(--gold);border:2px solid var(--edge);
+    border-radius:2px;cursor:pointer;}
+  .sizerow{display:flex;gap:4px;}
+  .sizerow .btn{flex:1;padding:6px 2px;}
+  .genbtns{display:flex;gap:6px;margin-top:6px;}
+  .genbtns .btn{flex:1;}
+  .collapse{cursor:pointer;}
+
+  /* stats panel */
+  #stats{position:absolute;top:56px;right:10px;width:250px;max-height:calc(100% - 150px);overflow-y:auto;
+    padding:12px;z-index:25;}
+  #stats h2{font-size:10px;color:var(--gold);text-align:center;margin-bottom:8px;}
+  .splist{display:flex;flex-direction:column;gap:4px;margin-bottom:8px;}
+  .sprow{display:flex;align-items:center;gap:6px;background:var(--panel-darker);border:2px solid var(--edge);
+    border-radius:4px;padding:4px 6px;}
+  .sprow .dot{width:10px;height:10px;border-radius:2px;flex:none;}
+  .sprow .nm{flex:1;font-size:7px;}
+  .sprow .ct{color:var(--gold);}
+  .sprow .gn{color:var(--dim);font-size:6px;}
+  #popgraph{width:100%;height:70px;background:var(--panel-darker);border:2px solid var(--edge);
+    border-radius:4px;display:block;image-rendering:pixelated;margin-bottom:6px;}
+
+  /* inspector */
+  #inspect{position:absolute;bottom:66px;right:10px;width:250px;padding:12px;z-index:26;display:none;}
+  #inspect h2{font-size:9px;color:var(--gold);text-align:center;margin-bottom:6px;}
+  .closex{position:absolute;top:6px;right:8px;width:20px;height:20px;color:#ff5a4a;background:var(--panel-darker);
+    border:2px solid var(--edge);border-radius:4px;font-size:10px;cursor:pointer;font-family:inherit;}
+  .needbar{height:11px;background:#1a1f14;border:2px solid var(--edge);border-radius:3px;overflow:hidden;margin:2px 0 5px;}
+  .needbar>div{height:100%;transition:width .2s;}
+  .needlab{display:flex;justify-content:space-between;font-size:6px;color:var(--dim);}
+  .genes{display:grid;grid-template-columns:1fr 1fr;gap:3px;margin-top:6px;}
+  .gene{background:var(--panel-darker);border:2px solid var(--edge);border-radius:3px;padding:3px 5px;
+    display:flex;justify-content:space-between;font-size:6px;}
+  .gene b{color:var(--gold);}
+  .state{text-align:center;color:var(--blue);margin:6px 0;font-size:8px;}
+
+  #log{position:absolute;left:270px;top:56px;z-index:15;display:flex;flex-direction:column;gap:4px;pointer-events:none;max-width:300px;}
+  .lm{font-size:6px;padding:4px 7px;background:rgba(20,26,16,.85);border:2px solid var(--edge);border-radius:4px;
+    animation:fi .3s;line-height:1.6;}
+  .lm b{color:var(--gold);}
+  @keyframes fi{from{opacity:0;transform:translateX(-6px);}to{opacity:1;}}
+
+  #loading{position:absolute;inset:0;z-index:60;background:#0c100a;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:14px;}
+  #loading .t{font-size:12px;color:var(--gold);}
+  #loading .b{font-size:7px;color:var(--dim);}
+  .hidden{display:none!important;}
+  @media (max-width:820px){#genpanel,#stats{width:190px;}#log{display:none;}}
+</style>
+</head>
+<body>
+<canvas id="world"></canvas>
+
+<div id="loading"><div class="t">WILDLANDS</div><div class="b" id="loadmsg">Generating world…</div></div>
+
+<div id="topbar" class="stone">
+  <div class="stat">🌍 <span id="s-day">Day 0</span></div><div class="div"></div>
+  <div class="stat">🐾 <span id="s-pop">0</span></div><div class="div"></div>
+  <div class="stat">🧬 <span id="s-gen">Gen 1</span></div><div class="div"></div>
+  <div class="stat">🌱 <span id="s-veg">0%</span></div><div class="div"></div>
+  <button class="btn spd" id="spd0" title="Pause">⏸</button>
+  <button class="btn spd active" id="spd1" title="1×">1×</button>
+  <button class="btn spd" id="spd3" title="3×">3×</button>
+  <button class="btn spd" id="spd10" title="10×">10×</button>
+</div>
+
+<div id="log"></div>
+
+<div id="genpanel" class="stone">
+  <h2>World Generator</h2>
+  <div class="field">
+    <label>Seed <b id="v-seed">—</b></label>
+    <div class="genbtns"><button class="btn" id="randseed">🎲 Randomize</button></div>
+  </div>
+  <div class="field">
+    <label>World size</label>
+    <div class="sizerow">
+      <button class="btn" data-size="s">S</button>
+      <button class="btn gold" data-size="m">M</button>
+      <button class="btn" data-size="l">L</button>
+    </div>
+  </div>
+  <div class="field"><label>Sea level <b id="v-sea">50%</b></label><input type="range" id="r-sea" min="20" max="70" value="46"></div>
+  <div class="field"><label>Temperature <b id="v-temp">Temperate</b></label><input type="range" id="r-temp" min="0" max="100" value="50"></div>
+  <div class="field"><label>Moisture <b id="v-moist">Balanced</b></label><input type="range" id="r-moist" min="0" max="100" value="50"></div>
+  <div class="field"><label>Terrain relief <b id="v-relief">Medium</b></label><input type="range" id="r-relief" min="20" max="100" value="60"></div>
+  <div class="field"><label>Starting animals <b id="v-anim">Normal</b></label><input type="range" id="r-anim" min="0" max="100" value="45"></div>
+  <div class="genbtns">
+    <button class="btn gold" id="generate">⟳ Generate World</button>
+  </div>
+  <div class="genbtns" style="margin-top:8px">
+    <button class="btn" id="restock">🐾 Restock Life</button>
+  </div>
+</div>
+
+<div id="stats" class="stone">
+  <h2>Ecosystem</h2>
+  <canvas id="popgraph" width="226" height="70"></canvas>
+  <div class="splist" id="splist"></div>
+</div>
+
+<div id="inspect" class="stone">
+  <button class="closex" onclick="deselect()">✕</button>
+  <h2 id="i-name">—</h2>
+  <div class="state" id="i-state">—</div>
+  <div class="needlab"><span>❤️ Health</span><span id="i-hp">100%</span></div>
+  <div class="needbar"><div id="b-hp" style="width:100%;background:var(--hp)"></div></div>
+  <div class="needlab"><span>🍖 Fullness</span><span id="i-hun">100%</span></div>
+  <div class="needbar"><div id="b-hun" style="width:100%;background:#d98a3a"></div></div>
+  <div class="needlab"><span>💧 Hydration</span><span id="i-thi">100%</span></div>
+  <div class="needbar"><div id="b-thi" style="width:100%;background:#3aa8d8"></div></div>
+  <div class="needlab"><span>⚡ Energy</span><span id="i-ene">100%</span></div>
+  <div class="needbar"><div id="b-ene" style="width:100%;background:#d8c23a"></div></div>
+  <div class="genes" id="i-genes"></div>
+</div>
+
+<script>
+"use strict";
+/* =====================================================================
+   WILDLANDS — a procedural biome + genetic ecosystem simulator
+   ===================================================================== */
+
+/* ---------- rng ---------- */
+let SEED = (Math.random()*1e9)>>>0;
+function makeRng(s){ let a=s>>>0; return ()=>{ a=(a*1664525+1013904223)>>>0; return a/4294967296; }; }
+let rng = makeRng(SEED);
+function ri(a,b){ return a+Math.floor(rng()*(b-a+1)); }
+function rf(a,b){ return a+rng()*(b-a); }
+function pick(arr){ return arr[Math.floor(rng()*arr.length)]; }
+function gauss(){ return (rng()+rng()+rng()+rng()-2)/2; }   // approx normal, ~[-1,1]
+function clamp(v,a,b){ return v<a?a:v>b?b:v; }
+function lerp(a,b,t){ return a+(b-a)*t; }
+
+/* ---------- value-noise (fractal) ---------- */
+function hashN(x,y,s){ let h=(x*374761393+y*668265263+s*40499)>>>0; h=(h^(h>>13))*1274126177>>>0; return ((h^(h>>16))>>>0)/4294967296; }
+function vnoise(x,y,s){
+  const xi=Math.floor(x),yi=Math.floor(y),xf=x-xi,yf=y-yi;
+  const u=xf*xf*(3-2*xf),v=yf*yf*(3-2*yf);
+  const a=hashN(xi,yi,s),b=hashN(xi+1,yi,s),c=hashN(xi,yi+1,s),d=hashN(xi+1,yi+1,s);
+  return a+(b-a)*u+(c-a)*v+(a-b-c+d)*u*v;
+}
+function fbm(x,y,s,oct,freq,pers){
+  let amp=1,f=freq,sum=0,norm=0;
+  for(let o=0;o<oct;o++){ sum+=amp*vnoise(x*f,y*f,s+o*97); norm+=amp; amp*=pers; f*=2; }
+  return sum/norm;
+}
+
+/* ---------- biomes ---------- */
+const B = {DEEP:0,OCEAN:1,LAKE:2,BEACH:3,DESERT:4,SAVANNA:5,GRASS:6,SHRUB:7,FOREST:8,RAINFOREST:9,SWAMP:10,TAIGA:11,TUNDRA:12,SNOW:13,MOUNTAIN:14,PEAK:15};
+const BIOME_INFO = {
+  [B.DEEP]:{name:'Deep Ocean',col:[30,72,120],water:true,veg:0},
+  [B.OCEAN]:{name:'Ocean',col:[46,108,168],water:true,veg:0},
+  [B.LAKE]:{name:'Lake',col:[62,132,200],water:true,veg:0},
+  [B.BEACH]:{name:'Beach',col:[222,206,150],veg:0.08},
+  [B.DESERT]:{name:'Desert',col:[224,200,132],veg:0.06},
+  [B.SAVANNA]:{name:'Savanna',col:[196,182,98],veg:0.5},
+  [B.GRASS]:{name:'Grassland',col:[126,178,84],veg:0.75},
+  [B.SHRUB]:{name:'Shrubland',col:[154,170,98],veg:0.45},
+  [B.FOREST]:{name:'Forest',col:[70,132,64],veg:0.85},
+  [B.RAINFOREST]:{name:'Rainforest',col:[44,112,58],veg:1.0},
+  [B.SWAMP]:{name:'Swamp',col:[84,112,74],veg:0.7},
+  [B.TAIGA]:{name:'Taiga',col:[92,130,102],veg:0.4},
+  [B.TUNDRA]:{name:'Tundra',col:[158,162,142],veg:0.2},
+  [B.SNOW]:{name:'Snow',col:[236,240,244],veg:0.04},
+  [B.MOUNTAIN]:{name:'Mountains',col:[132,128,122],veg:0.1},
+  [B.PEAK]:{name:'Peak',col:[226,228,232],veg:0.02},
+};
+const isWater = b => b<=B.LAKE;
+
+/* ---------- world state ---------- */
+let W=240, H=150;
+let elev, temp, moist, biome, veg, vegCap;
+const idx=(x,y)=>y*W+x;
+const inB=(x,y)=>x>=0&&y>=0&&x<W&&y<H;
+
+const cfg = { sea:0.46, temp:0.5, moist:0.5, relief:0.6, animals:0.45, size:'m' };
+
+function biomeAt(e, t, m){
+  if(e < cfg.sea-0.09) return B.DEEP;
+  if(e < cfg.sea)       return B.OCEAN;
+  if(e < cfg.sea+0.015) return B.BEACH;
+  if(e > 0.86)          return e>0.93 ? B.PEAK : (t<0.35 ? B.SNOW : B.MOUNTAIN);
+  // Whittaker-style temperature × moisture
+  if(t<0.22)  return m<0.5 ? B.TUNDRA : B.SNOW;
+  if(t<0.42)  return m<0.35? B.TUNDRA : B.TAIGA;
+  if(t<0.72){
+    if(m<0.22) return B.GRASS;
+    if(m<0.5)  return B.GRASS;
+    if(m<0.78) return B.FOREST;
+    return B.SWAMP;
+  }
+  if(m<0.25) return B.DESERT;
+  if(m<0.5)  return B.SAVANNA;
+  if(m<0.78) return B.FOREST;
+  return B.RAINFOREST;
+}
+
+function generateWorld(){
+  rng = makeRng(SEED);
+  const dims = {s:[160,100], m:[240,150], l:[320,196]}[cfg.size];
+  W=dims[0]; H=dims[1];
+  elev=new Float32Array(W*H); temp=new Float32Array(W*H); moist=new Float32Array(W*H);
+  biome=new Uint8Array(W*H); veg=new Float32Array(W*H); vegCap=new Float32Array(W*H);
+  const eS=ri(1,9999), mS=ri(1,9999), tS=ri(1,9999), lS=ri(1,9999);
+  const relief = cfg.relief;
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++){
+    // elevation: fbm with a soft continental falloff so land clusters
+    let e = fbm(x,y,eS,5,0.028,0.5);
+    const cx=(x/W-0.5), cy=(y/H-0.5);
+    const radial = Math.sqrt(cx*cx+cy*cy)*1.9;              // 0 center → ~1.3 at corners
+    const falloff = Math.pow(clamp(radial,0,1),2.2)*0.34;   // only bites hard near the edges
+    e = e*(0.7+relief*0.5) + 0.34 - falloff;
+    e += (fbm(x,y,eS+31,3,0.09,0.5)-0.5)*0.15*relief;
+    e = clamp(e,0,1);
+    // moisture: noise, higher near water & influenced by global moisture
+    let m = fbm(x,y,mS,4,0.04,0.55)*0.7 + cfg.moist*0.4;
+    // temperature: latitude gradient (cold poles) + altitude cooling + noise + global temp
+    const lat = 1 - Math.abs(y/H-0.5)*2;               // 1 equator, 0 poles
+    let t = lat*0.7 + cfg.temp*0.5 - Math.max(0,e-cfg.sea)*0.55 + (fbm(x,y,tS,3,0.05,0.5)-0.5)*0.25;
+    t = clamp(t,0,1); m = clamp(m,0,1);
+    elev[idx(x,y)]=e; temp[idx(x,y)]=t; moist[idx(x,y)]=m;
+    let b = biomeAt(e,t,m);
+    // carve inland lakes
+    if(!isWater(b) && e<0.62){
+      const lake = fbm(x,y,lS,3,0.07,0.5);
+      if(lake>0.72){ b=B.LAKE; }
+    }
+    biome[idx(x,y)]=b;
+    const cap = BIOME_INFO[b].veg;
+    vegCap[idx(x,y)]=cap;
+    veg[idx(x,y)] = cap * rf(0.4,1.0);
+  }
+  bakeTerrain();
+  bakeVegetation();
+}
+
+/* ---------- rendering layers ---------- */
+const canvas=document.getElementById('world'), ctx=canvas.getContext('2d');
+ctx.imageSmoothingEnabled=false;
+const TX=3;                                   // subpixels per tile for terrain texture
+let terrC, tctx, waterC, wctx, vegC, vgctx;
+
+function shade(c,m){ return [clamp(c[0]*m,0,255)|0,clamp(c[1]*m,0,255)|0,clamp(c[2]*m,0,255)|0]; }
+
+function bakeTerrain(){
+  terrC=document.createElement('canvas'); terrC.width=W*TX; terrC.height=H*TX; tctx=terrC.getContext('2d');
+  waterC=document.createElement('canvas'); waterC.width=W*TX; waterC.height=H*TX; wctx=waterC.getContext('2d');
+  const img=tctx.createImageData(W*TX,H*TX), d=img.data;
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++){
+    const b=biome[idx(x,y)], info=BIOME_INFO[b], e=elev[idx(x,y)];
+    for(let sy=0;sy<TX;sy++)for(let sx=0;sx<TX;sx++){
+      const px=x*TX+sx, py=y*TX+sy, h=hashN(px,py,7);
+      let c=info.col.slice();
+      // slope/elevation shading
+      const shd = 0.9 + (e-0.5)*0.28 + (h-0.5)*0.14;
+      c=shade(c,shd);
+      // per-biome static texture flecks (keeps a crisp pixel-art look)
+      if(b===B.FOREST||b===B.RAINFOREST||b===B.TAIGA){ if(h>0.7)c=shade(info.col,0.78); else if(h<0.15)c=shade(info.col,1.12);}
+      else if(b===B.DESERT||b===B.BEACH||b===B.SAVANNA){ if(h>0.9)c=shade(info.col,0.9); if(h<0.05)c=shade(info.col,1.1);}
+      else if(b===B.GRASS||b===B.SHRUB){ if(h>0.85)c=shade(info.col,0.85);}
+      else if(b===B.MOUNTAIN){ if(h>0.7)c=shade(info.col,1.15); if(h<0.3)c=shade(info.col,0.82);}
+      else if(b===B.SNOW||b===B.PEAK){ if(h>0.85)c=[210,222,232];}
+      const o=(py*W*TX+px)*4; d[o]=c[0];d[o+1]=c[1];d[o+2]=c[2];d[o+3]=255;
+    }
+  }
+  tctx.putImageData(img,0,0);
+}
+
+// water shimmer is redrawn ~12fps into its own subpixel layer with continuous math (smooth, not flickery)
+let waterFrameAt=-1;
+function bakeWater(frameTime){
+  const f = Math.floor(frameTime*8);            // 8 steps/sec, gentle
+  if(f===waterFrameAt) return; waterFrameAt=f;
+  wctx.clearRect(0,0,W*TX,H*TX);
+  const img=wctx.createImageData(W*TX,H*TX), d=img.data;
+  const period=48;                              // long period → slow, smooth
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++){
+    const b=biome[idx(x,y)]; if(!isWater(b)) continue;
+    const info=BIOME_INFO[b];
+    const nearLand = (inB(x-1,y)&&!isWater(biome[idx(x-1,y)]))||(inB(x+1,y)&&!isWater(biome[idx(x+1,y)]))
+                   ||(inB(x,y-1)&&!isWater(biome[idx(x,y-1)]))||(inB(x,y+1)&&!isWater(biome[idx(x,y+1)]));
+    for(let sy=0;sy<TX;sy++)for(let sx=0;sx<TX;sx++){
+      const px=x*TX+sx, py=y*TX+sy;
+      const th=hashN(x,y,3);
+      const pos=(px+(py>>1)*3 + Math.floor(th*period) + f)% period;
+      const w=Math.pow(Math.cos(pos/period*2*Math.PI)*0.5+0.5, 4);
+      let a=w*0.5;
+      let col=[info.col[0]+50,info.col[1]+45,info.col[2]+35];
+      if(nearLand){                             // smooth foam pulse on shorelines
+        const fp=((Math.floor(hashN(px,py,9)*8)+f)%8)/8;
+        const ft=Math.pow(Math.cos(fp*2*Math.PI)*0.5+0.5,3);
+        a=Math.max(a, 0.25+ft*0.5); col=[228,244,252];
+      }
+      const o=(py*W*TX+px)*4; d[o]=col[0];d[o+1]=col[1];d[o+2]=col[2];d[o+3]=(a*255)|0;
+    }
+  }
+  wctx.putImageData(img,0,0);
+}
+
+// vegetation overlay (1px/tile) redrawn a couple times per second
+let vegDirty=true;
+function bakeVegetation(){
+  if(!vegC){ vegC=document.createElement('canvas'); vegC.width=W; vegC.height=H; vgctx=vegC.getContext('2d'); }
+  const img=vgctx.createImageData(W,H), d=img.data;
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++){
+    const b=biome[idx(x,y)]; const o=idx(x,y)*4;
+    if(isWater(b)||vegCap[idx(x,y)]<0.02){ d[o+3]=0; continue; }
+    const v=veg[idx(x,y)]/Math.max(0.02,vegCap[idx(x,y)]);  // 0..1 lushness
+    // deeper green as it grows; brownish when grazed down
+    const g=lerp(70,150,v), r=lerp(120,40,v)*0.6, bl=lerp(60,40,v);
+    d[o]=r|0; d[o+1]=g|0; d[o+2]=bl|0; d[o+3]=(v*120)|0;
+  }
+  vgctx.putImageData(img,0,0);
+  vegDirty=false;
+}
+
+/* ---------- camera ---------- */
+const cam={x:0,y:0,z:6};
+function resize(){ canvas.width=innerWidth; canvas.height=innerHeight; ctx.imageSmoothingEnabled=false; }
+addEventListener('resize',resize); resize();
+function centerCam(){ cam.z=Math.min(innerWidth/W, innerHeight/H)*0.9; cam.x=W/2-innerWidth/(2*cam.z); cam.y=H/2-innerHeight/(2*cam.z); }
+const w2sX=wx=>(wx-cam.x)*cam.z, w2sY=wy=>(wy-cam.y)*cam.z;
+const s2wX=sx=>cam.x+sx/cam.z, s2wY=sy=>cam.y+sy/cam.z;
+
+/* ---------- species definitions ---------- */
+// diet: 0 herbivore, 1 carnivore, 2 omnivore
+const SPECIES = {
+  rabbit:{label:'Rabbit', emoji:'🐇', diet:0, base:{size:0.6,speed:1.6,sense:7,metab:1.0,litter:3.2,lifespan:9,temp:0.55,tol:0.3,hue:32,agg:0}, col:[200,180,150], preyOf:['fox','wolf','hawk'], shape:'small'},
+  deer:{label:'Deer', emoji:'🦌', diet:0, base:{size:1.2,speed:1.5,sense:9,metab:1.1,litter:1.4,lifespan:16,temp:0.5,tol:0.35,hue:26,agg:0}, col:[168,120,72], preyOf:['wolf'], shape:'tall'},
+  boar:{label:'Boar', emoji:'🐗', diet:2, base:{size:1.1,speed:1.1,sense:7,metab:1.05,litter:2.2,lifespan:14,temp:0.5,tol:0.4,hue:20,agg:0.4}, col:[110,86,72], preyOf:['wolf'], shape:'stocky'},
+  fox:{label:'Fox', emoji:'🦊', diet:1, base:{size:0.7,speed:1.7,sense:10,metab:1.1,litter:2.4,lifespan:11,temp:0.5,tol:0.4,hue:22,agg:0.7}, col:[214,110,50], hunts:['rabbit'], shape:'small'},
+  wolf:{label:'Wolf', emoji:'🐺', diet:1, base:{size:1.15,speed:1.55,sense:12,metab:1.2,litter:2.0,lifespan:13,temp:0.45,tol:0.45,hue:210,agg:0.85}, col:[130,132,140], hunts:['rabbit','deer','boar'], shape:'tall'},
+  hawk:{label:'Hawk', emoji:'🦅', diet:1, base:{size:0.55,speed:2.1,sense:16,metab:1.0,litter:1.4,lifespan:15,temp:0.5,tol:0.5,hue:28,agg:0.75}, col:[150,110,70], hunts:['rabbit'], shape:'bird'},
+};
+const SP_KEYS=Object.keys(SPECIES);
+const GENE_KEYS=['size','speed','sense','metab','litter','lifespan','temp','tol','hue','agg'];
+const GENE_RANGE={size:[0.35,2.2],speed:[0.6,2.6],sense:[3,20],metab:[0.6,1.6],litter:[1,5],lifespan:[5,28],temp:[0,1],tol:[0.15,0.7],hue:[0,360],agg:[0,1]};
+const GENE_LABEL={size:'Size',speed:'Speed',sense:'Sense',metab:'Metab',litter:'Litter',lifespan:'Lifespan',temp:'ClimatePref',tol:'Tolerance',hue:'Hue',agg:'Aggression'};
+
+/* ---------- creatures ---------- */
+let creatures=[];
+let generationMax=1, nextId=1;
+const MAX_POP=900;
+
+function newGenome(sp){ const g={}; const b=SPECIES[sp].base; for(const k of GENE_KEYS){ g[k]=clamp(b[k]*(1+gauss()*0.12) + (k==='hue'? gauss()*20:0), GENE_RANGE[k][0], GENE_RANGE[k][1]); } return g; }
+function breedGenome(a,b){
+  const g={};
+  for(const k of GENE_KEYS){
+    let v=(a[k]+b[k])/2 + gauss()*(GENE_RANGE[k][1]-GENE_RANGE[k][0])*0.05;   // mutation
+    if(rng()<0.02) v += gauss()*(GENE_RANGE[k][1]-GENE_RANGE[k][0])*0.18;      // rare big mutation
+    g[k]=clamp(v,GENE_RANGE[k][0],GENE_RANGE[k][1]);
+  }
+  return g;
+}
+
+function findSpawnTile(sp){
+  const wantLand = SPECIES[sp].shape!=='fish';
+  for(let tries=0;tries<300;tries++){
+    const x=ri(2,W-3), y=ri(2,H-3), b=biome[idx(x,y)];
+    if(isWater(b)) continue;
+    if(b===B.PEAK) continue;
+    return {x:x+rf(-.3,.3),y:y+rf(-.3,.3)};
+  }
+  return null;
+}
+
+function makeCreature(sp, x, y, genome, gen){
+  const S=SPECIES[sp];
+  const g=genome||newGenome(sp);
+  const c={
+    id:nextId++, sp, x, y, vx:0, vy:0, dir:1, genome:g, gen:gen||1,
+    age:rf(0.15,0.4)*g.lifespan, // start as young adults on spawn
+    hp:100, hunger:rf(60,90), thirst:rf(60,90), energy:rf(70,100),
+    state:'wander', tx:x, ty:y, target:null, mateCd:rf(1,4), pregnant:0, litterQ:0,
+    walk:rng()*6.28, dead:false, cause:'',
+  };
+  creatures.push(c);
+  if((gen||1)>generationMax) generationMax=gen;
+  return c;
+}
+
+function eSize(c){ return c.genome.size * (c.age < c.genome.lifespan*0.25 ? 0.55 : 1); } // babies smaller
+function isAdult(c){ return c.age >= c.genome.lifespan*0.25; }
+
+/* ---------- spatial hash ---------- */
+const CELL=6; let grid=new Map();
+function gkey(cx,cy){ return cx*100000+cy; }
+function rebuildGrid(){
+  grid.clear();
+  for(const c of creatures){ if(c.dead)continue;
+    const k=gkey(Math.floor(c.x/CELL),Math.floor(c.y/CELL));
+    let a=grid.get(k); if(!a){a=[];grid.set(k,a);} a.push(c);
+  }
+}
+function nearby(c, r){
+  const out=[]; const cx=Math.floor(c.x/CELL), cy=Math.floor(c.y/CELL), rr=Math.ceil(r/CELL);
+  for(let dy=-rr;dy<=rr;dy++)for(let dx=-rr;dx<=rr;dx++){
+    const a=grid.get(gkey(cx+dx,cy+dy)); if(!a)continue;
+    for(const o of a){ if(o!==c&&!o.dead){ const ddx=o.x-c.x,ddy=o.y-c.y; if(ddx*ddx+ddy*ddy<r*r) out.push(o); } }
+  }
+  return out;
+}
+
+/* ---------- water lookup ---------- */
+function nearestWater(x,y,r){
+  let best=null,bd=r*r;
+  const ix=Math.round(x),iy=Math.round(y);
+  for(let dy=-r;dy<=r;dy++)for(let dx=-r;dx<=r;dx++){
+    const nx=ix+dx,ny=iy+dy; if(!inB(nx,ny))continue;
+    if(isWater(biome[idx(nx,ny)])){ const d=dx*dx+dy*dy; if(d<bd){bd=d;best={x:nx,y:ny};} }
+  }
+  return best;
+}
+function atWaterEdge(c){
+  const ix=Math.round(c.x),iy=Math.round(c.y);
+  for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){ const nx=ix+dx,ny=iy+dy; if(inB(nx,ny)&&isWater(biome[idx(nx,ny)])) return true; }
+  return false;
+}
+
+/* ---------- creature AI + lifecycle ---------- */
+function stepCreature(c, dt){
+  const S=SPECIES[c.sp], g=c.genome;
+  // ---- needs decay ----
+  const load=g.size*g.metab;
+  c.hunger -= (0.9*load + (c.state==='hunt'?0.6:0))*dt;
+  c.thirst -= 1.0*load*dt;
+  c.energy -= (0.6*load + (c.vx*c.vx+c.vy*c.vy>0.02?0.9:0))*dt;
+  c.age += dt/24;                                  // ~24s per game year
+  if(c.mateCd>0) c.mateCd-=dt;
+
+  // ---- climate stress ----
+  const localT=temp[idx(clamp(Math.round(c.x),0,W-1),clamp(Math.round(c.y),0,H-1))];
+  const stress=Math.max(0, Math.abs(localT-g.temp)-g.tol);
+  if(stress>0) c.hp -= stress*14*dt;
+
+  // ---- damage from empty needs ----
+  if(c.hunger<=0){ c.hp-=6*dt; c.hunger=0; }
+  if(c.thirst<=0){ c.hp-=7*dt; c.thirst=0; }
+  if(c.energy<=0){ c.energy=0; }
+  // slow heal when well-fed & rested
+  if(c.hunger>55&&c.thirst>55&&stress<=0) c.hp=Math.min(100,c.hp+4*dt);
+
+  // ---- death ----
+  if(c.hp<=0){ die(c, c.cause||'exhaustion'); return; }
+  if(c.age>=g.lifespan){ die(c,'old age'); return; }
+
+  // ---- gestation ----
+  if(c.pregnant>0){ c.pregnant-=dt; if(c.pregnant<=0) giveBirth(c); }
+
+  // ---- perception ----
+  const senseR=g.sense;
+  const neigh=nearby(c, senseR);
+  let threat=null, tdist=1e9, prey=null, pdist=1e9, mate=null, mdist=1e9;
+  for(const o of neigh){
+    const d=Math.hypot(o.x-c.x,o.y-c.y);
+    // predators of me
+    if(S.preyOf && S.preyOf.includes(o.sp) && eSize(o)>eSize(c)*0.7){ if(d<tdist){tdist=d;threat=o;} }
+    // my prey
+    if(S.hunts && S.hunts.includes(o.sp) && eSize(o)<eSize(c)*1.25){ if(d<pdist){pdist=d;prey=o;} }
+    // mate
+    if(o.sp===c.sp && isAdult(o) && isAdult(c) && o.mateCd<=0 && c.mateCd<=0 && o.pregnant<=0 && c.pregnant<=0
+       && o.energy>45 && c.energy>45){ if(d<mdist){mdist=d;mate=o;} }
+  }
+
+  // ---- decide state (priority / utility) ----
+  let st='wander';
+  if(threat) st='flee';
+  else if(c.thirst<30) st='thirst';
+  else if(c.hunger<55) st = (S.diet===0? 'graze' : (prey? 'hunt' : (S.diet===2? 'graze':'huntSearch')));
+  else if(c.energy<18) st='rest';
+  else if(mate && c.hunger>45 && c.thirst>40) st='mate';
+  else if(S.diet>=1 && prey && c.hunger<75) st='hunt';
+  else st='wander';
+  c.state=st;
+
+  let speed=g.speed;
+  const juvenile=!isAdult(c);
+  if(juvenile) speed*=0.8;
+  // night: everyone slower & rests more
+  if(isNight){ speed*=0.6; if(st==='wander'&&c.energy<75) st='rest'; }
+
+  // ---- act ----
+  switch(st){
+    case 'flee':{
+      const a=Math.atan2(c.y-threat.y, c.x-threat.x);
+      c.tx=c.x+Math.cos(a)*6; c.ty=c.y+Math.sin(a)*6; moveTo(c,speed*1.25,dt); break;
+    }
+    case 'thirst':{
+      if(atWaterEdge(c)){ c.thirst=Math.min(100,c.thirst+60*dt); }
+      else { const w=nearestWater(c.x,c.y,senseR+6); if(w){c.tx=w.x;c.ty=w.y;} else wander(c); moveTo(c,speed,dt);} break;
+    }
+    case 'graze':{
+      const ti=idx(clamp(Math.round(c.x),0,W-1),clamp(Math.round(c.y),0,H-1));
+      if(veg[ti]>0.04){ const bite=Math.min(veg[ti],3.5*dt); veg[ti]-=bite; c.hunger=Math.min(100,c.hunger+bite*26); vegDirty=true; }
+      else { // seek greener tile
+        const t=findFood(c,senseR); if(t){c.tx=t.x;c.ty=t.y;} else wander(c); moveTo(c,speed,dt);
+      }
+      break;
+    }
+    case 'huntSearch': wander(c); moveTo(c,speed,dt); break;
+    case 'hunt':{
+      if(prey){ c.tx=prey.x; c.ty=prey.y; c.target=prey.id; moveTo(c,speed*1.15,dt);
+        if(pdist<eSize(c)*0.6+0.5){ // in striking range — chance-based catch, prey may escape
+          if(rng()< (0.10 + g.agg*0.10)){ prey.hp-=30+g.size*15; prey.cause='predation';
+            if(prey.hp<=0){ c.hunger=Math.min(100,c.hunger+50); c.energy=Math.min(100,c.energy+12); } }
+        }
+      } else wander(c); moveTo(c,speed,dt); break;
+    }
+    case 'rest': c.energy=Math.min(100,c.energy+9*dt); c.vx*=0.8; c.vy*=0.8; break;
+    case 'mate':{
+      if(mate){ c.tx=mate.x; c.ty=mate.y; moveTo(c,speed,dt);
+        if(mdist<1.0){
+          // female (arbitrary: lower id carries) gets pregnant
+          const carrier = c.id<mate.id? c : mate;
+          const other = carrier===c? mate : c;
+          if(carrier.pregnant<=0 && carrier.mateCd<=0){
+            const fast = SPECIES[c.sp].diet===0;                    // herbivores gestate quickly
+            carrier.pregnant = fast? rf(2,3.5) : rf(3.5,5.5);
+            carrier.matePartner=other.genome;
+            carrier.litterQ=Math.max(1,Math.round(g.litter*rf(0.7,1.15)));
+            const cd = fast? rf(3,5) : rf(6,10);
+            carrier.mateCd=cd; other.mateCd=cd*0.6;
+            carrier.energy-=20; other.energy-=12;
+          }
+        }
+      } else wander(c); break;
+    }
+    default: wander(c); moveTo(c,speed*0.7,dt);
+  }
+
+  // walk animation phase advances with movement
+  const sp2=Math.hypot(c.vx,c.vy);
+  c.walk += sp2*dt*10 + dt*0.5;
+  if(Math.abs(c.vx)>0.001) c.dir = c.vx>0?1:-1;
+}
+
+function wander(c){
+  if(Math.hypot(c.tx-c.x,c.ty-c.y)<0.6 || rng()<0.02){
+    c.tx=clamp(c.x+rf(-6,6),1,W-2); c.ty=clamp(c.y+rf(-6,6),1,H-2);
+  }
+}
+function moveTo(c,speed,dt){
+  const dx=c.tx-c.x, dy=c.ty-c.y, d=Math.hypot(dx,dy);
+  if(d<0.05){ c.vx*=0.7; c.vy*=0.7; return; }
+  let nx=c.x+dx/d*speed*2.2*dt, ny=c.y+dy/d*speed*2.2*dt;
+  const canSwim = SPECIES[c.sp].shape==='bird';
+  const bi=inB(Math.round(nx),Math.round(ny))?biome[idx(Math.round(nx),Math.round(ny))]:B.OCEAN;
+  if((isWater(bi)&&!canSwim) || bi===B.PEAK){ // avoid water/peaks
+    c.tx=c.x+rf(-4,4); c.ty=c.y+rf(-4,4); c.vx*=0.5; c.vy*=0.5; return;
+  }
+  c.vx=(nx-c.x)/dt; c.vy=(ny-c.y)/dt; c.x=nx; c.y=ny;
+}
+function findFood(c,r){
+  let best=null,bv=0.05; const ix=Math.round(c.x),iy=Math.round(c.y);
+  for(let dy=-r;dy<=r;dy+=2)for(let dx=-r;dx<=r;dx+=2){
+    const nx=ix+dx,ny=iy+dy; if(!inB(nx,ny))continue; const ti=idx(nx,ny);
+    if(!isWater(biome[ti]) && veg[ti]>bv){ bv=veg[ti]; best={x:nx,y:ny}; }
+  }
+  return best;
+}
+
+function giveBirth(c){
+  const q=c.litterQ||1; c.litterQ=0;
+  const partner=c.matePartner || c.genome;
+  let born=0;
+  for(let i=0;i<q;i++){
+    if(creatures.filter(x=>!x.dead).length>=MAX_POP) break;
+    const cg=breedGenome(c.genome, partner);
+    const baby=makeCreature(c.sp, c.x+rf(-.8,.8), c.y+rf(-.8,.8), cg, c.gen+1);
+    baby.age=0; baby.hunger=70; baby.thirst=70; baby.energy=80;
+    born++;
+  }
+  if(born>0 && rng()<0.25) log(`${SPECIES[c.sp].emoji} A ${SPECIES[c.sp].label.toLowerCase()} bore ${born} young <b>(gen ${c.gen+1})</b>`);
+}
+
+function die(c, cause){
+  if(c.dead)return; c.dead=true; c.cause=cause;
+  // carcass fertilizes ground a touch
+  const ti=idx(clamp(Math.round(c.x),0,W-1),clamp(Math.round(c.y),0,H-1));
+  if(!isWater(biome[ti])) veg[ti]=Math.min(vegCap[ti], veg[ti]+0.15);
+  if(selected===c){ /* keep panel until closed */ }
+}
+
+/* ---------- vegetation growth ---------- */
+let vegTimer=0;
+function growVegetation(dt){
+  // update every tile each call; growth scaled by biome capacity & moisture
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++){ const ti=idx(x,y); const cap=vegCap[ti];
+    if(cap>0.02 && veg[ti]<cap){ veg[ti]=Math.min(cap, veg[ti]+cap*0.22*dt*(0.6+moist[ti])); }
+  }
+  vegDirty=true;
+}
+let growRow=0;
+
+/* ---------- ecosystem tick ---------- */
+let day=0, tGlobal=0, timeOfDay=0.3, isNight=false;
+let migrantTimer=0;
+function tick(dt){
+  timeOfDay=(timeOfDay+dt/40)%1;                    // 40s day
+  isNight = timeOfDay<0.22 || timeOfDay>0.80;
+  day = Math.floor(tGlobal/40);
+  rebuildGrid();
+  for(const c of creatures){ if(!c.dead) stepCreature(c,dt); }
+  growVegetation(dt);
+  // migrant insurance: a species that has died out may occasionally be re-seeded by "migration",
+  // so the food web can recover instead of flatlining forever. Off when total pop is healthy.
+  migrantTimer+=dt;
+  if(migrantTimer>6){ migrantTimer=0;
+    const alive=creatures.filter(c=>!c.dead);
+    const counts={}; for(const k of SP_KEYS)counts[k]=0; for(const c of alive)counts[c.sp]++;
+    for(const sp of SP_KEYS){
+      const isPredator=SPECIES[sp].diet>=1;
+      const preyAround = SPECIES[sp].hunts ? SPECIES[sp].hunts.some(p=>counts[p]>2) : true;
+      // re-seed a species that has crashed low, as long as the world isn't already crowded
+      if(counts[sp]<=1 && alive.length<MAX_POP*0.7 && rng()<(isPredator?0.25:0.6) && (!isPredator||preyAround)){
+        const n=isPredator?1:ri(2,3);
+        for(let i=0;i<n;i++){ const t=findSpawnTile(sp); if(t){ const c=makeCreature(sp,t.x,t.y); c.hunger=85;c.thirst=85; } }
+        log(`${SPECIES[sp].emoji} ${SPECIES[sp].label}s migrate into the region.`);
+      }
+    }
+  }
+  if(creatures.length>MAX_POP*1.3 || rng()<0.05){
+    creatures=creatures.filter(c=>!c.dead || c===selected);
+  }
+}
+
+/* ---------- drawing creatures ---------- */
+function creatureColor(c){
+  const g=c.genome, base=SPECIES[c.sp].col;
+  // blend species color toward gene hue slightly (visible evolution of coloration)
+  const hueCol=hslToRgb(g.hue/360, 0.5, 0.55);
+  return [ (base[0]*0.7+hueCol[0]*0.3)|0, (base[1]*0.7+hueCol[1]*0.3)|0, (base[2]*0.7+hueCol[2]*0.3)|0 ];
+}
+function hslToRgb(h,s,l){ let r,gg,b; if(s===0){r=gg=b=l;} else{ const q=l<0.5?l*(1+s):l+s-l*s; const p=2*l-q;
+  const hue=(t)=>{ if(t<0)t+=1; if(t>1)t-=1; if(t<1/6)return p+(q-p)*6*t; if(t<1/2)return q; if(t<2/3)return p+(q-p)*(2/3-t)*6; return p;};
+  r=hue(h+1/3); gg=hue(h); b=hue(h-1/3);} return [r*255|0,gg*255|0,b*255|0]; }
+
+function drawCreature(c){
+  const sx=w2sX(c.x), sy=w2sY(c.y); const s=Math.max(2.5, cam.z*0.9*eSize(c));
+  if(sx<-30||sy<-30||sx>canvas.width+30||sy>canvas.height+30) return;
+  const col=creatureColor(c), rgb=`rgb(${col[0]},${col[1]},${col[2]})`;
+  const dk=`rgb(${col[0]*0.6|0},${col[1]*0.6|0},${col[2]*0.6|0})`;
+  const moving=Math.hypot(c.vx,c.vy)>0.02;
+  const legSw=moving?Math.sin(c.walk)* s*0.28:0;
+  const shape=SPECIES[c.sp].shape;
+  ctx.save(); ctx.translate(sx,sy); ctx.scale(c.dir,1);
+  const bob=moving?Math.abs(Math.sin(c.walk))*s*0.06:0;
+
+  if(shape==='bird'){
+    const flap=Math.sin(c.walk*1.4)*s*0.5;
+    ctx.fillStyle=dk; // wings
+    ctx.fillRect(-s*0.1, -flap-s*0.1, s*0.9, s*0.22);
+    ctx.fillRect(-s*0.8, flap-s*0.1, s*0.9, s*0.22);
+    ctx.fillStyle=rgb; ctx.fillRect(-s*0.28,-s*0.25-bob,s*0.56,s*0.5); // body
+    ctx.fillStyle='#f2c23a'; ctx.fillRect(s*0.28,-s*0.12-bob,s*0.2,s*0.14); // beak
+  } else {
+    // legs
+    ctx.fillStyle=dk;
+    ctx.fillRect(-s*0.32, s*0.1-legSw, s*0.16, s*0.4+legSw); // front
+    ctx.fillRect(s*0.16, s*0.1+legSw, s*0.16, s*0.4-legSw);  // back
+    if(shape==='tall'||shape==='stocky'){ ctx.fillRect(-s*0.1,s*0.1+legSw*0.6,s*0.14,s*0.4-legSw*0.6); ctx.fillRect(s*0.02,s*0.1-legSw*0.6,s*0.14,s*0.4+legSw*0.6);}
+    // body
+    const bl = shape==='tall'?0.78: shape==='stocky'?0.95: 0.7;
+    const bh = shape==='tall'?0.5: shape==='stocky'?0.62:0.5;
+    ctx.fillStyle=rgb;
+    ctx.fillRect(-s*bl/2, -s*bh/2-bob, s*bl, s*bh);
+    // head
+    ctx.fillRect(s*(bl/2-0.12), -s*0.5-bob, s*0.42, s*0.42);
+    // ears / features
+    if(shape==='small'){ ctx.fillStyle=dk; ctx.fillRect(s*(bl/2+0.05),-s*0.85-bob,s*0.12,s*0.4); ctx.fillRect(s*(bl/2+0.22),-s*0.85-bob,s*0.12,s*0.4);} // rabbit/fox ears
+    if(c.sp==='deer'){ ctx.fillStyle=dk; ctx.fillRect(s*(bl/2+0.15),-s*0.95-bob,s*0.06,s*0.35); } // antler stub
+    // tail
+    ctx.fillStyle=dk; ctx.fillRect(-s*(bl/2+0.15), -s*0.3-bob, s*0.18, s*0.3);
+    // eye
+    ctx.fillStyle='#111'; ctx.fillRect(s*(bl/2+0.14),-s*0.4-bob,s*0.08,s*0.08);
+  }
+  // baby marker
+  if(!isAdult(c)){ ctx.fillStyle='rgba(255,255,255,.6)'; ctx.fillRect(-s*0.05,-s*0.9-bob,s*0.1,s*0.1); }
+  ctx.restore();
+  // state icon (only when zoomed in enough)
+  if(cam.z>6){
+    const em={flee:'❗',thirst:'💧',graze:'🌱',hunt:'🎯',mate:'❤️',rest:'💤'}[c.state];
+    if(em && c.state!=='wander'){ ctx.font=`${Math.max(6,s*0.9)}px serif`; ctx.fillText(em, sx-s*0.4, sy-s*0.9); }
+  }
+  if(selected===c){ ctx.strokeStyle='#f2b53e'; ctx.lineWidth=2; ctx.strokeRect(sx-s*0.9,sy-s*1.0,s*1.8,s*1.7); }
+}
+
+/* ---------- effects ---------- */
+const fx=[];
+function addFx(t,x,y){ fx.push({t,x,y,ttl:0.8,max:0.8}); }
+function drawFx(dt){
+  for(let i=fx.length-1;i>=0;i--){ const f=fx[i]; f.ttl-=dt; if(f.ttl<=0){fx.splice(i,1);continue;}
+    const sx=w2sX(f.x),sy=w2sY(f.y),p=f.ttl/f.max,s=cam.z;
+    ctx.globalAlpha=p;
+    if(f.t==='spark'){ ctx.fillStyle='#ffe07a'; for(let j=0;j<6;j++){const a=j/6*6.28+tGlobal; const r=(1-p)*s*1.5; ctx.fillRect(sx+Math.cos(a)*r,sy+Math.sin(a)*r,2,2);} }
+    else if(f.t==='rain'){ ctx.fillStyle='#8fd8ff'; ctx.fillRect(sx,sy-(1-p)*s*3,1,s*0.8); }
+    ctx.globalAlpha=1;
+  }
+}
+
+/* ---------- render ---------- */
+function render(){
+  ctx.fillStyle='#0c2036'; ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.imageSmoothingEnabled=false;
+  const ox=-cam.x*cam.z, oy=-cam.y*cam.z;
+  if(terrC) ctx.drawImage(terrC, ox,oy, W*cam.z, H*cam.z);
+  if(vegC){ if(vegDirty && vegRedrawOK) bakeVegetation(); ctx.drawImage(vegC, ox,oy, W*cam.z, H*cam.z); }
+  bakeWater(tGlobal);
+  if(waterC) ctx.drawImage(waterC, ox,oy, W*cam.z, H*cam.z);
+  // creatures sorted by y for depth
+  const vis=creatures.filter(c=>!c.dead);
+  vis.sort((a,b)=>a.y-b.y);
+  for(const c of vis) drawCreature(c);
+  drawFx(1/60);
+  // day-night tint
+  const night = isNight? 0.5 : Math.max(0, 0.45-Math.min(timeOfDay,1-timeOfDay)*2)*0.9;
+  if(night>0.02){ ctx.fillStyle=`rgba(20,30,70,${night})`; ctx.fillRect(0,0,canvas.width,canvas.height); }
+  // brush ring
+  if(tool!=='inspect'){ ctx.strokeStyle='rgba(255,255,255,.5)'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.arc(mouseX,mouseY,(toolRadius())*cam.z,0,6.28); ctx.stroke(); }
+}
+let vegRedrawOK=true;
+
+/* ---------- main loop ---------- */
+let last=performance.now(), acc=0, uiT=0, vegDrawT=0;
+function frame(now){
+  try{
+    let dt=Math.min(0.05,(now-last)/1000); last=now; 
+    const sdt=dt*speed;
+    if(speed>0 && ready){ tGlobal+=sdt;
+      // fixed-ish sub-steps for high speeds so AI stays stable
+      let steps=Math.min(6,Math.ceil(speed)); let stepDt=sdt/steps;
+      for(let i=0;i<steps;i++) tick(stepDt);
+    }
+    if(ready) render();
+    // UI update 5x/sec
+    uiT+=dt; if(uiT>0.2){ uiT=0; updateUI(); }
+  }catch(err){ console.error('Wildlands frame error (recovered):',err); }
+  finally{ requestAnimationFrame(frame); }
+}
+
+/* ---------- UI: stats, graph, inspector ---------- */
+const $=id=>document.getElementById(id);
+const popHistory={}; for(const k of SP_KEYS) popHistory[k]=[];
+let histTimer=0;
+function updateUI(){
+  const alive=creatures.filter(c=>!c.dead);
+  $('s-pop').textContent=alive.length;
+  $('s-gen').textContent='Gen '+generationMax;
+  $('s-day').textContent=(isNight?'🌙 Night ':'☀️ Day ')+day;
+  // veg %
+  let vs=0,vc=0; for(let i=0;i<veg.length;i+=17){ if(vegCap[i]>0.02){vs+=veg[i]/vegCap[i];vc++;} }
+  $('s-veg').textContent=vc?Math.round(vs/vc*100)+'%':'0%';
+  // species list
+  const counts={}, gens={}; for(const k of SP_KEYS){counts[k]=0;gens[k]=1;}
+  const avg={}; for(const k of SP_KEYS) avg[k]={};
+  for(const c of alive){ counts[c.sp]++; if(c.gen>gens[c.sp])gens[c.sp]=c.gen; }
+  // build rows
+  const box=$('splist'); 
+  let html='';
+  for(const k of SP_KEYS){
+    const S=SPECIES[k], col=S.col;
+    html+=`<div class="sprow"><div class="dot" style="background:rgb(${col[0]},${col[1]},${col[2]})"></div>`+
+      `<div class="nm">${S.emoji} ${S.label}<div class="gn">gen ${gens[k]}</div></div><div class="ct">${counts[k]}</div></div>`;
+  }
+  box.innerHTML=html;
+  // graph history
+  histTimer++; if(histTimer%5===0){ for(const k of SP_KEYS){ popHistory[k].push(counts[k]); if(popHistory[k].length>226) popHistory[k].shift(); } drawGraph(); }
+  // inspector
+  if(selected){ drawInspector(); }
+}
+function drawGraph(){
+  const g=$('popgraph').getContext('2d'), w=226,h=70; g.clearRect(0,0,w,h);
+  g.fillStyle='#20261c'; g.fillRect(0,0,w,h);
+  let mx=1; for(const k of SP_KEYS)for(const v of popHistory[k]) if(v>mx)mx=v;
+  for(const k of SP_KEYS){ const arr=popHistory[k]; if(arr.length<2)continue; const col=SPECIES[k].col;
+    g.strokeStyle=`rgb(${col[0]},${col[1]},${col[2]})`; g.lineWidth=1; g.beginPath();
+    for(let i=0;i<arr.length;i++){ const x=i, y=h-2-(arr[i]/mx)*(h-4); if(i===0)g.moveTo(x,y); else g.lineTo(x,y);} g.stroke();
+  }
+}
+let selected=null;
+function selectAt(wx,wy){
+  let best=null,bd=1.5;
+  for(const c of creatures){ if(c.dead)continue; const d=Math.hypot(c.x-wx,c.y-wy); if(d<bd){bd=d;best=c;} }
+  if(best){ selected=best; $('inspect').style.display='block'; drawInspector(); }
+  else deselect();
+}
+function deselect(){ selected=null; $('inspect').style.display='none'; }
+window.deselect=deselect;
+function drawInspector(){
+  const c=selected; if(!c){deselect();return;}
+  const S=SPECIES[c.sp];
+  $('i-name').textContent=`${S.emoji} ${S.label} ${c.dead?'†':''} · gen ${c.gen}`;
+  const stg = !isAdult(c)?'juvenile': c.age>c.genome.lifespan*0.75?'elder':'adult';
+  const stateName={wander:'Wandering',flee:'Fleeing!',thirst:'Seeking water',graze:'Grazing',hunt:'Hunting',huntSearch:'Stalking',mate:'Courting',rest:'Resting'}[c.state]||c.state;
+  $('i-state').textContent = c.dead? ('Died: '+c.cause) : `${stateName} · ${stg} · age ${c.age.toFixed(1)}${c.pregnant>0?' · 🤰':''}`;
+  const set=(id,bid,v,unit)=>{ $(id).textContent=Math.round(v)+(unit||'%'); $(bid).style.width=clamp(v,0,100)+'%'; };
+  set('i-hp','b-hp',c.hp); set('i-hun','b-hun',c.hunger); set('i-thi','b-thi',c.thirst); set('i-ene','b-ene',c.energy);
+  let gh=''; for(const k of GENE_KEYS){ let v=c.genome[k]; let disp = k==='hue'?Math.round(v)+'°': k==='temp'? (v<0.35?'cold':v<0.65?'temp':'warm') : k==='lifespan'? v.toFixed(0)+'y' : v.toFixed(2);
+    gh+=`<div class="gene"><span>${GENE_LABEL[k]}</span><b>${disp}</b></div>`; }
+  $('i-genes').innerHTML=gh;
+}
+
+/* ---------- log ---------- */
+function log(html){ const el=document.createElement('div'); el.className='lm'; el.innerHTML=html;
+  const l=$('log'); l.appendChild(el); while(l.children.length>7)l.removeChild(l.firstChild);
+  setTimeout(()=>{el.style.transition='opacity 1s';el.style.opacity=0;setTimeout(()=>el.remove(),1000);},8000); }
+
+/* ---------- tools ---------- */
+let tool='inspect', mouseX=0,mouseY=0, painting=false, dragging=false, lastMx=0,lastMy=0;
+function toolRadius(){ return tool==='rain'||tool==='drought'?4: tool==='meteor'?3: tool.startsWith('spawn')?1.5:1.5; }
+document.querySelectorAll('.tool').forEach(el=>el.addEventListener('click',()=>{
+  document.querySelectorAll('.tool').forEach(e=>e.classList.remove('active')); el.classList.add('active'); tool=el.dataset.tool;
+}));
+function applyTool(wx,wy){
+  const x=Math.round(wx),y=Math.round(wy); if(!inB(x,y))return;
+  if(tool.startsWith('spawn-')){ const sp=tool.slice(6); if(!isWater(biome[idx(x,y)])){ makeCreature(sp,wx,wy); addFx('spark',wx,wy);} return; }
+  const r=toolRadius();
+  if(tool==='rain'){ for(let dy=-r;dy<=r;dy++)for(let dx=-r;dx<=r;dx++){const nx=x+dx,ny=y+dy;if(inB(nx,ny)&&!isWater(biome[idx(nx,ny)])){veg[idx(nx,ny)]=vegCap[idx(nx,ny)];}} addFx('rain',wx,wy); vegDirty=true; }
+  else if(tool==='drought'){ for(let dy=-r;dy<=r;dy++)for(let dx=-r;dx<=r;dx++){const nx=x+dx,ny=y+dy;if(inB(nx,ny)){veg[idx(nx,ny)]=0;}} vegDirty=true; }
+  else if(tool==='meteor'){ for(const c of creatures){if(!c.dead){const d=Math.hypot(c.x-wx,c.y-wy); if(d<r) die(c,'meteor');}} for(let dy=-r;dy<=r;dy++)for(let dx=-r;dx<=r;dx++){const nx=x+dx,ny=y+dy;if(inB(nx,ny)&&dx*dx+dy*dy<r*r&&!isWater(biome[idx(nx,ny)]))veg[idx(nx,ny)]=0;} addFx('spark',wx,wy); vegDirty=true; }
+  else if(tool==='cull'){ for(const c of creatures){if(!c.dead){const d=Math.hypot(c.x-wx,c.y-wy); if(d<1.5)die(c,'removed');}} }
+}
+
+/* ---------- input ---------- */
+canvas.addEventListener('contextmenu',e=>e.preventDefault());
+canvas.addEventListener('mousedown',e=>{ lastMx=e.clientX;lastMy=e.clientY;
+  if(e.button===2||e.button===1){dragging=true;}
+  else if(e.button===0){ if(tool==='inspect') selectAt(s2wX(e.clientX),s2wY(e.clientY)); else {painting=true; applyTool(s2wX(e.clientX),s2wY(e.clientY));} }
+});
+addEventListener('mousemove',e=>{ mouseX=e.clientX;mouseY=e.clientY;
+  if(dragging){cam.x-=(e.clientX-lastMx)/cam.z; cam.y-=(e.clientY-lastMy)/cam.z;}
+  if(painting&&!tool.startsWith('spawn')) applyTool(s2wX(e.clientX),s2wY(e.clientY));
+  lastMx=e.clientX;lastMy=e.clientY;
+});
+addEventListener('mouseup',()=>{dragging=false;painting=false;});
+canvas.addEventListener('wheel',e=>{e.preventDefault(); const wx=s2wX(e.clientX),wy=s2wY(e.clientY);
+  cam.z=clamp(cam.z*(e.deltaY<0?1.15:0.87),1.5,24); cam.x=wx-e.clientX/cam.z; cam.y=wy-e.clientY/cam.z;},{passive:false});
+let td=0;
+canvas.addEventListener('touchstart',e=>{ if(e.touches.length===1){const t=e.touches[0];lastMx=t.clientX;lastMy=t.clientY; if(tool==='inspect')selectAt(s2wX(t.clientX),s2wY(t.clientY)); else{painting=true;applyTool(s2wX(t.clientX),s2wY(t.clientY));}} else if(e.touches.length===2){painting=false;dragging=true;const[a,b]=e.touches;td=Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY);lastMx=(a.clientX+b.clientX)/2;lastMy=(a.clientY+b.clientY)/2;}},{passive:true});
+canvas.addEventListener('touchmove',e=>{e.preventDefault(); if(e.touches.length===1&&painting){const t=e.touches[0];applyTool(s2wX(t.clientX),s2wY(t.clientY));} else if(e.touches.length===2){const[a,b]=e.touches;const cx=(a.clientX+b.clientX)/2,cy=(a.clientY+b.clientY)/2;cam.x-=(cx-lastMx)/cam.z;cam.y-=(cy-lastMy)/cam.z;const d=Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY);if(td>0){const wx=s2wX(cx),wy=s2wY(cy);cam.z=clamp(cam.z*d/td,1.5,24);cam.x=wx-cx/cam.z;cam.y=wy-cy/cam.z;}td=d;lastMx=cx;lastMy=cy;}},{passive:false});
+canvas.addEventListener('touchend',()=>{painting=false;dragging=false;td=0;});
+
+/* ---------- speed ---------- */
+let speed=1;
+for(const s of[0,1,3,10]){ $('spd'+s).addEventListener('click',()=>{speed=s;document.querySelectorAll('.spd').forEach(b=>b.classList.remove('active'));$('spd'+s).classList.add('active');}); }
+
+/* ---------- worldgen UI ---------- */
+const tempWords=['Frozen','Cold','Cool','Temperate','Warm','Hot','Scorching'];
+const moistWords=['Arid','Dry','Semi-dry','Balanced','Humid','Wet','Drenched'];
+const reliefWords=['Flat','Gentle','Medium','Hilly','Mountainous'];
+const animWords=['Barren','Sparse','Light','Normal','Rich','Teeming'];
+function syncLabels(){
+  $('v-seed').textContent=SEED;
+  $('v-sea').textContent=Math.round(cfg.sea*100)+'%';
+  $('v-temp').textContent=tempWords[Math.min(6,Math.floor(cfg.temp*6.99))];
+  $('v-moist').textContent=moistWords[Math.min(6,Math.floor(cfg.moist*6.99))];
+  $('v-relief').textContent=reliefWords[Math.min(4,Math.floor((cfg.relief-0.2)/0.8*4.99))];
+  $('v-anim').textContent=animWords[Math.min(5,Math.floor(cfg.animals*5.99))];
+}
+$('r-sea').addEventListener('input',e=>{cfg.sea=e.target.value/100;syncLabels();});
+$('r-temp').addEventListener('input',e=>{cfg.temp=e.target.value/100;syncLabels();});
+$('r-moist').addEventListener('input',e=>{cfg.moist=e.target.value/100;syncLabels();});
+$('r-relief').addEventListener('input',e=>{cfg.relief=e.target.value/100;syncLabels();});
+$('r-anim').addEventListener('input',e=>{cfg.animals=e.target.value/100;syncLabels();});
+document.querySelectorAll('[data-size]').forEach(el=>el.addEventListener('click',()=>{
+  document.querySelectorAll('[data-size]').forEach(b=>b.classList.remove('gold')); el.classList.add('gold'); cfg.size=el.dataset.size;}));
+$('randseed').addEventListener('click',()=>{ SEED=(Math.random()*1e9)>>>0; syncLabels(); });
+
+/* ---------- stock life ---------- */
+function stockLife(){
+  const density = cfg.animals;
+  const budget = Math.floor(lerp(0, 260, density));
+  // weight toward herbivores for a stable base; predators fewer
+  const plan={rabbit:0.34,deer:0.22,boar:0.12,fox:0.12,wolf:0.1,hawk:0.1};
+  for(const sp of SP_KEYS){
+    const n=Math.round(budget*plan[sp]);
+    for(let i=0;i<n;i++){ const t=findSpawnTile(sp); if(t) makeCreature(sp,t.x,t.y); }
+  }
+  log(`🐾 Seeded a new food web with ${creatures.filter(c=>!c.dead).length} animals.`);
+}
+
+/* ---------- generation orchestration ---------- */
+let ready=false;
+function doGenerate(fresh){
+  ready=false; $('loading').classList.remove('hidden'); $('loadmsg').textContent='Sculpting terrain…';
+  deselect();
+  setTimeout(()=>{
+    generateWorld();
+    $('loadmsg').textContent='Seeding life…';
+    creatures=[]; generationMax=1; nextId=1; for(const k of SP_KEYS) popHistory[k]=[];
+    stockLife();
+    centerCam();
+    ready=true; $('loading').classList.add('hidden');
+    log(`🌍 New world generated (seed ${SEED}).`);
+  }, 30);
+}
+$('generate').addEventListener('click',()=>{ doGenerate(true); });
+$('restock').addEventListener('click',()=>{ if(!ready)return; stockLife(); });
+
+/* ---------- boot ---------- */
+syncLabels();
+doGenerate(true);
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
