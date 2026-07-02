@@ -1,6 +1,6 @@
 import { clamp, rng, ri } from './utils.js';
 import { SPECIES, SP_KEYS } from './data.js';
-import { state, MAX_POP } from './state.js';
+import { state, MAX_POP, simulationMode } from './state.js';
 import { world } from './world.js';
 import { creatures } from './creatures.js';
 import { gpuSimulationBackend } from './gpu/simulation-backend.js';
@@ -19,6 +19,14 @@ export class Simulation
     state.timeOfDay = (state.timeOfDay + dt / 40) % 1;
     this.updateDayNight();
     state.day = Math.floor(state.tGlobal / 40);
+
+    const gpuSimPending = simulationMode === 'gpu_hybrid' && state.gpuSimInitPending && !state.gpuSimEnabled;
+    if (gpuSimPending)
+    {
+      state.growRow = (state.growRow + 1) % state.H;
+      if (state.growRow === 0) state.vegDirty = true;
+      return;
+    }
 
     if (state.simBackend === 'gpu' && state.gpuSimEnabled)
     {

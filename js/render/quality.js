@@ -53,7 +53,9 @@ export class QualityController
     const tierName = ['high', 'medium', 'low', 'emergency'][this.tier] || 'high';
     const simInfo = state.simBackend === 'gpu'
       ? ` | sim: gpu | step: ${(state.gpuTelemetry.simStepMs || 0).toFixed(2)}ms | alive: ${state.gpuTelemetry.aliveCount} | births: ${state.gpuTelemetry.birthCount} | intake: ${state.gpuTelemetry.herbivoreIntake.toFixed(2)}`
-      : ` | sim: cpu`;
+      : (state.gpuSimInitReason
+        ? ` | sim: cpu (${state.gpuSimInitReason})`
+        : ' | sim: cpu');
     hud.textContent = `backend: ${state.rendererBackend} | frame: ${this.perfHudLastMs.toFixed(2)}ms | avg: ${this.frameMsAvg.toFixed(2)}ms | tier: ${tierName} | visible: ${visibleCount}${simInfo}`;
   }
 

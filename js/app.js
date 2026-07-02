@@ -89,6 +89,7 @@ export class GameApp
     gpuCanvas.classList.add('hidden');
     if (rendererMode === 'webgpu_hybrid')
     {
+      if (simulationMode === 'gpu_hybrid') state.gpuSimInitPending = true;
       webGpuRenderer.setup().then(ok =>
       {
         state.rendererBackend = ok ? 'webgpu' : 'canvas';
@@ -105,16 +106,27 @@ export class GameApp
           {
             inited = false;
           }
-          if (inited)
+          if (inited && state.ready && state.W > 0 && state.H > 0 && state.veg)
+          {
+            const setupOk = gpuSimulationBackend.setupForCurrentWorld();
+            if (!setupOk)
+            {
+              state.simBackend = 'cpu';
+              state.gpuSimEnabled = false;
+              if (!state.gpuSimInitReason) state.gpuSimInitReason = 'setup-failed';
+            }
+          }
+          else if (inited)
           {
             state.simBackend = 'gpu';
             state.gpuSimEnabled = true;
-            if (state.ready && state.W > 0 && state.H > 0 && state.veg)
-            {
-              gpuSimulationBackend.setupForCurrentWorld();
-            }
+          }
+          else if (!state.gpuSimInitReason)
+          {
+            state.gpuSimInitReason = 'init-failed';
           }
         }
+        state.gpuSimInitPending = false;
         if (state.rendererBackend === 'webgpu') gpuCanvas.classList.remove('hidden');
         else gpuCanvas.classList.add('hidden');
       });
@@ -193,7 +205,11 @@ export class GameApp
       if (state.followSelected)
       {
         if (state.selected && !state.selected.dead) camera.followSelected();
-        else ui.setFollowMode(false);
+        else ui.deselect();
+      }
+      else if (state.selected && state.selected.dead)
+      {
+        ui.deselect();
       }
 
       const frameStart = performance.now();

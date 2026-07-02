@@ -62,6 +62,7 @@ export const state = {
   rendererBackend: 'canvas',
   simBackend: 'cpu',
   gpuSimEnabled: false,
+  gpuSimInitPending: false,
   gpuDevice: null,
   gpuContext: null,
   gpuPipeline: null,
@@ -84,6 +85,7 @@ export const state = {
   gpuSimReadbackPending: false,
   gpuSimLastReadbackAt: 0,
   gpuSimDirtyFromCpu: false,
+  gpuSimInitReason: '',
   gpuSimMirror: [],
   gpuTelemetry: {
     aliveCount: 0,

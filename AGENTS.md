@@ -260,6 +260,10 @@ Prevents permanent food-web collapse.
   2. **`webgpu_canvas_sprites`** — when `detail >= 2 && cam.z > 4.2`: GPU overlay cleared, full Canvas pixel sprites + highlights on `#world`
   3. **`canvas`** — full Canvas fallback if GPU init/submit fails
 - In GPU sim mode, compute writes a render buffer directly and `WebGpuRenderer.renderGpuBuffer()` draws without CPU repacking creature instances
+- Compute uses **one bind group, 8 storage buffers** (WebGPU per-stage limit): `creatures`, packed `worldData` (temp/moist/veg/cap/biome), `cellCounts`, `cellEntries`, packed `simAtomics` (counters/species sums/prey+food owners), `simLists` (alive/dead/birth), read-only `speciesTables`, `renderData`
+- While GPU sim is initializing (`gpuSimInitPending`), CPU creature ticks are skipped so seeded populations are not depleted before upload
+- GPU creature records now keep stable `gpuSlot` indices; CPU sync writes changed slots only (no full stale re-upload each tick), which prevents migration/prune snap-back
+- GPU behavior state is decoded from compute state codes (`wander/flee/thirst/graze/hunt/rest/mate/huntSearch`) for inspector/tooltips instead of showing a raw `gpu` placeholder
 - Large populations + poor FPS → quality tier rises → creatures simplify to circles/markers (intentional LOD, not a bug)
 - **F2** toggles perf HUD (`#perfhud`), including GPU sim metrics (sim step ms, alive, births, herbivore intake)
 
@@ -461,6 +465,7 @@ CSS for `#toolbar` exists; DOM toolbar was removed or not yet added. Re-add `<di
 - **`fish` shape** referenced in `findSpawnTile` but no fish species defined
 - **Selected dead creature** kept in array for inspector; not counted in pop
 - **GPU readback cadence** — creature/world readback is throttled to reduce stalls; inspector/graph values can lag by a fraction of a second
+- **Selected creature readback** — selected/followed creature receives a faster single-slot readback cadence for smoother inspector bars/camera tracking
 - **Pedigree/target lines under GPU** — behavior-target and pedigree lines draw on `#world`; may be obscured by WebGPU circles at default zoom
 - **Large pop → circles** — WebGPU circle LOD + quality tier reduction is intentional; zoom in + tier 0 for full sprites
 - **Git:** html + js/ tracked; no package.json

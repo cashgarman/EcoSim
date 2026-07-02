@@ -71,20 +71,30 @@ export class RenderPipeline
     {
       if (state.simBackend === 'gpu' && state.gpuSimEnabled)
       {
-        const gpuOk = webGpuRenderer.renderGpuBuffer(this.canvas, state.gpuRenderCreatureCount);
-        if (!gpuOk)
+        const preferCanvasDetail = q.detail >= 2 && state.cam.z > 4.2;
+        if (preferCanvasDetail)
         {
-          state.rendererBackend = 'canvas';
-          state.simBackend = 'cpu';
-          state.gpuReady = false;
-          state.gpuSimEnabled = false;
-          this.gpuCanvas.classList.add('hidden');
+          webGpuRenderer.clearOverlay();
           for (const c of vis) creatureRenderer.drawCreature(camera, c, q.detail);
           creatureRenderer.renderHighlights2d(camera, vis, highlightTier);
         }
         else
         {
-          creatureRenderer.renderHighlightsOverlay(camera, vis, highlightTier);
+          const gpuOk = webGpuRenderer.renderGpuBuffer(this.canvas, state.gpuRenderCreatureCount);
+          if (!gpuOk)
+          {
+            state.rendererBackend = 'canvas';
+            state.simBackend = 'cpu';
+            state.gpuReady = false;
+            state.gpuSimEnabled = false;
+            this.gpuCanvas.classList.add('hidden');
+            for (const c of vis) creatureRenderer.drawCreature(camera, c, q.detail);
+            creatureRenderer.renderHighlights2d(camera, vis, highlightTier);
+          }
+          else
+          {
+            creatureRenderer.renderHighlightsOverlay(camera, vis, highlightTier);
+          }
         }
       }
       else

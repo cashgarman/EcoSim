@@ -59,6 +59,22 @@ export class CreatureSystem
     return null;
   }
 
+  allocateGpuSlot()
+  {
+    const used = new Set();
+    for (const c of state.creatures)
+    {
+      if (!c) continue;
+      if (typeof c.gpuSlot === 'number' && c.gpuSlot >= 0)
+      {
+        used.add(c.gpuSlot);
+      }
+    }
+    let slot = 0;
+    while (used.has(slot)) slot++;
+    return slot;
+  }
+
   makeCreature(sp, x, y, genome, gen)
   {
     const S = SPECIES[sp];
@@ -90,6 +106,8 @@ export class CreatureSystem
       cause: '',
       parentIds: [],
       offspringIds: [],
+      gpuSlot: this.allocateGpuSlot(),
+      gpuNeedsUpload: true,
     };
     state.creatures.push(c);
     if ((gen || 1) > state.generationMax) state.generationMax = gen || 1;
@@ -286,6 +304,7 @@ export class CreatureSystem
   {
     if (c.dead) return;
     c.dead = true;
+    c.gpuNeedsUpload = true;
     state.gpuSimDirtyFromCpu = true;
     c.cause = cause;
     const ti = idx(clamp(Math.round(c.x), 0, state.W - 1), clamp(Math.round(c.y), 0, state.H - 1));
@@ -523,6 +542,10 @@ export class CreatureSystem
 
   pruneDead()
   {
+    if (state.simBackend === 'gpu' && state.gpuSimEnabled)
+    {
+      return;
+    }
     if (state.creatures.length > MAX_POP * 1.3 || rng() < 0.05)
     {
       state.creatures = state.creatures.filter(c => !c.dead || c === state.selected);
