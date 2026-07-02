@@ -191,8 +191,7 @@ import {
   clamp,
   lerp,
   hashN,
-  fbm,
-  vnoise
+  fbm
 } from "./js/utils.js";
 import {
   B,
@@ -289,7 +288,7 @@ function shade(c,m){ return [clamp(c[0]*m,0,255)|0,clamp(c[1]*m,0,255)|0,clamp(c
 
 function bakeTerrain(){
   terrC=document.createElement('canvas'); terrC.width=W*TX; terrC.height=H*TX; tctx=terrC.getContext('2d');
-  waterC=document.createElement('canvas'); waterC.width=W*TX; waterC.height=H*TX; wctx=waterC.getContext('2d');
+  waterC=document.createElement('canvas'); waterC.width=W; waterC.height=H; wctx=waterC.getContext('2d');
   const img=tctx.createImageData(W*TX,H*TX), d=img.data;
   for(let y=0;y<H;y++)for(let x=0;x<W;x++){
     const b=biome[idx(x,y)], info=BIOME_INFO[b], e=elev[idx(x,y)];
@@ -312,35 +311,33 @@ function bakeTerrain(){
 }
 
 // wavy diagonal wave fronts — same general heading, curved crests
-function wavyWavePhase(px, py, f, period, tileOff, wobbleAmp, wobbleFreq){
+function wavyWavePhase(px, py, f, period, tileOff, wobbleAmp, wobbleFreq, tileNoise){
   const dirX=1, dirY=0.52;
   const along=px*dirX + py*dirY;
   const cross=px*(-dirY) + py*dirX;
   const frontCurve=Math.sin(cross*wobbleFreq + f*0.07)*wobbleAmp;
-  const frontNoise=(vnoise(cross*0.042, along*0.022, 17)-0.5)*wobbleAmp*0.5;
-  return (along + frontCurve + frontNoise + tileOff + f)%period;
+  return (along + frontCurve + tileNoise + tileOff + f)%period;
 }
 function waveBandFromPhase(pos, period, power){
   return Math.pow(Math.cos(pos/period*2*Math.PI)*0.5+0.5, power);
 }
 
 // open-water shimmer: strong diagonal bands + subtle curved-front variation
-function openWaterShimmer(px, py, x, y, f, depthPeriod, depthAmp, th){
-  const tileOff=Math.floor(th*depthPeriod);
-  const pos=wavyWavePhase(px, py, f, depthPeriod, tileOff, 5.5, 0.072);
-  const primary=waveBandFromPhase(pos, depthPeriod, 4);
-  const pos2=wavyWavePhase(px+1, py, f*0.94, depthPeriod*0.9, tileOff*0.82, 3.8, 0.088);
-  const secondary=waveBandFromPhase(pos2, depthPeriod*0.9, 3);
-  const patch=0.8 + 0.2*vnoise(x*0.11, y*0.11, 43);
-  return (primary*0.74 + secondary*0.26)*patch*depthAmp;
+function openWaterShimmer(px, py, f, depthPeriod, depthAmp, tileOff, patch, noise1){
+  const pos=wavyWavePhase(px, py, f, depthPeriod, tileOff, 5.5, 0.072, noise1);
+  return waveBandFromPhase(pos, depthPeriod, 4)*patch*depthAmp;
 }
 
-// water shimmer: classic tile-band animation on open water + directional shoreline foam
+// water shimmer: tile-resolution layer (scaled on draw) + directional shoreline foam
+let waterFrameAt=-1;
 function bakeWater(frameTime){
-  const f=frameTime*8;
+  const fStep=Math.floor(frameTime*8);
+  if(fStep===waterFrameAt) return;
+  waterFrameAt=fStep;
+  const f=fStep;
   const t=frameTime;
-  wctx.clearRect(0,0,W*TX,H*TX);
-  const img=wctx.createImageData(W*TX,H*TX), d=img.data;
+  wctx.clearRect(0,0,W,H);
+  const img=wctx.createImageData(W,H), d=img.data;
   const period=48;
   for(let y=0;y<H;y++)for(let x=0;x<W;x++){
     const b=biome[idx(x,y)]; if(!isWater(b)) continue;
@@ -361,40 +358,40 @@ function bakeWater(frameTime){
     const depthAmp=isDeep?0.48 : isShallow?0.62 : 0.54;
     const depthPeriod=isDeep?56 : isShallow?42 : period;
     const th=hashN(x,y,3);
-    for(let sy=0;sy<TX;sy++)for(let sx=0;sx<TX;sx++){
-      const px=x*TX+sx, py=y*TX+sy;
-      let a=openWaterShimmer(px, py, x, y, f, depthPeriod, depthAmp, th);
-      let col=[info.col[0]+50,info.col[1]+45,info.col[2]+35];
-      if(isDeep){
-        const slowPos=wavyWavePhase(px, py, f*0.65, depthPeriod*1.15, Math.floor(th*depthPeriod*1.1), 4.2, 0.06);
-        const deepRipple=waveBandFromPhase(slowPos, depthPeriod*1.15, 3);
-        a=Math.max(a, deepRipple*0.22);
-        col=[info.col[0]+38,info.col[1]+34,info.col[2]+28];
-      }
-      else if(isShallow){
-        const fastPos=wavyWavePhase(px, py, f*1.12, depthPeriod*0.78, Math.floor(th*depthPeriod*0.85), 6, 0.085);
-        const shimmer=waveBandFromPhase(fastPos, depthPeriod*0.78, 2.5);
-        a=Math.max(a, shimmer*0.26);
-      }
-      if(nearLand){
-        const along=px*stx+py*sty;
-        const wavePhase=along*0.18 - t*1.15;
-        const crest=Math.pow(Math.sin(wavePhase)*0.5+0.5, 2.2);
-        const ripple=Math.pow(Math.sin(wavePhase*0.55 + px*snx*0.12 - py*sny*0.08 - t*0.65)*0.5+0.5, 2.5);
-        const foam=crest*0.55 + ripple*0.45;
-        const foamA=0.18 + foam*(0.35 + shoreStrength*0.4);
-        if(foamA>a){
-          a=foamA;
-          const mix=foam*shoreStrength;
-          col=[
-            lerp(info.col[0]+30, 228, mix),
-            lerp(info.col[1]+28, 244, mix),
-            lerp(info.col[2]+22, 252, mix)
-          ];
-        }
-      }
-      const o=(py*W*TX+px)*4; d[o]=col[0]|0; d[o+1]=col[1]|0; d[o+2]=col[2]|0; d[o+3]=(a*255)|0;
+    const tileOff=Math.floor(th*depthPeriod);
+    const patch=0.8 + 0.2*hashN(x,y,43);
+    const noise1=(hashN(x,y,17)-0.5)*2.75;
+    const px=x*TX+1, py=y*TX+1;
+    let a=openWaterShimmer(px, py, f, depthPeriod, depthAmp, tileOff, patch, noise1);
+    let col=[info.col[0]+50,info.col[1]+45,info.col[2]+35];
+    if(isDeep){
+      const slowPos=wavyWavePhase(px, py, f*0.65, depthPeriod*1.15, Math.floor(th*depthPeriod*1.1), 4.2, 0.06, (hashN(x,y,31)-0.5)*2.1);
+      a=Math.max(a, waveBandFromPhase(slowPos, depthPeriod*1.15, 3)*0.22);
+      col=[info.col[0]+38,info.col[1]+34,info.col[2]+28];
     }
+    else if(isShallow){
+      const fastPos=wavyWavePhase(px, py, f*1.12, depthPeriod*0.78, Math.floor(th*depthPeriod*0.85), 6, 0.085, (hashN(x,y,37)-0.5)*3);
+      a=Math.max(a, waveBandFromPhase(fastPos, depthPeriod*0.78, 2.5)*0.26);
+    }
+    if(nearLand){
+      const along=px*stx+py*sty;
+      const wavePhase=along*0.18 - t*1.15;
+      const crest=Math.pow(Math.sin(wavePhase)*0.5+0.5, 2.2);
+      const ripple=Math.pow(Math.sin(wavePhase*0.55 + px*snx*0.12 - py*sny*0.08 - t*0.65)*0.5+0.5, 2.5);
+      const foam=crest*0.55 + ripple*0.45;
+      const foamA=0.18 + foam*(0.35 + shoreStrength*0.4);
+      if(foamA>a){
+        a=foamA;
+        const mix=foam*shoreStrength;
+        col=[
+          lerp(info.col[0]+30, 228, mix),
+          lerp(info.col[1]+28, 244, mix),
+          lerp(info.col[2]+22, 252, mix)
+        ];
+      }
+    }
+    const o=idx(x,y)*4;
+    d[o]=col[0]|0; d[o+1]=col[1]|0; d[o+2]=col[2]|0; d[o+3]=(a*255)|0;
   }
   wctx.putImageData(img,0,0);
 }
@@ -671,15 +668,16 @@ function die(c, cause){
 }
 
 /* ---------- vegetation growth ---------- */
-let vegTimer=0;
+let vegTimer=0, growRow=0, vegBakeCd=0;
+const GROW_STRIDE=8;
 function growVegetation(dt){
-  // update every tile each call; growth scaled by biome capacity & moisture
-  for(let y=0;y<H;y++)for(let x=0;x<W;x++){ const ti=idx(x,y); const cap=vegCap[ti];
-    if(cap>0.02 && veg[ti]<cap){ veg[ti]=Math.min(cap, veg[ti]+cap*0.22*dt*(0.6+moist[ti])); }
+  const y=growRow;
+  for(let x=0;x<W;x++){ const ti=idx(x,y); const cap=vegCap[ti];
+    if(cap>0.02 && veg[ti]<cap){ veg[ti]=Math.min(cap, veg[ti]+cap*0.22*dt*GROW_STRIDE*(0.6+moist[ti])); }
   }
-  vegDirty=true;
+  growRow=(growRow+1)%H;
+  if(growRow===0) vegDirty=true;
 }
-let growRow=0;
 
 /* ---------- ecosystem tick ---------- */
 let day=0, tGlobal=0, timeOfDay=0.3, lightLevel=1, isNight=false;
@@ -799,7 +797,10 @@ function render(){
   ctx.imageSmoothingEnabled=false;
   const ox=-cam.x*cam.z, oy=-cam.y*cam.z;
   if(terrC) ctx.drawImage(terrC, ox,oy, W*cam.z, H*cam.z);
-  if(vegC){ if(vegDirty && vegRedrawOK) bakeVegetation(); ctx.drawImage(vegC, ox,oy, W*cam.z, H*cam.z); }
+  if(vegC){
+    if(vegDirty && vegRedrawOK && vegBakeCd<=0){ bakeVegetation(); vegBakeCd=0.15; }
+    ctx.drawImage(vegC, ox,oy, W*cam.z, H*cam.z);
+  }
   bakeWater(tGlobal);
   if(waterC) ctx.drawImage(waterC, ox,oy, W*cam.z, H*cam.z);
   // creatures sorted by y for depth
@@ -828,12 +829,14 @@ function frame(now){
   try{
     let dt=Math.min(0.05,(now-last)/1000); last=now; 
     const sdt=dt*speed;
-    if(speed>0 && ready){ tGlobal+=sdt;
+    if(speed>0 && ready){
+      tGlobal+=sdt;
       // fixed-ish sub-steps for high speeds so AI stays stable
       let steps=Math.min(6,Math.ceil(speed)); let stepDt=sdt/steps;
       for(let i=0;i<steps;i++) tick(stepDt);
     }
     if(ready) render();
+    vegBakeCd=Math.max(0, vegBakeCd-dt);
     // UI update 5x/sec
     uiT+=dt; if(uiT>0.2){ uiT=0; updateUI(); }
   }catch(err){ console.error('Wildlands frame error (recovered):',err); }
