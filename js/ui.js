@@ -329,8 +329,28 @@ export class UI
       state.lastCreatureTipKey = '';
       return;
     }
-    const hoverEl = document.elementFromPoint(clientX, clientY);
-    if (hoverEl && hoverEl.id !== 'world' && hoverEl.id !== 'world-gpu')
+
+    const following = state.followSelected && state.selected && !state.selected.dead;
+    let target = null;
+
+    if (following)
+    {
+      target = state.selected;
+    }
+    else
+    {
+      const hoverEl = document.elementFromPoint(clientX, clientY);
+      if (hoverEl && hoverEl.id !== 'world' && hoverEl.id !== 'world-gpu')
+      {
+        tip.classList.add('hidden');
+        state.hoveredCreatureId = null;
+        state.lastCreatureTipKey = '';
+        return;
+      }
+      target = creatures.findAt(camera.s2wX(clientX), camera.s2wY(clientY));
+    }
+
+    if (!target)
     {
       tip.classList.add('hidden');
       state.hoveredCreatureId = null;
@@ -338,28 +358,22 @@ export class UI
       return;
     }
 
-    const hovered = creatures.findAt(camera.s2wX(clientX), camera.s2wY(clientY));
-    if (!hovered)
-    {
-      tip.classList.add('hidden');
-      state.hoveredCreatureId = null;
-      state.lastCreatureTipKey = '';
-      return;
-    }
-
-    state.hoveredCreatureId = hovered.id;
+    state.hoveredCreatureId = target.id;
     tip.classList.remove('hidden');
-    const key = `${hovered.id}:${hovered.state}`;
+    const key = `${target.id}:${target.state}`;
     if (key !== state.lastCreatureTipKey)
     {
       state.lastCreatureTipKey = key;
-      const col = SPECIES[hovered.sp].col;
+      const col = SPECIES[target.sp].col;
       dot.style.background = `rgb(${col[0]},${col[1]},${col[2]})`;
-      label.textContent = this.creatureStateLabel(hovered.state);
+      label.textContent = this.creatureStateLabel(target.state);
     }
 
-    const sx = camera.w2sX(hovered.x);
-    const sy = camera.w2sY(hovered.y);
+    const sx = camera.w2sX(target.x);
+    const sy = camera.w2sY(target.y);
+    const s = Math.max(2.5, state.cam.z * 0.9 * creatures.eSize(target));
+    const lift = Math.round(Math.max(18, s * 1.15 + 12));
+    tip.style.setProperty('--creature-tip-lift', `${lift}px`);
     tip.style.left = `${Math.round(sx)}px`;
     tip.style.top = `${Math.round(sy)}px`;
   }

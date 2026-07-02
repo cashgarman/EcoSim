@@ -1,6 +1,6 @@
 import { setRngSeed } from './utils.js';
 import { SP_KEYS } from './data.js';
-import { state, rendererMode } from './state.js';
+import { state, rendererMode, simulationMode } from './state.js';
 import { $ } from './dom.js';
 import { world } from './world.js';
 import { camera } from './camera.js';
@@ -13,6 +13,7 @@ import { terrainRenderer } from './render/terrain-renderer.js';
 import { renderPipeline } from './render/pipeline.js';
 import { webGpuRenderer } from './render/webgpu-renderer.js';
 import { quality } from './render/quality.js';
+import { gpuSimulationBackend } from './gpu/simulation-backend.js';
 
 export class GameApp
 {
@@ -47,6 +48,35 @@ export class GameApp
     initToolButtons();
 
     window.deselect = () => ui.deselect();
+    window.runGpuBenchmark = (seconds = 12) =>
+    {
+      const samples = [];
+      const started = performance.now();
+      return new Promise(resolve =>
+      {
+        const timer = setInterval(() =>
+        {
+          samples.push({
+            t: (performance.now() - started) / 1000,
+            frameMs: quality.frameMsAvg,
+            simStepMs: state.gpuTelemetry.simStepMs || 0,
+            alive: state.gpuTelemetry.aliveCount || state.creatures.filter(c => !c.dead).length,
+            intake: state.gpuTelemetry.herbivoreIntake || 0,
+          });
+          if ((performance.now() - started) / 1000 >= seconds)
+          {
+            clearInterval(timer);
+            const avgFrame = samples.reduce((a, s) => a + s.frameMs, 0) / Math.max(1, samples.length);
+            const avgStep = samples.reduce((a, s) => a + s.simStepMs, 0) / Math.max(1, samples.length);
+            const maxAlive = samples.reduce((m, s) => Math.max(m, s.alive), 0);
+            const summary = { seconds, avgFrame, avgStep, maxAlive, samples };
+            console.log('EcoSim GPU benchmark summary', summary);
+            ui.log(`Benchmark ${seconds}s: avg frame ${avgFrame.toFixed(2)}ms, avg sim ${avgStep.toFixed(2)}ms, peak alive ${maxAlive}.`);
+            resolve(summary);
+          }
+        }, 250);
+      });
+    };
 
     addEventListener('resize', () =>
     {
@@ -62,6 +92,29 @@ export class GameApp
       webGpuRenderer.setup().then(ok =>
       {
         state.rendererBackend = ok ? 'webgpu' : 'canvas';
+        state.simBackend = 'cpu';
+        state.gpuSimEnabled = false;
+        if (ok && simulationMode === 'gpu_hybrid')
+        {
+          let inited = false;
+          try
+          {
+            inited = gpuSimulationBackend.init();
+          }
+          catch (err)
+          {
+            inited = false;
+          }
+          if (inited)
+          {
+            state.simBackend = 'gpu';
+            state.gpuSimEnabled = true;
+            if (state.ready && state.W > 0 && state.H > 0 && state.veg)
+            {
+              gpuSimulationBackend.setupForCurrentWorld();
+            }
+          }
+        }
         if (state.rendererBackend === 'webgpu') gpuCanvas.classList.remove('hidden');
         else gpuCanvas.classList.add('hidden');
       });
@@ -96,6 +149,23 @@ export class GameApp
       for (const k of SP_KEYS) state.popHistory[k] = [];
 
       creatures.stockLife();
+      if (state.gpuSimEnabled)
+      {
+        try
+        {
+          const setupOk = gpuSimulationBackend.setupForCurrentWorld();
+          if (!setupOk)
+          {
+            state.simBackend = 'cpu';
+            state.gpuSimEnabled = false;
+          }
+        }
+        catch (err)
+        {
+          state.simBackend = 'cpu';
+          state.gpuSimEnabled = false;
+        }
+      }
       camera.centerCam();
       state.ready = true;
       state.lastTerrainTipBiome = -1;

@@ -4,11 +4,15 @@ export const WORLD_SIZE_PRESETS = {
   s: { areaKm2: 25, sideKm: 5, tilesPerKm: 32 },
   m: { areaKm2: 64, sideKm: 8, tilesPerKm: 32 },
   l: { areaKm2: 100, sideKm: 10, tilesPerKm: 32 },
+  xl: { areaKm2: 400, sideKm: 20, tilesPerKm: 32 },
+  xxl: { areaKm2: 900, sideKm: 30, tilesPerKm: 24 },
 };
 
-export const MAX_POP = 900;
+export const MAX_POP = 6000;
 export const CELL = 6;
 export const rendererMode = 'webgpu_hybrid';
+export const simulationMode = 'gpu_hybrid';
+export const GPU_SIM_MAX_CREATURES = 16384;
 
 export const state = {
   SEED: (Math.random() * 1e9) >>> 0,
@@ -56,14 +60,40 @@ export const state = {
   infWaterKey: '',
 
   rendererBackend: 'canvas',
+  simBackend: 'cpu',
+  gpuSimEnabled: false,
   gpuDevice: null,
   gpuContext: null,
   gpuPipeline: null,
   gpuBindGroup: null,
   gpuUniformBuffer: null,
   gpuCreatureBuffer: null,
+  gpuRenderCreatureCount: 0,
   gpuCanvasFormat: 'bgra8unorm',
   gpuReady: false,
+  gpuSpeciesTable: null,
+  gpuSpeciesColorTable: null,
+  gpuWorldBuffers: null,
+  gpuSimBuffers: null,
+  gpuSimPipelines: null,
+  gpuSimBindGroups: null,
+  gpuSimParamBuffer: null,
+  gpuSimCellCols: 0,
+  gpuSimCellRows: 0,
+  gpuSimReadbackBuffer: null,
+  gpuSimReadbackPending: false,
+  gpuSimLastReadbackAt: 0,
+  gpuSimDirtyFromCpu: false,
+  gpuSimMirror: [],
+  gpuTelemetry: {
+    aliveCount: 0,
+    deadCount: 0,
+    birthCount: 0,
+    herbivoreIntake: 0,
+    starvationRisk: 0,
+    vegetationStock: 0,
+    simStepMs: 0,
+  },
 
   day: 0,
   tGlobal: 0,

@@ -93,6 +93,7 @@ export class CreatureSystem
     };
     state.creatures.push(c);
     if ((gen || 1) > state.generationMax) state.generationMax = gen || 1;
+    state.gpuSimDirtyFromCpu = true;
     return c;
   }
 
@@ -285,6 +286,7 @@ export class CreatureSystem
   {
     if (c.dead) return;
     c.dead = true;
+    state.gpuSimDirtyFromCpu = true;
     c.cause = cause;
     const ti = idx(clamp(Math.round(c.x), 0, state.W - 1), clamp(Math.round(c.y), 0, state.H - 1));
     if (!isWater(state.biome[ti]))
@@ -502,7 +504,9 @@ export class CreatureSystem
   stockLife()
   {
     const density = state.cfg.animals;
-    const budget = Math.floor(lerp(0, 260, density));
+    const areaScale = Math.max(0.5, state.worldAreaKm2 / 64);
+    const scaledBudget = 260 * Math.sqrt(areaScale);
+    const budget = Math.min(Math.floor(MAX_POP * 0.45), Math.floor(lerp(0, scaledBudget, density)));
     const plan = { rabbit: 0.34, deer: 0.22, boar: 0.12, fox: 0.12, wolf: 0.1, hawk: 0.1 };
     for (const sp of SP_KEYS)
     {
@@ -514,6 +518,7 @@ export class CreatureSystem
       }
     }
     this.log(`🐾 Seeded a new food web with ${state.creatures.filter(c => !c.dead).length} animals.`);
+    state.gpuSimDirtyFromCpu = true;
   }
 
   pruneDead()
@@ -521,6 +526,7 @@ export class CreatureSystem
     if (state.creatures.length > MAX_POP * 1.3 || rng() < 0.05)
     {
       state.creatures = state.creatures.filter(c => !c.dead || c === state.selected);
+      state.gpuSimDirtyFromCpu = true;
     }
   }
 }

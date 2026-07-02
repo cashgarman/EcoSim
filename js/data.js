@@ -51,6 +51,48 @@ export const SPECIES = {
 };
 
 export const SP_KEYS = Object.keys(SPECIES);
+export const SPECIES_INDEX = Object.fromEntries(SP_KEYS.map((k, i) => [k, i]));
 export const GENE_KEYS = ["size", "speed", "sense", "metab", "litter", "lifespan", "temp", "tol", "hue", "agg"];
 export const GENE_RANGE = {size: [0.35, 2.2], speed: [0.6, 2.6], sense: [3, 20], metab: [0.6, 1.6], litter: [1, 5], lifespan: [5, 28], temp: [0, 1], tol: [0.15, 0.7], hue: [0, 360], agg: [0, 1]};
 export const GENE_LABEL = {size: "Size", speed: "Speed", sense: "Sense", metab: "Metab", litter: "Litter", lifespan: "Lifespan", temp: "ClimatePref", tol: "Tolerance", hue: "Hue", agg: "Aggression"};
+
+function speciesMask(speciesList)
+{
+  let mask = 0;
+  if (!speciesList) return mask;
+  for (const sp of speciesList)
+  {
+    const bit = SPECIES_INDEX[sp] ?? -1;
+    if (bit >= 0 && bit < 30) mask |= (1 << bit);
+  }
+  return mask >>> 0;
+}
+
+export function buildGpuSpeciesTables()
+{
+  const stride = 8;
+  const table = new Float32Array(SP_KEYS.length * stride);
+  const colors = new Float32Array(SP_KEYS.length * 4);
+  for (let i = 0; i < SP_KEYS.length; i++)
+  {
+    const sp = SP_KEYS[i];
+    const s = SPECIES[sp];
+    const huntsMask = speciesMask(s.hunts);
+    const preyMask = speciesMask(s.preyOf);
+    const canSwim = s.shape === 'bird' ? 1 : 0;
+    table[i * stride + 0] = s.diet;
+    table[i * stride + 1] = huntsMask;
+    table[i * stride + 2] = preyMask;
+    table[i * stride + 3] = canSwim;
+    table[i * stride + 4] = s.base.speed;
+    table[i * stride + 5] = s.base.metab;
+    table[i * stride + 6] = s.base.sense;
+    table[i * stride + 7] = s.base.lifespan;
+
+    colors[i * 4 + 0] = s.col[0] / 255;
+    colors[i * 4 + 1] = s.col[1] / 255;
+    colors[i * 4 + 2] = s.col[2] / 255;
+    colors[i * 4 + 3] = 1;
+  }
+  return { table, colors };
+}

@@ -9,7 +9,7 @@
 | Entry point | `wildlands-ecosim.html` (open in browser, no build step) |
 | Modules | `js/` — ES module classes (see tree below) |
 | Run | Serve or open `wildlands-ecosim.html` locally |
-| Stack | Vanilla JS ES modules, Canvas 2D + WebGPU creature overlay + highlight canvas |
+| Stack | Vanilla JS ES modules, Canvas 2D + WebGPU compute simulation + WebGPU creature overlay |
 
 ```
 EcoSim/
@@ -28,6 +28,8 @@ EcoSim/
 │   ├── input.js            # InputManager — canvas/panel/keyboard input
 │   ├── tools.js            # Editor tools (spawn, rain, meteor, cull)
 │   ├── fx.js               # Effects — spark/rain particles
+│   ├── gpu/
+│   │   └── simulation-backend.js # GpuSimulationBackend — compute sim + readback bridge
 │   └── render/
 │       ├── terrain-renderer.js   # TerrainRenderer — terrain/water/veg bake
 │       ├── creature-renderer.js  # CreatureRenderer — 2D sprites, highlights, pedigree
@@ -41,7 +43,7 @@ EcoSim/
 
 ## Architecture Overview
 
-Single-page sim: procedural tile world → vegetation layer → creature AI tick → layered render.
+Single-page sim: procedural tile world → CPU or GPU creature/world simulation tick → layered render.
 
 ```mermaid
 flowchart TB
@@ -55,9 +57,9 @@ flowchart TB
     bake[bakeTerrain / bakeVegetation]
   end
   subgraph sim [Simulation Loop tick]
-    grid[Spatial hash rebuild]
-    creatures[stepCreature x N]
-    veg[growVegetation row scan]
+    cpuPath[CPU path rebuildGrid + stepCreature]
+    gpuPath[GPU path clearBins/bin/intent/resolve/integrate]
+    veg[Vegetation growth + food consumption]
     migrant[Migrant re-seed]
   end
   subgraph render [Render frame]
@@ -91,6 +93,8 @@ flowchart TB
 | `s` | 25 | 5 | 32 | 160×160 |
 | `m` | 64 | 8 | 32 | 256×256 |
 | `l` | 100 | 10 | 32 | 320×320 |
+| `xl` | 400 | 20 | 32 | 640×640 |
+| `xxl` | 900 | 30 | 24 | 720×720 |
 
 - `worldKmPerTile = sideKm / sideTiles`
 - Adaptive perf knobs scale with `W*H`: `TX` (terrain subpixels), `growStride`, `vegBakeInterval`
@@ -127,9 +131,9 @@ Sliders in left panel map to these. `SEED` drives `setRngSeed(SEED)` at generati
 
 ### Population limits
 
-- `MAX_POP = 900` hard cap for births/spawns
+- `MAX_POP = 6000` hard cap for births/spawns
 - Dead creatures pruned periodically (`creatures.filter`); selected dead creature kept for inspector
-- `stockLife()` seeds ~0–260 animals weighted by `cfg.animals`
+- `stockLife()` seeds scaled by density + world area (`sqrt(area/64)`), clamped to ~45% of `MAX_POP`
 
 ### Species (`SPECIES` in `data.js`)
 
@@ -201,12 +205,14 @@ Sliders in left panel map to these. `SEED` drives `setRngSeed(SEED)` at generati
 - `CELL = 6`, `grid: Map<gkey, Creature[]>`
 - `rebuildGrid()` each tick before creature steps
 - `nearby(c, r)` queries cell neighborhood
+- GPU backend uses a uniform-cell bin buffer (`cellCounts`, fixed-cap `cellEntries`) for local neighbor scans
 
 ### Vegetation
 
 - **Graze:** bite up to `3.5*dt` veg; hunger += bite×26; sets `vegDirty`
 - **Growth:** one row per tick (`growRow`), rate `cap * 0.22 * dt * growStride * (0.6+moist)`
 - **Bake:** `bakeVegetation()` when dirty (throttled by `vegBakeInterval`)
+- GPU backend treats vegetation as tangible food-state buffers (`veg`, `vegCap`) with deterministic tile-owner claims before bite writes
 
 ### Migrant system (every ~6s)
 
@@ -248,12 +254,14 @@ Prevents permanent food-web collapse.
 ### WebGPU hybrid (`rendererMode='webgpu_hybrid'`)
 
 - Falls back to Canvas if no `navigator.gpu`
+- `simulationMode='gpu_hybrid'` enables GPU simulation when WebGPU is available; fallback is CPU simulation
 - **Three creature render paths** (chosen each frame in `RenderPipeline.render()`):
   1. **`webgpu_circles`** (default under load / normal zoom) — GPU draws filled circles; highlights on `#world-hl` via `renderHighlightsOverlay()`
   2. **`webgpu_canvas_sprites`** — when `detail >= 2 && cam.z > 4.2`: GPU overlay cleared, full Canvas pixel sprites + highlights on `#world`
   3. **`canvas`** — full Canvas fallback if GPU init/submit fails
+- In GPU sim mode, compute writes a render buffer directly and `WebGpuRenderer.renderGpuBuffer()` draws without CPU repacking creature instances
 - Large populations + poor FPS → quality tier rises → creatures simplify to circles/markers (intentional LOD, not a bug)
-- **F2** toggles perf HUD (`#perfhud`)
+- **F2** toggles perf HUD (`#perfhud`), including GPU sim metrics (sim step ms, alive, births, herbivore intake)
 
 ### Quality tiers (`QualityController` in `quality.js`)
 
@@ -367,6 +375,7 @@ CSS for `#toolbar` exists; DOM toolbar was removed or not yet added. Re-add `<di
 | `render/webgpu-renderer.js` | `WebGpuRenderer` | WebGPU instanced creature circles |
 | `render/quality.js` | `QualityController` | adaptive tiers, `effectiveHighlight`, F2 perf HUD |
 | `render/pipeline.js` | `RenderPipeline` | `render()` layer orchestration (3 canvases) |
+| `gpu/simulation-backend.js` | `GpuSimulationBackend` | compute simulation passes, spatial bins, global awareness, conflict resolution, readback |
 | `ui.js` | `UI` | stats, graph, inspector, log, worldgen labels |
 | `input.js` | `InputManager` | canvas/panel/keyboard handlers; **F2** perf HUD toggle |
 | `app.js` | `GameApp` | boot, `doGenerate`, `frame` loop |
@@ -379,6 +388,8 @@ CSS for `#toolbar` exists; DOM toolbar was removed or not yet added. Re-add `<di
 |----------|----------|--------|
 | `MAX_POP` | `state.js` | Population ceiling |
 | `CELL` | `state.js` | Spatial hash cell size |
+| `GPU_SIM_MAX_CREATURES` | `state.js` | GPU creature pool cap |
+| `simBackend` / `simulationMode` | `state.js` | CPU/GPU simulation routing |
 | Need decay rates | `stepCreature` | Survival difficulty |
 | Catch probability | hunt case ~1014 | Predator efficiency |
 | `growStride`, veg growth 0.22 | `growVegetation` | Regrowth speed |
@@ -439,8 +450,8 @@ CSS for `#toolbar` exists; DOM toolbar was removed or not yet added. Re-add `<di
 1. Import `app.js` from html, init RNG seed via `GameApp`
 2. Init `#world`, `#world-gpu`, `#world-hl` canvases; `RenderPipeline.init(canvas, gpuCanvas, hlCanvas)`
 3. `syncLabels()`, `initDraggablePanels()`, `webGpuRenderer.setup()` (async)
-4. `doGenerate(true)` → `World.generate()` → `stockLife()` → `ready=true`
-5. `frame()` loop: `Simulation.tick(sdt)` → `RenderPipeline.render()` → `UI.updateUI()` (5 Hz)
+4. `doGenerate(true)` → `World.generate()` → `stockLife()` → (if GPU enabled) `gpuSimulationBackend.setupForCurrentWorld()` → `ready=true`
+5. `frame()` loop: `Simulation.tick(sdt)` (CPU or GPU backend) → `RenderPipeline.render()` → `UI.updateUI()` (5 Hz)
 
 ---
 
@@ -449,7 +460,7 @@ CSS for `#toolbar` exists; DOM toolbar was removed or not yet added. Re-add `<di
 - **Toolbar DOM missing** — tool system wired but no visible toolbar buttons (CSS `#toolbar` only)
 - **`fish` shape** referenced in `findSpawnTile` but no fish species defined
 - **Selected dead creature** kept in array for inspector; not counted in pop
-- **Sim vs render quality** — quality tier affects rendering only; comment in frame loop confirms sim unchanged
+- **GPU readback cadence** — creature/world readback is throttled to reduce stalls; inspector/graph values can lag by a fraction of a second
 - **Pedigree/target lines under GPU** — behavior-target and pedigree lines draw on `#world`; may be obscured by WebGPU circles at default zoom
 - **Large pop → circles** — WebGPU circle LOD + quality tier reduction is intentional; zoom in + tier 0 for full sprites
 - **Git:** html + js/ tracked; no package.json
@@ -467,4 +478,4 @@ Sections to revise:
 - New UI panels or tools → UI & Input
 - Perf/render pipeline changes → Rendering
 
-*Last synced with codebase: 2026-07-02*
+*Last synced with codebase: 2026-07-02 (GPU simulation backend update)*

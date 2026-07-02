@@ -232,6 +232,36 @@ export class WebGpuRenderer
     state.gpuDevice.queue.submit([encoder.finish()]);
     return true;
   }
+
+  renderGpuBuffer(canvas, count)
+  {
+    if (!state.gpuReady || !state.gpuDevice || !state.gpuContext) return false;
+    if (!state.gpuBindGroup || !state.gpuCreatureBuffer || count <= 0)
+    {
+      this.clearOverlay();
+      return true;
+    }
+    const cameraData = new Float32Array([
+      state.cam.x, state.cam.y, state.cam.z,
+      canvas.width, canvas.height, 0, 0, 0,
+    ]);
+    state.gpuDevice.queue.writeBuffer(state.gpuUniformBuffer, 0, cameraData.buffer);
+    const encoder = state.gpuDevice.createCommandEncoder();
+    const pass = encoder.beginRenderPass({
+      colorAttachments: [{
+        view: state.gpuContext.getCurrentTexture().createView(),
+        clearValue: { r: 0, g: 0, b: 0, a: 0 },
+        loadOp: 'clear',
+        storeOp: 'store',
+      }],
+    });
+    pass.setPipeline(state.gpuPipeline);
+    pass.setBindGroup(0, state.gpuBindGroup);
+    pass.draw(6, count, 0, 0);
+    pass.end();
+    state.gpuDevice.queue.submit([encoder.finish()]);
+    return true;
+  }
 }
 
 export const webGpuRenderer = new WebGpuRenderer();

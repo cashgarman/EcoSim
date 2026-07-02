@@ -3,6 +3,7 @@ import { SPECIES, SP_KEYS } from './data.js';
 import { state, MAX_POP } from './state.js';
 import { world } from './world.js';
 import { creatures } from './creatures.js';
+import { gpuSimulationBackend } from './gpu/simulation-backend.js';
 
 export class Simulation
 {
@@ -18,6 +19,49 @@ export class Simulation
     state.timeOfDay = (state.timeOfDay + dt / 40) % 1;
     this.updateDayNight();
     state.day = Math.floor(state.tGlobal / 40);
+
+    if (state.simBackend === 'gpu' && state.gpuSimEnabled)
+    {
+      const simStart = performance.now();
+      gpuSimulationBackend.step(dt);
+      const simMs = performance.now() - simStart;
+      state.gpuTelemetry.simStepMs = state.gpuTelemetry.simStepMs
+        ? state.gpuTelemetry.simStepMs * 0.85 + simMs * 0.15
+        : simMs;
+      state.growRow = (state.growRow + 1) % state.H;
+      if (state.growRow === 0) state.vegDirty = true;
+      state.migrantTimer += dt;
+      if (state.migrantTimer > 6)
+      {
+        state.migrantTimer = 0;
+        const alive = state.creatures.filter(c => !c.dead);
+        const counts = {};
+        for (const k of SP_KEYS) counts[k] = 0;
+        for (const c of alive) counts[c.sp] = (counts[c.sp] || 0) + 1;
+        for (const sp of SP_KEYS)
+        {
+          const isPredator = SPECIES[sp].diet >= 1;
+          const preyAround = SPECIES[sp].hunts ? SPECIES[sp].hunts.some(p => (counts[p] || 0) > 2) : true;
+          if ((counts[sp] || 0) <= 1 && alive.length < MAX_POP * 0.7 && rng() < (isPredator ? 0.25 : 0.6) && (!isPredator || preyAround))
+          {
+            const n = isPredator ? 1 : ri(2, 3);
+            for (let i = 0; i < n; i++)
+            {
+              const t = creatures.findSpawnTile(sp);
+              if (t)
+              {
+                const c = creatures.makeCreature(sp, t.x, t.y);
+                c.hunger = 85;
+                c.thirst = 85;
+              }
+            }
+            creatures.log(`${SPECIES[sp].emoji} ${SPECIES[sp].label}s migrate into the region.`);
+          }
+        }
+      }
+      creatures.pruneDead();
+      return;
+    }
 
     creatures.rebuildGrid();
     for (const c of state.creatures)
