@@ -311,18 +311,28 @@ function bakeTerrain(){
   tctx.putImageData(img,0,0);
 }
 
-// open-water shimmer: strong diagonal bands + subtle local variation, same general heading
+// wavy diagonal wave fronts — same general heading, curved crests
+function wavyWavePhase(px, py, f, period, tileOff, wobbleAmp, wobbleFreq){
+  const dirX=1, dirY=0.52;
+  const along=px*dirX + py*dirY;
+  const cross=px*(-dirY) + py*dirX;
+  const frontCurve=Math.sin(cross*wobbleFreq + f*0.07)*wobbleAmp;
+  const frontNoise=(vnoise(cross*0.042, along*0.022, 17)-0.5)*wobbleAmp*0.5;
+  return (along + frontCurve + frontNoise + tileOff + f)%period;
+}
+function waveBandFromPhase(pos, period, power){
+  return Math.pow(Math.cos(pos/period*2*Math.PI)*0.5+0.5, power);
+}
+
+// open-water shimmer: strong diagonal bands + subtle curved-front variation
 function openWaterShimmer(px, py, x, y, f, depthPeriod, depthAmp, th){
   const tileOff=Math.floor(th*depthPeriod);
-  const basePos=(px+(py>>1)*3 + tileOff + f)%depthPeriod;
-  const primary=Math.pow(Math.cos(basePos/depthPeriod*2*Math.PI)*0.5+0.5, 4);
-  const ang=(hashN(x,y,11)-0.5)*0.14;
-  const jx=1+ang, jy=0.5+ang*0.55;
-  const warp=(hashN(px>>2, py>>2, 31)-0.5)*2.5;
-  const varPos=(px*jx + (py>>1)*3*jy + warp + tileOff*0.73 + f*0.93)%(depthPeriod*0.88);
-  const secondary=Math.pow(Math.cos(varPos/(depthPeriod*0.88)*2*Math.PI)*0.5+0.5, 3);
-  const patch=0.78 + 0.22*vnoise(x*0.11, y*0.11, 43);
-  return (primary*0.76 + secondary*0.24)*patch*depthAmp;
+  const pos=wavyWavePhase(px, py, f, depthPeriod, tileOff, 5.5, 0.072);
+  const primary=waveBandFromPhase(pos, depthPeriod, 4);
+  const pos2=wavyWavePhase(px+1, py, f*0.94, depthPeriod*0.9, tileOff*0.82, 3.8, 0.088);
+  const secondary=waveBandFromPhase(pos2, depthPeriod*0.9, 3);
+  const patch=0.8 + 0.2*vnoise(x*0.11, y*0.11, 43);
+  return (primary*0.74 + secondary*0.26)*patch*depthAmp;
 }
 
 // water shimmer: classic tile-band animation on open water + directional shoreline foam
@@ -356,14 +366,14 @@ function bakeWater(frameTime){
       let a=openWaterShimmer(px, py, x, y, f, depthPeriod, depthAmp, th);
       let col=[info.col[0]+50,info.col[1]+45,info.col[2]+35];
       if(isDeep){
-        const slowPos=(px+(py>>1)*3 + Math.floor(th*depthPeriod*1.1) + f*0.65)% (depthPeriod*1.15);
-        const deepRipple=Math.pow(Math.cos(slowPos/(depthPeriod*1.15)*2*Math.PI)*0.5+0.5, 3);
+        const slowPos=wavyWavePhase(px, py, f*0.65, depthPeriod*1.15, Math.floor(th*depthPeriod*1.1), 4.2, 0.06);
+        const deepRipple=waveBandFromPhase(slowPos, depthPeriod*1.15, 3);
         a=Math.max(a, deepRipple*0.22);
         col=[info.col[0]+38,info.col[1]+34,info.col[2]+28];
       }
       else if(isShallow){
-        const fastPos=(px+(py>>1)*3 + Math.floor(th*depthPeriod*0.85) + f*1.12)% (depthPeriod*0.78);
-        const shimmer=Math.pow(Math.cos(fastPos/(depthPeriod*0.78)*2*Math.PI)*0.5+0.5, 2.5);
+        const fastPos=wavyWavePhase(px, py, f*1.12, depthPeriod*0.78, Math.floor(th*depthPeriod*0.85), 6, 0.085);
+        const shimmer=waveBandFromPhase(fastPos, depthPeriod*0.78, 2.5);
         a=Math.max(a, shimmer*0.26);
       }
       if(nearLand){
