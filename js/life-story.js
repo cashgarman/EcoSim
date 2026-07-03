@@ -2,6 +2,7 @@ import { SPECIES, sexSymbol } from './data.js';
 import { refineDeathCause, inferKillerId } from './creature-notify.js';
 import { state } from './state.js';
 import { timelineDb } from './timeline-db.js';
+import { shouldPersistCreatureEvent } from './perf-policy.js';
 
 export const DECISION_DEBOUNCE_SEC = 2.5;
 export const MAX_LIFE_EVENTS = 300;
@@ -62,6 +63,10 @@ export class LifeStory
     while (story.events.length > MAX_LIFE_EVENTS)
     {
       story.events.shift();
+    }
+    if (!shouldPersistCreatureEvent(ev.kind, c.id))
+    {
+      return ev;
     }
     timelineDb.appendCreatureEvent({
       creatureId: c.id,

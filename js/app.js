@@ -20,6 +20,7 @@ import { timelineDb } from './timeline-db.js';
 import { timeScrub } from './time-scrub.js';
 import { captureSnapshot } from './snapshot.js';
 import { loadTimelineConfig } from './config.js';
+import { effectiveSnapshotIntervalSec } from './perf-policy.js';
 
 export class GameApp
 {
@@ -279,7 +280,10 @@ export class GameApp
         state.tGlobal += sdt;
         const steps = Math.min(6, Math.ceil(state.speed));
         const stepDt = sdt / steps;
-        for (let i = 0; i < steps; i++) simulation.tick(stepDt);
+        for (let i = 0; i < steps; i++)
+        {
+          simulation.tick(stepDt, { substep: i, substepCount: steps });
+        }
       }
 
       if (!viewingPast)
@@ -287,7 +291,7 @@ export class GameApp
         timeScrub.noteLiveAdvance();
 
         // Periodic snapshot for time scrubbing (every snapshotIntervalSec)
-        const snapInterval = state.snapshotIntervalSec || 10;
+        const snapInterval = effectiveSnapshotIntervalSec();
         if (state.tGlobal >= (state.lastSnapshotAt || 0) + snapInterval)
         {
           state.lastSnapshotAt = state.tGlobal;

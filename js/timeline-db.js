@@ -1,4 +1,5 @@
 import { state } from './state.js';
+import { timelineWritePressure } from './perf-policy.js';
 
 const DB_NAME = 'ecosim_timeline';
 const DB_VERSION = 2;
@@ -39,6 +40,7 @@ export class TimelineDb
     this._listeners = new Set();
     this._recentWorldEvents = [];
     this._maxRecentWorldEvents = 220;
+    this._droppedWrites = 0;
   }
 
   _open()
@@ -169,6 +171,25 @@ export class TimelineDb
 
   _queueWrite(kind, payload)
   {
+    const pressure = timelineWritePressure();
+    const maxQueue = pressure === 'high' ? 480 : pressure === 'medium' ? 960 : 2400;
+    if (this._queue.length >= maxQueue)
+    {
+      if (kind === 'creature')
+      {
+        this._droppedWrites++;
+        if (!state.gpuTelemetry) state.gpuTelemetry = {};
+        state.gpuTelemetry.droppedTimelineWrites = this._droppedWrites;
+        return;
+      }
+      if (kind === 'heartbeat')
+      {
+        this._droppedWrites++;
+        if (!state.gpuTelemetry) state.gpuTelemetry = {};
+        state.gpuTelemetry.droppedTimelineWrites = this._droppedWrites;
+        return;
+      }
+    }
     this._queue.push({ kind, payload });
     if (this._flushScheduled) return;
     this._flushScheduled = true;

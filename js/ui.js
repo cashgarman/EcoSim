@@ -8,6 +8,7 @@ import { stateLabelFromConfig } from './behavior/loader.js';
 import { lifeStory } from './life-story.js';
 import { timelineDb } from './timeline-db.js';
 import { timeScrub } from './time-scrub.js';
+import { effectiveScrubTickRefreshMs } from './perf-policy.js';
 import {
   formatBornEvent,
   formatDiedEvent,
@@ -1217,7 +1218,8 @@ export class UI
   {
     if (this._scrubTicksLoading) return;
     const now = performance.now();
-    if (!force && now - this._scrubTicksLastAt < 1600) return;
+    const refreshMs = effectiveScrubTickRefreshMs();
+    if (!force && now - this._scrubTicksLastAt < refreshMs) return;
     if (!state.ready) return;
     if (timeScrub.active) return;
 

@@ -39,6 +39,7 @@ export class QualityController
     else if (this.frameMsAvg > 16.8) this.tier = 1;
     else this.tier = 0;
     this.renderDecimation = this.config().decimation;
+    if (state.gpuTelemetry) state.gpuTelemetry.qualityTier = this.tier;
   }
 
   updateHud(visibleCount)
@@ -66,6 +67,14 @@ export class QualityController
       $('perf-alive').textContent = String(state.gpuTelemetry.aliveCount ?? 0);
       $('perf-births').textContent = String(state.gpuTelemetry.birthCount ?? 0);
       $('perf-intake').textContent = (state.gpuTelemetry.herbivoreIntake ?? 0).toFixed(2);
+      const poolEl = $('perf-pool');
+      if (poolEl) poolEl.textContent = String(state.gpuTelemetry.poolSize ?? state.gpuRenderCreatureCount ?? 0);
+      const arrEl = $('perf-arr');
+      if (arrEl) arrEl.textContent = String(state.gpuTelemetry.creatureArraySize ?? state.creatures.length);
+      const rbEl = $('perf-readback');
+      if (rbEl) rbEl.textContent = `${(state.gpuTelemetry.readbackMs || 0).toFixed(2)}ms`;
+      const dropEl = $('perf-drops');
+      if (dropEl) dropEl.textContent = String(state.gpuTelemetry.droppedTimelineWrites ?? 0);
     }
     else
     {

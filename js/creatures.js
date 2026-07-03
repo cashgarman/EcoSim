@@ -449,15 +449,17 @@ export class CreatureSystem
 
   pruneDead()
   {
-    if (state.simBackend === 'gpu' && state.gpuSimEnabled)
-    {
-      return;
-    }
-    if (state.creatures.length > MAX_POP * 1.3 || rng() < 0.05)
-    {
-      state.creatures = state.creatures.filter(c => !c.dead || c === state.selected);
-      state.gpuSimDirtyFromCpu = true;
-    }
+    const onGpu = state.simBackend === 'gpu' && state.gpuSimEnabled;
+    const aliveCount = onGpu
+      ? (state.gpuTelemetry.aliveCount || state.creatures.filter(c => c && !c.dead).length)
+      : state.creatures.filter(c => c && !c.dead).length;
+    const deadCount = state.creatures.length - aliveCount;
+    const overCapacity = state.creatures.length > MAX_POP * 1.15;
+    const deadBloat = deadCount > Math.max(40, aliveCount * 0.08);
+    if (!overCapacity && !deadBloat && rng() >= 0.05) return;
+
+    state.creatures = state.creatures.filter(c => c && (!c.dead || c === state.selected));
+    if (!onGpu) state.gpuSimDirtyFromCpu = true;
   }
 }
 

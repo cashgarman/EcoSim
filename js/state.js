@@ -96,6 +96,11 @@ export const state = {
     starvationRisk: 0,
     vegetationStock: 0,
     simStepMs: 0,
+    readbackMs: 0,
+    poolSize: 0,
+    creatureArraySize: 0,
+    droppedTimelineWrites: 0,
+    qualityTier: 0,
   },
 
   day: 0,

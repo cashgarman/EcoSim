@@ -51,8 +51,11 @@ export class BehaviorTree
     const decision = this.decide(creature, creatureSystem);
     if (!decision) return null;
     applyDecisionWithContext(creature, decision, decision.ctx, creatureSystem);
-    lifeStory.observeDecision(creature, creature.state, creature.target, decision.nodeId);
-    lifeStory.observeAge(creature);
+    if (state.simBackend !== 'gpu' || !state.gpuSimEnabled)
+    {
+      lifeStory.observeDecision(creature, creature.state, creature.target, decision.nodeId);
+      lifeStory.observeAge(creature);
+    }
     return decision;
   }
 }

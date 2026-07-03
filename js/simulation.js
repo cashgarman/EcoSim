@@ -6,6 +6,7 @@ import { creatures } from './creatures.js';
 import { gpuSimulationBackend } from './gpu/simulation-backend.js';
 import { behaviorTree } from './behavior/index.js';
 import { timelineDb } from './timeline-db.js';
+import { effectiveHeartbeatIntervalSec, shouldRunBehaviorThisSubstep } from './perf-policy.js';
 
 export class Simulation
 {
@@ -49,8 +50,9 @@ export class Simulation
 
   captureHeartbeat()
   {
+    const interval = effectiveHeartbeatIntervalSec();
     if (state.tGlobal < state.heartbeatNextAt) return;
-    state.heartbeatNextAt = state.tGlobal + state.heartbeatIntervalSec;
+    state.heartbeatNextAt = state.tGlobal + interval;
     const alive = state.creatures.filter(c => !c.dead);
     const counts = {};
     const avgNeeds = { hp: 0, hunger: 0, thirst: 0, energy: 0 };
@@ -109,7 +111,7 @@ export class Simulation
    * 
    * @param {number} dt – Time delta (fraction of a day, or simulation step).
    */
-  tick(dt)
+  tick(dt, options = {})
   {
     // Advance the in-game time of day (fraction between 0 and 1)
     state.timeOfDay = (state.timeOfDay + dt / 40) % 1;
@@ -144,19 +146,17 @@ export class Simulation
     // If backend is GPU and GPU simulation is fully enabled:
     if (state.simBackend === 'gpu' && state.gpuSimEnabled)
     {
-      // Step 1: Compute behavior decisions for all alive creatures on the CPU
-      // - Rebuild spatial grid for neighbors/interactions
-      creatures.rebuildGrid();
-      for (const c of state.creatures)
+      const runBehavior = shouldRunBehaviorThisSubstep(options.substep, options.substepCount);
+      if (runBehavior)
       {
-        // For each living creature, update their planned action decision using their behavior tree
-        if (!c.dead) behaviorTree.tickDecisionOnly(c, creatures);
+        creatures.rebuildGrid();
+        for (const c of state.creatures)
+        {
+          if (!c.dead) behaviorTree.tickDecisionOnly(c, creatures);
+        }
+        gpuSimulationBackend.uploadBehaviorDecisions();
       }
 
-      // Step 2: Upload all creatures' decisions to the GPU backend
-      gpuSimulationBackend.uploadBehaviorDecisions();
-
-      // Step 3: Run the full simulation step on the GPU and measure its duration
       const simStart = performance.now();
       gpuSimulationBackend.step(dt);
       const simMs = performance.now() - simStart;
