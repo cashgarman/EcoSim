@@ -16,7 +16,7 @@ struct Camera {
   camZ: f32,
   width: f32,
   height: f32,
-  pad0: f32,
+  sizeScale: f32,
   pad1: f32,
   pad2: f32,
 };
@@ -44,7 +44,7 @@ fn vsMain(input: VSIn) -> VSOut {
   );
   let c = creatures[input.ii];
   let lp = quad[input.vi];
-  let world = c.pos + lp * c.size;
+  let world = c.pos + lp * (c.size * camera.sizeScale);
   let sx = (world.x - camera.camX) * camera.camZ;
   let sy = (world.y - camera.camY) * camera.camZ;
   let ndcX = (sx / camera.width) * 2.0 - 1.0;
@@ -74,7 +74,9 @@ export class WebGpuRenderer
   constructor()
   {
     this.gpuCanvas = null;
-    this._dbgGpuBufLastAt = 0;
+    this.cpuCreatureBuffer = null;
+    this.cpuBindGroup = null;
+    this.cpuBufferBytes = 0;
   }
 
   init(gpuCanvas)
@@ -160,6 +162,29 @@ export class WebGpuRenderer
     state.gpuDevice.queue.submit([encoder.finish()]);
   }
 
+  ensureCpuCreatureBindGroup(requiredBytes)
+  {
+    if (!state.gpuDevice || !state.gpuPipeline || !state.gpuUniformBuffer) return false;
+    const minBytes = Math.max(4 * 1024 * 1024, requiredBytes);
+    const targetBytes = Math.ceil(minBytes / 256) * 256;
+    if (!this.cpuCreatureBuffer || this.cpuBufferBytes < targetBytes)
+    {
+      this.cpuCreatureBuffer = state.gpuDevice.createBuffer({
+        size: targetBytes,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      });
+      this.cpuBindGroup = state.gpuDevice.createBindGroup({
+        layout: state.gpuPipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: this.cpuCreatureBuffer } },
+          { binding: 1, resource: { buffer: state.gpuUniformBuffer } },
+        ],
+      });
+      this.cpuBufferBytes = targetBytes;
+    }
+    return !!this.cpuBindGroup;
+  }
+
   renderCreatures(camera, canvas, vis, detailTier, highlightTier)
   {
     if (!state.gpuReady || !state.gpuDevice || !state.gpuContext) return false;
@@ -210,10 +235,13 @@ export class WebGpuRenderer
     const used = i;
     if (used === 0) return true;
 
-    state.gpuDevice.queue.writeBuffer(state.gpuCreatureBuffer, 0, data.buffer, 0, used * stride * 4);
+    const usedBytes = used * stride * 4;
+    if (!this.ensureCpuCreatureBindGroup(usedBytes)) return false;
+
+    state.gpuDevice.queue.writeBuffer(this.cpuCreatureBuffer, 0, data.buffer, 0, usedBytes);
     const cameraData = new Float32Array([
       state.cam.x, state.cam.y, state.cam.z,
-      canvas.width, canvas.height, 0, 0, 0,
+      canvas.width, canvas.height, 1, 0, 0,
     ]);
     state.gpuDevice.queue.writeBuffer(state.gpuUniformBuffer, 0, cameraData.buffer);
 
@@ -227,46 +255,16 @@ export class WebGpuRenderer
       }],
     });
     pass.setPipeline(state.gpuPipeline);
-    pass.setBindGroup(0, state.gpuBindGroup);
+    pass.setBindGroup(0, this.cpuBindGroup);
     pass.draw(6, used, 0, 0);
     pass.end();
     state.gpuDevice.queue.submit([encoder.finish()]);
     return true;
   }
 
-  renderGpuBuffer(canvas, count)
+  renderGpuBuffer(canvas, count, sizeScale = 1)
   {
     if (!state.gpuReady || !state.gpuDevice || !state.gpuContext) return false;
-    const dbgNow = Date.now();
-    if (dbgNow - this._dbgGpuBufLastAt >= 500)
-    {
-      this._dbgGpuBufLastAt = dbgNow;
-      // #region agent log
-      fetch('http://127.0.0.1:7380/ingest/1f42d0b3-052e-4f03-9f2a-63f9a93dd687', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Debug-Session-Id': '556f60',
-        },
-        body: JSON.stringify({
-          sessionId: '556f60',
-          runId: 'post-fix',
-          hypothesisId: 'H5',
-          location: 'js/render/webgpu-renderer.js:237',
-          message: 'renderGpuBuffer invocation',
-          data: {
-            count,
-            camZ: state.cam.z,
-            scrubActive: state.scrubActive,
-            rendererBackend: state.rendererBackend,
-            simBackend: state.simBackend,
-            gpuSimEnabled: state.gpuSimEnabled,
-          },
-          timestamp: dbgNow,
-        }),
-      }).catch(() => {});
-      // #endregion
-    }
     if (!state.gpuBindGroup || !state.gpuCreatureBuffer || count <= 0)
     {
       this.clearOverlay();
@@ -274,7 +272,7 @@ export class WebGpuRenderer
     }
     const cameraData = new Float32Array([
       state.cam.x, state.cam.y, state.cam.z,
-      canvas.width, canvas.height, 0, 0, 0,
+      canvas.width, canvas.height, sizeScale, 0, 0,
     ]);
     state.gpuDevice.queue.writeBuffer(state.gpuUniformBuffer, 0, cameraData.buffer);
     const encoder = state.gpuDevice.createCommandEncoder();

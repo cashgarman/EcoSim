@@ -7,6 +7,7 @@ import { camera } from './camera.js';
 import { stateLabelFromConfig } from './behavior/loader.js';
 import { lifeStory } from './life-story.js';
 import { timelineDb } from './timeline-db.js';
+import { timeScrub } from './time-scrub.js';
 import {
   formatBornEvent,
   formatDiedEvent,
@@ -24,6 +25,37 @@ export class UI
     this._dbTab = 'world';
     this._dbCursor = { worldBeforeId: null, creatureBeforeT: null, heartbeatBeforeT: null };
     this._dbLoading = false;
+    this._scrubLoading = false;
+    this._scrubSliderDebounce = null;
+    this._scrubDragging = false;
+    this._scrubEarliestLoading = false;
+    this._scrubTicksLoading = false;
+    this._scrubTicksLastAt = 0;
+  }
+
+  async restoreScrubMeta(meta)
+  {
+    if (!meta) return;
+    if (meta.statsPanelMode)
+    {
+      this.applyStatsPanelMode(meta.statsPanelMode);
+    }
+    if (typeof meta.speed === 'number')
+    {
+      const slider = $('speed-slider');
+      const label = $('speed-label');
+      const clampedSpeed = clamp(Math.round(meta.speed), 0, 10);
+      state.speed = clampedSpeed;
+      if (slider) slider.value = String(clampedSpeed);
+      if (label) label.textContent = `${clampedSpeed}×`;
+      state.pausedBySpace = clampedSpeed === 0;
+    }
+    if (typeof meta.viewT === 'number')
+    {
+      await timeScrub.seekTo(meta.viewT);
+    }
+    this.updateScrubLabels();
+    this.updatePauseIndicator();
   }
 
   setFollowToggleHandler(fn)
@@ -341,6 +373,7 @@ export class UI
     this.setPanelCollapsed($('stats'), false);
     this.setPanelCollapsed($('worldstory'), true);
     this.setPanelCollapsed($('timelinedb'), true);
+    this.setPanelCollapsed($('timescrub'), true);
     bindEl('gen-collapse-btn', 'click', e =>
     {
       e.stopPropagation();
@@ -368,6 +401,12 @@ export class UI
     {
       e.stopPropagation();
       const panel = $('timelinedb');
+      this.setPanelCollapsed(panel, !panel.classList.contains('collapsed'));
+    });
+    bindEl('timescrub-collapse-btn', 'click', e =>
+    {
+      e.stopPropagation();
+      const panel = $('timescrub');
       this.setPanelCollapsed(panel, !panel.classList.contains('collapsed'));
     });
   }
@@ -709,18 +748,27 @@ export class UI
     }
     box.innerHTML = html;
 
-    state.histTimer++;
-    if (state.histTimer % 5 === 0)
+    if (!state.pausedBySpace)
     {
-      for (const k of SP_KEYS)
+      state.histTimer++;
+      if (state.histTimer % 5 === 0)
       {
-        state.popHistory[k].push(counts[k]);
-        if (state.popHistory[k].length > state.graphCapacity) state.popHistory[k].shift();
+        for (const k of SP_KEYS)
+        {
+          state.popHistory[k].push(counts[k]);
+          if (state.popHistory[k].length > state.graphCapacity) state.popHistory[k].shift();
+        }
+        this.drawGraph();
       }
-      this.drawGraph();
+    }
+    else
+    {
+      state.histTimer = 0;
     }
 
     if (state.selected) this.drawInspector();
+
+    this.syncScrubUI();
   }
 
   creatureStateLabel(st, creatureOrSp)
@@ -882,7 +930,7 @@ export class UI
 
   initDraggablePanels()
   {
-    for (const id of ['genpanel', 'stats', 'inspect', 'worldstory', 'timelinedb'])
+    for (const id of ['genpanel', 'stats', 'inspect', 'worldstory', 'timelinedb', 'timescrub'])
     {
       const panel = $(id);
       const head = panel.querySelector('.panel-head');
@@ -935,6 +983,276 @@ export class UI
     }
     const target = e.target && e.target.nodeType === 3 ? e.target.parentElement : e.target;
     return target && target.closest ? target.closest('.sprow') : null;
+  }
+
+  initTimeScrubber()
+  {
+    const panelSlider = $('scrub-slider');
+    const panelPresentBtn = $('scrub-present');
+    const panelForkBtn = $('scrub-fork');
+
+    const topSlider = $('top-scrub-slider');
+    const topPresentBtn = $('top-scrub-present');
+
+    const sliders = [];
+    if (panelSlider) sliders.push(panelSlider);
+    if (topSlider) sliders.push(topSlider);
+    if (!sliders.length) return;
+
+    const updateFromSlider = async (slider, immediate) =>
+    {
+      if (this._scrubLoading && !immediate) return;
+      const v = Number(slider.value || 0);
+      const doSeek = async () =>
+      {
+        this._scrubLoading = true;
+        try
+        {
+          await timeScrub.seekTo(v);
+          this.updateScrubLabels();
+        }
+        finally
+        {
+          this._scrubLoading = false;
+        }
+      };
+      if (immediate)
+      {
+        await doSeek();
+      }
+      else
+      {
+        if (this._scrubSliderDebounce) clearTimeout(this._scrubSliderDebounce);
+        this._scrubSliderDebounce = setTimeout(doSeek, 120);
+      }
+    };
+
+    for (const slider of sliders)
+    {
+      const isTopScrubber = slider.id === 'top-scrub-slider';
+      slider.addEventListener('input', () => updateFromSlider(slider, isTopScrubber));
+      slider.addEventListener('change', () => updateFromSlider(slider, true));
+      slider.addEventListener('pointerdown', () =>
+      {
+        this._scrubDragging = true;
+      });
+      slider.addEventListener('pointerup', () =>
+      {
+        this._scrubDragging = false;
+      });
+      slider.addEventListener('pointercancel', () =>
+      {
+        this._scrubDragging = false;
+      });
+    }
+
+    const wirePresent = btn =>
+    {
+      if (!btn) return;
+      btn.addEventListener('click', async () =>
+      {
+        await timeScrub.goToPresent();
+        this.updateScrubLabels();
+      });
+    };
+
+    wirePresent(panelPresentBtn);
+    wirePresent(topPresentBtn);
+
+    if (panelForkBtn)
+    {
+      panelForkBtn.addEventListener('click', async () =>
+      {
+        const did = await timeScrub.onMutatingAction();
+        if (did) this.updateScrubLabels();
+      });
+    }
+
+    this.updateScrubLabels();
+  }
+
+  updateScrubLabels()
+  {
+    const viewEl = $('scrub-view');
+    const headEl = $('scrub-head');
+    const panelSlider = $('scrub-slider');
+    const topSlider = $('top-scrub-slider');
+    const topStatusEl = $('top-scrub-status');
+    const head = timeScrub.getCurrentHeadT();
+    const earliest = timeScrub.getEarliestT();
+    const view = timeScrub.active ? timeScrub.viewT : head;
+    const min = earliest == null ? head : Math.max(0, earliest);
+    const disablePast = earliest == null || earliest >= head - 0.01;
+
+    if (viewEl)
+    {
+      const historyMsg = earliest == null ? ' (gathering history...)' : '';
+      viewEl.textContent = `Viewing: Day ${Math.floor(view / 40)} · t ${view.toFixed(1)}${historyMsg}`;
+    }
+    if (headEl) headEl.textContent = `Head: Day ${Math.floor(head / 40)} · t ${head.toFixed(1)}`;
+
+    if (topStatusEl)
+    {
+      const historyMsg = earliest == null ? ' (gathering)' : '';
+      topStatusEl.textContent = disablePast
+        ? `t ${head.toFixed(1)}`
+        : `t ${view.toFixed(1)}${historyMsg}`;
+    }
+
+    const updateSlider = slider =>
+    {
+      if (!slider) return;
+      // Avoid browser auto-clamping that can visually "snap" the thumb during drag.
+      if (this._scrubDragging) return;
+      slider.max = Math.max(0, head).toFixed(1);
+      slider.min = min.toFixed(1);
+      slider.disabled = disablePast;
+      if (!timeScrub.active) slider.value = head.toFixed(1);
+      else slider.value = Math.min(Number(slider.max), view).toFixed(1);
+    }
+
+    updateSlider(panelSlider);
+    updateSlider(topSlider);
+    this.updateScrubIndicators(view, min, head);
+    this.updatePauseIndicator();
+  }
+
+  updateScrubIndicators(view, min, head)
+  {
+    const topIndicator = $('top-scrub-indicator');
+    const panelIndicator = $('panel-scrub-indicator');
+    const topTrack = document.querySelector('#top-scrubctl .scrub-track');
+    const panelTrack = document.querySelector('#timescrub .scrub-track');
+    const max = Math.max(min, head);
+    const denominator = max - min;
+    const ratio = denominator > 0 ? clamp((view - min) / denominator, 0, 1) : 1;
+    const setIndicator = (indicator, track) =>
+    {
+      if (!indicator || !track) return;
+      indicator.style.left = `calc(${(ratio * 100).toFixed(2)}% - 1px)`;
+      indicator.style.height = `${track.clientHeight}px`;
+    };
+    setIndicator(topIndicator, topTrack);
+    setIndicator(panelIndicator, panelTrack);
+    if (!timeScrub.active)
+    {
+      state.graphHoverIndex = -1;
+      return;
+    }
+    this.syncGraphHighlight(ratio);
+  }
+
+  updatePauseIndicator()
+  {
+    const icon = $('scrub-play-indicator');
+    if (!icon) return;
+    const paused = state.pausedBySpace && state.speed === 0;
+    icon.textContent = paused ? '▶' : '❚❚';
+    icon.classList.toggle('paused', paused);
+  }
+
+  syncGraphHighlight(ratio)
+  {
+    const len = state.popHistory[SP_KEYS[0]].length;
+    if (len <= 1)
+    {
+      state.graphHoverIndex = -1;
+      return;
+    }
+    const idx = Math.round(clamp(ratio, 0, 1) * (len - 1));
+    state.graphHoverIndex = idx;
+    this.drawGraph();
+  }
+
+  async refreshScrubTicks(force)
+  {
+    if (this._scrubTicksLoading) return;
+    const now = performance.now();
+    if (!force && now - this._scrubTicksLastAt < 1600) return;
+    if (!state.ready) return;
+    if (timeScrub.active) return;
+
+    const topSlider = $('top-scrub-slider');
+    const panelSlider = $('scrub-slider');
+    if (!topSlider && !panelSlider) return;
+
+    this._scrubTicksLoading = true;
+    try
+    {
+      const head = timeScrub.getCurrentHeadT();
+      const rows = await timelineDb.listSnapshots({ limit: 200, beforeT: head });
+      const ts = [];
+      for (const r of rows)
+      {
+        const t = r && typeof r.t === 'number' ? r.t : null;
+        if (t == null) continue;
+        if (t < 0) continue;
+        ts.push(t);
+      }
+      ts.sort((a, b) => a - b);
+      const minT = timeScrub.getEarliestT();
+      const lo = minT == null ? 0 : minT;
+      const hi = head;
+      const sampled = ts.filter(t => t >= lo - 0.0001 && t <= hi + 0.0001);
+      const budgeted = [];
+      const MAX_NOTCHES = 60;
+      if (sampled.length <= MAX_NOTCHES)
+      {
+        budgeted.push(...sampled);
+      }
+      else
+      {
+        const step = Math.max(1, Math.round(sampled.length / MAX_NOTCHES));
+        for (let i = 0; i < sampled.length; i += step) budgeted.push(sampled[i]);
+      }
+      const applyToScroll = (layerId) =>
+      {
+        const layer = document.getElementById(layerId);
+        if (!layer) return;
+        layer.innerHTML = '';
+        const range = hi - lo;
+        for (const t of budgeted)
+        {
+          const ratio = range > 0 ? (t - lo) / range : 1;
+          const line = document.createElement('div');
+          line.className = 'scrub-tick-line';
+          line.style.left = `calc(${(ratio * 100).toFixed(2)}% - 0.5px)`;
+          layer.appendChild(line);
+        }
+      };
+      applyToScroll('top-scrub-ticks-layer');
+      applyToScroll('panel-scrub-ticks-layer');
+    }
+    catch (e)
+    {
+      // ignore tick update failures
+    }
+    finally
+    {
+      this._scrubTicksLoading = false;
+      this._scrubTicksLastAt = now;
+    }
+  }
+
+  // called from updateUI periodically
+  syncScrubUI()
+  {
+    // keep head label fresh during live run
+    if (!this._scrubEarliestLoading && state.ready && timeScrub.getEarliestT() == null)
+    {
+      this._scrubEarliestLoading = true;
+      timeScrub.refreshEarliestSnapshotT().then(() =>
+      {
+        this._scrubEarliestLoading = false;
+        this.updateScrubLabels();
+      }).catch(() =>
+      {
+        this._scrubEarliestLoading = false;
+      });
+    }
+
+    this.updateScrubLabels();
+    this.refreshScrubTicks(false);
   }
 }
 

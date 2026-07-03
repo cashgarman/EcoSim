@@ -18,35 +18,6 @@ export class RenderPipeline
     this.gpuCanvas = null;
     this.hlCanvas = null;
     this.gpuCreaturePath = 'webgpu_circles';
-    this._dbgLastAt = 0;
-    this._dbgLastScrub = false;
-  }
-
-  _dbgLog(hypothesisId, location, message, data, runId = 'initial')
-  {
-    const now = Date.now();
-    const scrub = !!state.scrubActive;
-    if (now - this._dbgLastAt < 500 && scrub === this._dbgLastScrub) return;
-    this._dbgLastAt = now;
-    this._dbgLastScrub = scrub;
-    // #region agent log
-    fetch('http://127.0.0.1:7380/ingest/1f42d0b3-052e-4f03-9f2a-63f9a93dd687', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Debug-Session-Id': '556f60',
-      },
-      body: JSON.stringify({
-        sessionId: '556f60',
-        runId,
-        hypothesisId,
-        location,
-        message,
-        data,
-        timestamp: now,
-      }),
-    }).catch(() => {});
-    // #endregion
   }
 
   chooseGpuCreaturePath()
@@ -68,6 +39,46 @@ export class RenderPipeline
 
     this.gpuCreaturePath = next;
     return next;
+  }
+
+  resolveLodPlan(q)
+  {
+    const z = state.cam.z;
+    const detailTier = q.detail;
+    const lowDetail = detailTier <= 0 || z < 1.8;
+    const mediumDetail = !lowDetail && (detailTier <= 1 || z < 3.5);
+    const path = this.chooseGpuCreaturePath();
+    const preferSprites = detailTier >= 2 && path === 'webgpu_canvas_sprites';
+
+    let mode = 'circles';
+    if (lowDetail) mode = 'markers';
+    else if (preferSprites) mode = 'sprites';
+    else if (mediumDetail) mode = 'simple';
+
+    const circleDetail = mode === 'markers'
+      ? 0
+      : mode === 'simple'
+        ? 1
+        : 2;
+    const gpuSizeScale = circleDetail <= 0
+      ? 0.55
+      : circleDetail === 1
+        ? 0.75
+        : 1.0;
+
+    return {
+      mode,
+      circleDetail,
+      canvasDetail: mode === 'markers' ? 0 : mode === 'simple' ? 1 : 2,
+      gpuSizeScale,
+    };
+  }
+
+  resolveCreatureAuthority()
+  {
+    if (state.scrubActive) return 'cpu_snapshot';
+    if (state.simBackend === 'gpu' && state.gpuSimEnabled) return 'gpu_buffer';
+    return 'cpu_live';
   }
 
   init(canvas, gpuCanvas, hlCanvas)
@@ -106,161 +117,76 @@ export class RenderPipeline
     }
   }
 
-  renderScrubCreatures2d(camera, vis, q, highlightTier)
+  renderCanvasByLod(camera, vis, lodPlan, highlightTier)
   {
-    const path = this.chooseGpuCreaturePath();
-    const preferSprites = path === 'webgpu_canvas_sprites' || (q.detail >= 2 && state.cam.z > 4.2);
-    if (preferSprites)
+    if (lodPlan.mode === 'markers')
     {
-      for (const c of vis) creatureRenderer.drawCreature(camera, c, q.detail);
-      creatureRenderer.renderHighlights2d(camera, vis, highlightTier);
-      return 'scrub-canvas-sprites';
+      creatureRenderer.drawBatchMarkers(camera, vis);
+    }
+    else
+    {
+      for (const c of vis) creatureRenderer.drawCreature(camera, c, lodPlan.canvasDetail);
+    }
+    creatureRenderer.renderHighlights2d(camera, vis, highlightTier);
+  }
+
+  renderWebGpuByLod(camera, vis, lodPlan, highlightTier, authority)
+  {
+    if (lodPlan.mode === 'sprites')
+    {
+      webGpuRenderer.clearOverlay();
+      this.gpuCanvas.classList.add('hidden');
+      this.renderCanvasByLod(camera, vis, lodPlan, highlightTier);
+      return `${authority}-canvas-sprites`;
     }
 
     this.gpuCanvas.classList.remove('hidden');
-    const gpuOk = webGpuRenderer.renderCreatures(camera, this.canvas, vis, q.detail, 0);
+    let gpuOk = false;
+    if (authority === 'gpu_buffer')
+    {
+      gpuOk = webGpuRenderer.renderGpuBuffer(this.canvas, state.gpuRenderCreatureCount, lodPlan.gpuSizeScale);
+    }
+    else
+    {
+      gpuOk = webGpuRenderer.renderCreatures(camera, this.canvas, vis, lodPlan.circleDetail, 0);
+    }
+
     if (!gpuOk)
     {
       this.gpuCanvas.classList.add('hidden');
-      if (q.detail <= 0 || state.cam.z < 1.8) creatureRenderer.drawBatchMarkers(camera, vis);
-      else for (const c of vis) creatureRenderer.drawCreature(camera, c, Math.min(q.detail, 1));
-      creatureRenderer.renderHighlights2d(camera, vis, highlightTier);
-      return 'scrub-canvas-fallback';
+      this.renderCanvasByLod(camera, vis, lodPlan, highlightTier);
+      return `${authority}-canvas-fallback`;
     }
 
     creatureRenderer.renderHighlightsOverlay(camera, vis, highlightTier);
-    return 'scrub-gpu-circles-cpu';
+    return `${authority}-gpu-circles`;
   }
 
   render()
   {
     const q = quality.config();
     const highlightTier = quality.effectiveHighlight(q.highlight);
-    const shouldUseGpuBuffer = state.rendererBackend === 'webgpu';
+    const shouldUseGpu = state.rendererBackend === 'webgpu';
+    const authority = this.resolveCreatureAuthority();
+    const lodPlan = this.resolveLodPlan(q);
     let renderBranch = 'unknown';
-    this._dbgLog('H1', 'js/render/pipeline.js:render', 'render pipeline decision', {
-      scrubActive: state.scrubActive,
-      rendererBackend: state.rendererBackend,
-      simBackend: state.simBackend,
-      gpuSimEnabled: state.gpuSimEnabled,
-      shouldUseGpuBuffer,
-      gpuCreaturePath: this.gpuCreaturePath,
-      detailTier: q.detail,
-      camZ: state.cam.z,
-    });
-    if (shouldUseGpuBuffer && !state.scrubActive) this.gpuCanvas.classList.remove('hidden');
-    else if (!shouldUseGpuBuffer) this.gpuCanvas.classList.add('hidden');
 
     terrainRenderer.renderStage(camera);
     this.drawTerrainDayNightOverlay();
     const vis = creatures.collectVisible(camera);
     creatureRenderer.clearHighlightOverlay();
 
-    if (state.rendererBackend === 'webgpu')
+    if (shouldUseGpu)
     {
-      if (state.scrubActive)
-      {
-        webGpuRenderer.clearOverlay();
-        renderBranch = this.renderScrubCreatures2d(camera, vis, q, highlightTier);
-        if (renderBranch === 'scrub-canvas-sprites') this.gpuCanvas.classList.add('hidden');
-      }
-      else if (state.simBackend === 'gpu' && state.gpuSimEnabled)
-      {
-        this.gpuCanvas.classList.remove('hidden');
-        const path = this.chooseGpuCreaturePath();
-        const preferCanvasDetail = path === 'webgpu_canvas_sprites';
-        if (preferCanvasDetail)
-        {
-          renderBranch = 'gpu-sim-canvas-sprites';
-          webGpuRenderer.clearOverlay();
-          for (const c of vis) creatureRenderer.drawCreature(camera, c, q.detail);
-          creatureRenderer.renderHighlights2d(camera, vis, highlightTier);
-        }
-        else
-        {
-          renderBranch = 'gpu-sim-gpu-buffer';
-          const gpuOk = webGpuRenderer.renderGpuBuffer(this.canvas, state.gpuRenderCreatureCount);
-          if (!gpuOk)
-          {
-            renderBranch = 'gpu-sim-fallback-canvas';
-            state.rendererBackend = 'canvas';
-            state.simBackend = 'cpu';
-            state.gpuReady = false;
-            state.gpuSimEnabled = false;
-            this.gpuCanvas.classList.add('hidden');
-            for (const c of vis) creatureRenderer.drawCreature(camera, c, q.detail);
-            creatureRenderer.renderHighlights2d(camera, vis, highlightTier);
-          }
-          else
-          {
-            creatureRenderer.renderHighlightsOverlay(camera, vis, highlightTier);
-          }
-        }
-      }
-      else
-      {
-      this.gpuCanvas.classList.remove('hidden');
-      const preferCanvasDetail = q.detail >= 2 && state.cam.z > 4.2;
-      if (preferCanvasDetail)
-      {
-        renderBranch = 'cpu-canvas-sprites';
-        webGpuRenderer.clearOverlay();
-        for (const c of vis) creatureRenderer.drawCreature(camera, c, q.detail);
-        creatureRenderer.renderHighlights2d(camera, vis, highlightTier);
-      }
-      else
-      {
-        renderBranch = 'cpu-gpu-circles';
-        const gpuOk = webGpuRenderer.renderCreatures(camera, this.canvas, vis, q.detail, 0);
-        if (!gpuOk)
-        {
-          renderBranch = 'cpu-fallback-canvas';
-          state.rendererBackend = 'canvas';
-          state.gpuReady = false;
-          this.gpuCanvas.classList.add('hidden');
-          for (const c of vis) creatureRenderer.drawCreature(camera, c, q.detail);
-          creatureRenderer.renderHighlights2d(camera, vis, highlightTier);
-        }
-        else creatureRenderer.renderHighlightsOverlay(camera, vis, highlightTier);
-      }
-      }
+      renderBranch = this.renderWebGpuByLod(camera, vis, lodPlan, highlightTier, authority);
     }
     else
     {
+      this.gpuCanvas.classList.add('hidden');
       webGpuRenderer.clearOverlay();
-      const detailForRender = state.cam.z < 1.8
-        ? 0
-        : state.cam.z < 3.5
-          ? Math.min(q.detail, 1)
-          : q.detail;
       renderBranch = 'canvas-only';
-      const drawMode = detailForRender <= 0 ? 'batch-markers' : 'drawCreature';
-      this._dbgLog('H2', 'js/render/pipeline.js:canvas-only', 'canvas-only detail', {
-        scrubActive: state.scrubActive,
-        renderBranch,
-        drawMode,
-        detailTier: q.detail,
-        detailForRender,
-        visCount: vis.length,
-        camZ: state.cam.z,
-      });
-      if (detailForRender <= 0) creatureRenderer.drawBatchMarkers(camera, vis);
-      else for (const c of vis) creatureRenderer.drawCreature(camera, c, detailForRender);
-      creatureRenderer.renderHighlights2d(camera, vis, highlightTier);
+      this.renderCanvasByLod(camera, vis, lodPlan, highlightTier);
     }
-    const visSample = vis[0];
-    const id1 = state.creatures.find(c => c.id === 1);
-    this._dbgLog('H3', 'js/render/pipeline.js:post', 'render branch result', {
-      scrubActive: state.scrubActive,
-      renderBranch,
-      camZ: state.cam.z,
-      detailTier: q.detail,
-      visCount: vis.length,
-      sampleX: visSample?.x ?? null,
-      sampleY: visSample?.y ?? null,
-      id1X: id1?.x ?? null,
-      id1Y: id1?.y ?? null,
-    }, state.scrubActive ? 'post-fix-pos2' : 'initial');
 
     if (state.selected && !state.selected.dead)
     {

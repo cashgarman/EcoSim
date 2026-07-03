@@ -7,12 +7,14 @@ import { creatures } from './creatures.js';
 import { ui } from './ui.js';
 import { applyTool } from './tools.js';
 import { quality } from './render/quality.js';
+import { timeScrub } from './time-scrub.js';
 
 export class InputManager
 {
   constructor()
   {
     this.canvas = null;
+    this._setSpeedDisplay = null;
   }
 
   init(canvas)
@@ -258,9 +260,12 @@ export class InputManager
       state.speed = clamp(Math.round(v), 0, 10);
       if (slider) slider.value = String(state.speed);
       if (label) label.textContent = `${state.speed}×`;
+      state.pausedBySpace = state.speed === 0;
+      timeScrub.persistState();
     };
     bindEl('speed-slider', 'input', e => { setSpeed(Number(e.target.value)); });
     setSpeed(1);
+    this._setSpeedDisplay = setSpeed;
   }
 
   bindFollowControls()
@@ -277,12 +282,43 @@ export class InputManager
         quality.toggleHud();
         return;
       }
+      if (e.code === 'Space' || e.key === ' ')
+      {
+        e.preventDefault();
+        this.toggleSpacePause();
+        return;
+      }
       if (e.key === 'f' || e.key === 'F')
       {
         e.preventDefault();
         ui.setFollowMode(!state.followSelected);
       }
     });
+  }
+
+  setSimulationSpeed(newSpeed, keepPausedFlag = false)
+  {
+    if (typeof this._setSpeedDisplay === 'function')
+    {
+      this._setSpeedDisplay(newSpeed);
+    }
+    if (!keepPausedFlag)
+    {
+      state.pausedBySpace = false;
+    }
+    ui.updatePauseIndicator();
+  }
+
+  toggleSpacePause()
+  {
+    const currentSpeed = state.speed;
+    const target = currentSpeed === 0 ? (state.lastSpeedBeforePause || 1) : 0;
+    if (currentSpeed > 0)
+    {
+      state.lastSpeedBeforePause = currentSpeed;
+    }
+    state.pausedBySpace = target === 0;
+    this.setSimulationSpeed(target, target === 0);
   }
 }
 

@@ -16,7 +16,6 @@ export class TimeScrubController
     this.seeking = false;
     this._seekSeq = 0;
     this._baselinePromise = null;
-    this._dbgLastAt = 0;
   }
 
   resetForNewRun()
@@ -29,39 +28,6 @@ export class TimeScrubController
     this.seeking = false;
     this._seekSeq = 0;
     this._baselinePromise = null;
-    this._dbgLastAt = 0;
-  }
-
-  _dbgSeekLog(targetT, snapT, sample)
-  {
-    const now = Date.now();
-    if (now - this._dbgLastAt < 400) return;
-    this._dbgLastAt = now;
-    // #region agent log
-    fetch('http://127.0.0.1:7380/ingest/1f42d0b3-052e-4f03-9f2a-63f9a93dd687', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Debug-Session-Id': '556f60',
-      },
-      body: JSON.stringify({
-        sessionId: '556f60',
-        runId: 'post-fix-pos',
-        hypothesisId: 'H6',
-        location: 'js/time-scrub.js:seekTo',
-        message: 'snapshot restored',
-        data: {
-          targetT,
-          snapT,
-          creatureCount: state.creatures.length,
-          sampleX: sample?.x ?? null,
-          sampleY: sample?.y ?? null,
-          sampleId: sample?.id ?? null,
-        },
-        timestamp: now,
-      }),
-    }).catch(() => {});
-    // #endregion
   }
 
   isViewingPast()
@@ -155,10 +121,12 @@ export class TimeScrubController
     const clamped = Math.max(minT, Math.min(target, head));
     await timelineDb.flushNow();
     await this.captureBaselineIfNeeded();
+    if (seq !== this._seekSeq) return false;
 
     const row = await timelineDb.getNearestSnapshotAtOrBefore(null, clamped);
     if (row && row.snapshot)
     {
+      if (seq !== this._seekSeq) return false;
       const ok = restoreSnapshot(row);
       if (ok)
       {
@@ -168,7 +136,6 @@ export class TimeScrubController
         this.seeking = false;
         this.syncScrubFlags();
         this._afterRestoreSideEffects();
-        this._dbgSeekLog(clamped, state.tGlobal, state.creatures.find(c => c.id === 1) || state.creatures[0]);
         this._persistScrubState();
         return true;
       }
@@ -176,6 +143,7 @@ export class TimeScrubController
     else if (this.baselineSnapshot && clamped >= head - 0.01)
     {
       // Allow seeking to the present even when no stored snapshots exist yet.
+      if (seq !== this._seekSeq) return false;
       const ok = restoreSnapshot(this.baselineSnapshot);
       if (ok)
       {

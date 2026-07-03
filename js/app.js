@@ -27,8 +27,6 @@ export class GameApp
   {
     this.last = performance.now();
     this.uiT = 0;
-    this._dbgLastAt = 0;
-    this._dbgLastScrub = false;
   }
 
   async init()
@@ -323,41 +321,6 @@ export class GameApp
           ? true
           : (quality.frameCounter % quality.renderDecimation) === 0;
         if (shouldRender) renderPipeline.render();
-      }
-      const dbgNow = Date.now();
-      const dbgScrub = !!state.scrubActive;
-      if (dbgScrub && (dbgNow - this._dbgLastAt >= 500 || dbgScrub !== this._dbgLastScrub))
-      {
-        this._dbgLastAt = dbgNow;
-        this._dbgLastScrub = dbgScrub;
-        // #region agent log
-        fetch('http://127.0.0.1:7380/ingest/1f42d0b3-052e-4f03-9f2a-63f9a93dd687', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Debug-Session-Id': '556f60',
-          },
-          body: JSON.stringify({
-            sessionId: '556f60',
-            runId: 'post-fix',
-            hypothesisId: 'H4',
-            location: 'js/app.js:305',
-            message: 'frame render decision',
-            data: {
-              ready: state.ready,
-              shouldRender,
-              speed: state.speed,
-              rendererBackend: state.rendererBackend,
-              simBackend: state.simBackend,
-              gpuSimEnabled: state.gpuSimEnabled,
-              camZ: state.cam.z,
-              viewingPast,
-              scrubActive: state.scrubActive,
-            },
-            timestamp: dbgNow,
-          }),
-        }).catch(() => {});
-        // #endregion
       }
       const frameMs = performance.now() - frameStart;
       quality.updateTier(frameMs);

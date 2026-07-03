@@ -1,10 +1,11 @@
 import { state } from './state.js';
 
 const DB_NAME = 'ecosim_timeline';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_WORLD_EVENTS = 'worldEvents';
 const STORE_CREATURE_EVENTS = 'creatureEvents';
 const STORE_HEARTBEATS = 'heartbeats';
+const STORE_SNAPSHOTS = 'snapshots';
 const STORE_META = 'meta';
 
 function nowIso()
@@ -47,6 +48,10 @@ export class TimelineDb
     this._opening = new Promise((resolve, reject) =>
     {
       const req = indexedDB.open(DB_NAME, DB_VERSION);
+      req.onblocked = () =>
+      {
+        reject(new Error('Timeline DB open blocked (another tab/script is holding the old version connection).'));
+      };
       req.onupgradeneeded = () =>
       {
         const db = req.result;
@@ -65,6 +70,11 @@ export class TimelineDb
         if (!db.objectStoreNames.contains(STORE_HEARTBEATS))
         {
           const store = db.createObjectStore(STORE_HEARTBEATS, { keyPath: ['runId', 'tickBucket'] });
+          store.createIndex('run_t', ['runId', 't']);
+        }
+        if (!db.objectStoreNames.contains(STORE_SNAPSHOTS))
+        {
+          const store = db.createObjectStore(STORE_SNAPSHOTS, { keyPath: ['runId', 'tickBucket'] });
           store.createIndex('run_t', ['runId', 't']);
         }
         if (!db.objectStoreNames.contains(STORE_META))
@@ -97,17 +107,6 @@ export class TimelineDb
   async clearTimelineDb()
   {
     await this._open();
-    await new Promise((resolve, reject) =>
-    {
-      const tx = this._tx([STORE_WORLD_EVENTS, STORE_CREATURE_EVENTS, STORE_HEARTBEATS, STORE_META], 'readwrite');
-      tx.objectStore(STORE_WORLD_EVENTS).clear();
-      tx.objectStore(STORE_CREATURE_EVENTS).clear();
-      tx.objectStore(STORE_HEARTBEATS).clear();
-      tx.objectStore(STORE_META).clear();
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error || new Error('Failed to clear timeline database.'));
-      tx.onabort = () => reject(tx.error || new Error('Clearing timeline database aborted.'));
-    });
     this._queue = [];
     this._recentWorldEvents = [];
   }
@@ -194,21 +193,25 @@ export class TimelineDb
         const worldRows = [];
         const creatureRows = [];
         const heartbeatRows = [];
+        const snapshotRows = [];
         for (const item of batch)
         {
           if (item.kind === 'world') worldRows.push(item.payload);
           else if (item.kind === 'creature') creatureRows.push(item.payload);
           else if (item.kind === 'heartbeat') heartbeatRows.push(item.payload);
+          else if (item.kind === 'snapshot') snapshotRows.push(item.payload);
         }
         await new Promise((resolve, reject) =>
         {
-          const tx = this._tx([STORE_WORLD_EVENTS, STORE_CREATURE_EVENTS, STORE_HEARTBEATS], 'readwrite');
+          const tx = this._tx([STORE_WORLD_EVENTS, STORE_CREATURE_EVENTS, STORE_HEARTBEATS, STORE_SNAPSHOTS], 'readwrite');
           const worldStore = tx.objectStore(STORE_WORLD_EVENTS);
           const creatureStore = tx.objectStore(STORE_CREATURE_EVENTS);
           const heartbeatStore = tx.objectStore(STORE_HEARTBEATS);
+          const snapshotStore = tx.objectStore(STORE_SNAPSHOTS);
           for (const row of worldRows) worldStore.add(row);
           for (const row of creatureRows) creatureStore.put(row);
           for (const row of heartbeatRows) heartbeatStore.put(row);
+          for (const row of snapshotRows) snapshotStore.put(row);
           tx.oncomplete = () => resolve();
           tx.onerror = () => reject(tx.error || new Error('Timeline write failed.'));
           tx.onabort = () => reject(tx.error || new Error('Timeline write aborted.'));
@@ -324,6 +327,48 @@ export class TimelineDb
       createdAt: nowIso(),
     };
     this._queueWrite('heartbeat', record);
+  }
+
+  appendSnapshot(snapshot)
+  {
+    const runId = snapshot.runId || this._runId || state.timelineRunId || 'uninitialized';
+    const interval = Math.max(1, state.snapshotIntervalSec || 10);
+    const t = snapshot.t ?? state.tGlobal;
+    const tickBucket = snapshot.tickBucket ?? Math.floor(t / interval);
+    const record = {
+      runId,
+      tickBucket,
+      t,
+      day: snapshot.day ?? state.day,
+      snapshot: snapshot.snapshot || null,
+      createdAt: nowIso(),
+    };
+    this._queueWrite('snapshot', record);
+  }
+
+  async persistScrubMeta(payload)
+  {
+    await this._open();
+    return new Promise((resolve, reject) =>
+    {
+      const tx = this._tx([STORE_META], 'readwrite');
+      tx.objectStore(STORE_META).put({ ...payload, key: 'scrubState' });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error || new Error('Failed to persist scrub metadata.'));
+      tx.onabort = () => reject(tx.error || new Error('Scrub metadata persist aborted.'));
+    });
+  }
+
+  async getScrubMeta()
+  {
+    await this._open();
+    return new Promise((resolve, reject) =>
+    {
+      const tx = this._tx([STORE_META]);
+      const req = tx.objectStore(STORE_META).get('scrubState');
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error || new Error('Failed to read scrub metadata.'));
+    });
   }
 
   async listRecentWorldEvents(limit = 50, beforeId = null)
@@ -445,6 +490,88 @@ export class TimelineDb
     });
   }
 
+  async listSnapshots(options = {})
+  {
+    await this._open();
+    const runId = options.runId || this._runId || state.timelineRunId;
+    if (!runId) return [];
+    const limit = clampLimit(options.limit ?? 60);
+    const beforeT = normalizeBeforeT(options.beforeT);
+    return new Promise((resolve, reject) =>
+    {
+      const tx = this._tx([STORE_SNAPSHOTS]);
+      const store = tx.objectStore(STORE_SNAPSHOTS);
+      const index = store.index('run_t');
+      const range = IDBKeyRange.bound([runId, -Number.MAX_SAFE_INTEGER], [runId, beforeT], false, true);
+      const request = index.openCursor(range, 'prev');
+      const rows = [];
+      request.onsuccess = () =>
+      {
+        const cursor = request.result;
+        if (!cursor || rows.length >= limit)
+        {
+          resolve(rows);
+          return;
+        }
+        rows.push(cursor.value);
+        cursor.continue();
+      };
+      request.onerror = () =>
+      {
+        reject(request.error || new Error('Failed to list snapshots.'));
+      };
+    });
+  }
+
+  async getNearestSnapshotAtOrBefore(runId, t)
+  {
+    await this._open();
+    runId = runId || this._runId || state.timelineRunId;
+    if (!runId) return null;
+    if (t == null || !Number.isFinite(t)) t = Number.MAX_SAFE_INTEGER;
+    return new Promise((resolve, reject) =>
+    {
+      const tx = this._tx([STORE_SNAPSHOTS]);
+      const store = tx.objectStore(STORE_SNAPSHOTS);
+      const index = store.index('run_t');
+      const range = IDBKeyRange.bound([runId, -Number.MAX_SAFE_INTEGER], [runId, t], false, false);
+      const request = index.openCursor(range, 'prev');
+      request.onsuccess = () =>
+      {
+        const cursor = request.result;
+        resolve(cursor ? cursor.value : null);
+      };
+      request.onerror = () =>
+      {
+        reject(request.error || new Error('Failed to find nearest snapshot.'));
+      };
+    });
+  }
+
+  async getEarliestSnapshot(runId)
+  {
+    await this._open();
+    runId = runId || this._runId || state.timelineRunId;
+    if (!runId) return null;
+    return new Promise((resolve, reject) =>
+    {
+      const tx = this._tx([STORE_SNAPSHOTS]);
+      const store = tx.objectStore(STORE_SNAPSHOTS);
+      const index = store.index('run_t');
+      const range = IDBKeyRange.bound([runId, -Number.MAX_SAFE_INTEGER], [runId, Number.MAX_SAFE_INTEGER], false, false);
+      const request = index.openCursor(range, 'next');
+      request.onsuccess = () =>
+      {
+        const cursor = request.result;
+        resolve(cursor ? cursor.value : null);
+      };
+      request.onerror = () =>
+      {
+        reject(request.error || new Error('Failed to find earliest snapshot.'));
+      };
+    });
+  }
+
   getRecentWorldEvents(limit = 80)
   {
     const capped = clampLimit(limit);
@@ -454,7 +581,44 @@ export class TimelineDb
   async truncateFuture(runId, fromT)
   {
     await this._open();
-    console.info('truncateFuture placeholder', { runId, fromT });
+    if (!runId) runId = this._runId || state.timelineRunId;
+    if (!runId || fromT == null || !Number.isFinite(fromT)) return;
+    const stores = [STORE_WORLD_EVENTS, STORE_CREATURE_EVENTS, STORE_HEARTBEATS, STORE_SNAPSHOTS];
+    await new Promise((resolve, reject) =>
+    {
+      const tx = this._tx(stores, 'readwrite');
+      const deleteFutureOnIndex = (storeName) =>
+      {
+        try
+        {
+          const store = tx.objectStore(storeName);
+          if (!store.indexNames.contains('run_t')) return;
+          const idx = store.index('run_t');
+          const range = IDBKeyRange.lowerBound([runId, fromT], true);
+          const req = idx.openCursor(range);
+          req.onsuccess = () =>
+          {
+            const cursor = req.result;
+            if (cursor)
+            {
+              cursor.delete();
+              cursor.continue();
+            }
+          };
+        }
+        catch (e)
+        {
+          // per-store error ignored; tx will surface major failures
+        }
+      };
+      deleteFutureOnIndex(STORE_WORLD_EVENTS);
+      deleteFutureOnIndex(STORE_CREATURE_EVENTS);
+      deleteFutureOnIndex(STORE_HEARTBEATS);
+      deleteFutureOnIndex(STORE_SNAPSHOTS);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error || new Error('truncateFuture failed.'));
+      tx.onabort = () => reject(tx.error || new Error('truncateFuture aborted.'));
+    });
   }
 
   async forkRun(fromRunId, fromT)

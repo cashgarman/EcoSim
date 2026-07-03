@@ -108,6 +108,11 @@ export const state = {
   timelineRunId: '',
   heartbeatIntervalSec: 5,
   heartbeatNextAt: 0,
+  snapshotIntervalSec: 10,
+  lastSnapshotAt: 0,
+  scrubActive: false,
+  lastSpeedBeforePause: 1,
+  pausedBySpace: false,
 
   ready: false,
   speed: 1,

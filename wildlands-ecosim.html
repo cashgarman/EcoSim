@@ -26,14 +26,36 @@
 
   /* top bar */
   #topbar{position:absolute;top:8px;left:8px;right:8px;display:flex;gap:9px;
-    align-items:center;padding:7px 13px;z-index:20;flex-wrap:wrap;justify-content:center;max-width:none;}
+    flex-direction:column;align-items:stretch;padding:7px 13px;z-index:60;justify-content:center;max-width:none;gap:6px;}
+  .topbar-row{display:flex;gap:9px;align-items:center;flex-wrap:wrap;justify-content:center;width:100%;}
+  .topbar-row-1{flex:none;}
+  .topbar-row-2{flex:none;width:100%;}
   #topbar .stat{display:flex;gap:5px;align-items:center;color:var(--gold);}
   #topbar .stat span{color:var(--text);}
   #topbar .div{width:2px;height:15px;background:var(--edge);}
   .speedctl{display:flex;align-items:center;gap:6px;padding:0 2px;}
   #speed-slider{width:130px;height:12px;}
   #speed-label{min-width:26px;text-align:center;color:var(--gold);}
+    #top-scrub-slider{flex:1;min-width:80px;height:12px;}
+  .top-scrubctl{width:100%;justify-content:center;}
   #follow-btn{height:22px;padding:4px 8px;}
+  .top-scrubctl, .panel-body{position:relative;}
+  .scrub-track{position:relative;flex:1;min-width:120px;}
+  .scrub-track input{width:100%;}
+  .scrub-ticks-layer{position:absolute;top:0;left:0;right:0;bottom:0;pointer-events:none;}
+  .scrub-tick-line{position:absolute;width:1px;height:100%;background:#c0c0c0;opacity:0.4;}
+  .scrub-play-icon{position:absolute;right:6px;top:0;bottom:0;display:flex;align-items:center;justify-content:center;
+    background:rgba(0,0,0,0.35);border:1px solid var(--edge);border-radius:4px;font-size:8px;color:var(--text);pointer-events:none;}
+  .scrub-play-icon.paused{background:var(--gold);color:#0d100b;}
+  .scrub-indicator{
+    position:absolute;
+    top:4px;
+    width:1px;
+    height:calc(100% - 8px);
+    background:var(--gold);
+    pointer-events:none;
+    transition:left 0.12s ease;
+  }
 
   /* toolbar */
   #toolbar{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);display:flex;gap:6px;
@@ -60,7 +82,7 @@
   .ui-panel.collapsed .panel-body{display:none;}
 
   /* left worldgen panel */
-  #genpanel{position:absolute;top:56px;left:10px;width:250px;max-height:calc(100% - 150px);overflow-y:auto;
+  #genpanel{position:absolute;top:92px;left:10px;width:250px;max-height:calc(100% - 150px);overflow-y:auto;
     padding:12px;z-index:25;}
   #genpanel .panel-head h2{text-align:center;}
   .field{margin-bottom:10px;}
@@ -78,7 +100,7 @@
   .genbtns .btn{flex:1;}
 
   /* stats panel */
-  #stats{position:absolute;top:56px;right:10px;width:250px;max-height:calc(100% - 150px);overflow-y:auto;
+  #stats{position:absolute;top:92px;right:10px;width:250px;max-height:calc(100% - 150px);overflow-y:auto;
     padding:12px;z-index:25;position:absolute;}
   #stats .panel-head h2{text-align:left;}
   #stats.maximized{width:min(680px,72vw);max-height:calc(100% - 90px);}
@@ -127,7 +149,7 @@
   .story-link{color:var(--blue);cursor:pointer;text-decoration:underline;}
   .story-empty{font-size:6px;color:var(--dim);text-align:center;padding:8px 4px;}
 
-  #worldstory{position:absolute;left:270px;top:56px;width:320px;max-height:calc(100% - 150px);padding:12px;z-index:24;}
+  #worldstory{position:absolute;left:270px;top:92px;width:320px;max-height:calc(100% - 150px);padding:12px;z-index:24;}
   #world-story-list{
     max-height:320px;overflow-y:auto;display:flex;flex-direction:column;gap:4px;
     background:var(--panel-darker);border:2px solid var(--edge);border-radius:4px;padding:4px;
@@ -161,6 +183,11 @@
   .db-row-event:hover{border-color:var(--gold);}
   .db-actions{display:flex;gap:6px;margin-top:6px;}
   .db-actions .btn{flex:1;padding:4px 6px;font-size:6px;}
+  #timescrub{position:absolute;left:680px;bottom:80px;width:320px;max-height:calc(100% - 180px);padding:12px;z-index:24;}
+  #scrub-slider{width:100%;height:14px;}
+  #timescrub .scrub-meta{font-size:6px;color:var(--dim);margin:4px 0 2px;}
+  #timescrub .scrub-actions{display:flex;gap:6px;margin-top:6px;}
+  #timescrub .scrub-actions .btn{flex:1;padding:4px 6px;font-size:6px;}
   @keyframes fi{from{opacity:0;transform:translateY(-4px);}to{opacity:1;}}
 
   #loading{position:absolute;inset:0;z-index:60;background:#0c100a;display:flex;flex-direction:column;
@@ -229,16 +256,32 @@
 </div>
 
 <div id="topbar" class="stone">
-  <div class="stat">🌍 <span id="s-day">Day 0</span></div><div class="div"></div>
-  <div class="stat">🐾 <span id="s-pop">0</span></div><div class="div"></div>
-  <div class="stat">🧬 <span id="s-gen">Gen 1</span></div><div class="div"></div>
-  <div class="stat">🌱 <span id="s-veg">0%</span></div><div class="div"></div>
-  <div class="speedctl">
-    <span class="stat">⏱</span>
-    <input type="range" id="speed-slider" min="0" max="10" step="1" value="1" title="Simulation speed">
-    <span id="speed-label">1×</span>
+  <div class="topbar-row topbar-row-1">
+    <div class="stat">🌍 <span id="s-day">Day 0</span></div><div class="div"></div>
+    <div class="stat">🐾 <span id="s-pop">0</span></div><div class="div"></div>
+    <div class="stat">🧬 <span id="s-gen">Gen 1</span></div><div class="div"></div>
+    <div class="stat">🌱 <span id="s-veg">0%</span></div><div class="div"></div>
+    <div class="speedctl">
+      <span class="stat">⏱</span>
+      <input type="range" id="speed-slider" min="0" max="10" step="1" value="1" title="Simulation speed">
+      <span id="speed-label">1×</span>
+    </div>
+    <button class="btn" id="follow-btn" title="Follow selected animal (F or double-click)">Follow</button>
   </div>
-  <button class="btn" id="follow-btn" title="Follow selected animal (F or double-click)">Follow</button>
+  <div class="topbar-row topbar-row-2">
+    <div class="speedctl top-scrubctl" id="top-scrubctl" title="Scrub timeline (past only)">
+      <span class="stat">⏪</span>
+      <div class="scrub-track">
+        <div class="scrub-ticks-layer" id="top-scrub-ticks-layer"></div>
+        <input type="range" id="top-scrub-slider" min="0" max="0" step="0.1" value="0" list="top-scrub-ticks">
+        <div class="scrub-indicator" id="top-scrub-indicator"></div>
+        <div class="scrub-play-icon" id="scrub-play-indicator" title="Spacebar toggles pause">❚❚</div>
+      </div>
+      <span id="top-scrub-status" style="color:var(--dim);min-width:86px;text-align:center;display:inline-block;">t 0.0</span>
+      <button class="btn" id="top-scrub-present" type="button" title="Go to present">Present</button>
+    </div>
+    <datalist id="top-scrub-ticks"></datalist>
+  </div>
 </div>
 
 <div id="worldstory" class="stone ui-panel collapsed">
@@ -276,6 +319,29 @@
     </div>
   </div>
 </div>
+
+<div id="timescrub" class="stone ui-panel collapsed">
+  <div class="panel-head">
+    <h2>Time Scrub</h2>
+    <div class="panel-actions">
+      <button class="btn panel-ui-btn panel-collapse-btn" id="timescrub-collapse-btn" type="button" title="Expand panel">▶</button>
+    </div>
+  </div>
+  <div class="panel-body">
+    <div class="scrub-meta" id="scrub-view">Viewing: Day 0 · t 0.0</div>
+    <div class="scrub-track">
+      <div class="scrub-ticks-layer" id="panel-scrub-ticks-layer"></div>
+      <input type="range" id="scrub-slider" min="0" max="0" step="0.1" value="0" list="scrub-ticks" title="Scrub time (past only)">
+      <div class="scrub-indicator" id="panel-scrub-indicator"></div>
+    </div>
+    <div class="scrub-meta" id="scrub-head">Head: Day 0 · t 0.0</div>
+    <div class="scrub-actions">
+      <button class="btn" id="scrub-present" type="button">Go to Present</button>
+      <button class="btn" id="scrub-fork" type="button">Fork from here</button>
+    </div>
+  </div>
+</div>
+<datalist id="scrub-ticks"></datalist>
 
 <div id="genpanel" class="stone ui-panel collapsed">
   <div class="panel-head">

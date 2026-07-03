@@ -2,6 +2,7 @@ import { isWater } from './data.js';
 import { state, idx, inB } from './state.js';
 import { creatures } from './creatures.js';
 import { effects } from './fx.js';
+import { timeScrub } from './time-scrub.js';
 
 export function toolRadius()
 {
@@ -24,6 +25,7 @@ export function applyTool(wx, wy)
       creatures.makeCreature(sp, wx, wy);
       effects.add('spark', wx, wy);
     }
+    timeScrub.onMutatingAction().catch(() => {});
     return;
   }
 
@@ -43,6 +45,7 @@ export function applyTool(wx, wy)
     }
     effects.add('rain', wx, wy);
     state.vegDirty = true;
+    timeScrub.onMutatingAction().catch(() => {});
   }
   else if (state.tool === 'drought')
   {
@@ -55,6 +58,7 @@ export function applyTool(wx, wy)
       }
     }
     state.vegDirty = true;
+    timeScrub.onMutatingAction().catch(() => {});
   }
   else if (state.tool === 'meteor')
   {
@@ -79,6 +83,7 @@ export function applyTool(wx, wy)
     }
     effects.add('spark', wx, wy);
     state.vegDirty = true;
+    timeScrub.onMutatingAction().catch(() => {});
   }
   else if (state.tool === 'cull')
   {
@@ -90,6 +95,7 @@ export function applyTool(wx, wy)
         if (d < 1.5) creatures.die(c, 'removed');
       }
     }
+    timeScrub.onMutatingAction().catch(() => {});
   }
 }
 

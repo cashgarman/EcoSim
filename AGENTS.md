@@ -37,8 +37,11 @@ EcoSim/
 │   ├── creatures.js        # CreatureSystem — AI, genetics, spatial hash
 │   ├── life-story.js       # LifeStory — per-creature timeline (state enter/exit + milestones) + serialize
 │   ├── simulation.js       # Simulation — tick, day/night, optional migrants, heartbeat snapshots
+│   ├── snapshot.js         # Snapshot capture/restore for time scrub (veg + creatures + scalars)
+│   ├── time-scrub.js       # TimeScrubController — slider seek, baseline, fork+truncate
 │   ├── ui.js               # UI — panels, inspector, graph, World Story + Timeline DB feeds
-│   ├── timeline-db.js      # IndexedDB timeline storage (world events, creature events, heartbeats)
+│   ├── timeline-db.js      # IndexedDB timeline storage (world events, creature events, heartbeats, snapshots)
+│   └── tests/              # Browser console tests (run via window.runTimeScrubTests())
 │   ├── input.js            # InputManager — canvas/panel/keyboard input
 │   ├── tools.js            # Editor tools (spawn, rain, meteor, cull)
 │   ├── fx.js               # Effects — spark/rain particles
@@ -354,6 +357,7 @@ Driven by quality `detail` tier and `cam.z`:
 | Ecosystem | `#stats` | Pop counts, graph, species row selection |
 | World Story | `#worldstory` | Collapsible, scrollable, clickable world event timeline |
 | Timeline DB | `#timelinedb` | Collapsible DB browser for world/creature/heartbeat rows in current run |
+| Time Scrub | `#timescrub` | Slider to scrub past snapshots; Go to Present; Fork to branch timeline |
 | Inspector | `#inspect` | Selected creature stats/genes + **Life Story** tab |
 
 ### Top bar stats
@@ -395,6 +399,8 @@ World notifications now stream into the **World Story** panel as persistent rows
 ### Heartbeat snapshots
 
 `simulation.tick()` periodically writes compact world snapshots to IndexedDB `heartbeats` (`heartbeatIntervalSec`, default 5s) as rewind anchors.
+
+Full state snapshots (vegetation + creatures) are captured every `snapshotIntervalSec` (default 10s) into the `snapshots` store to power the Time Scrub panel. Scrubbing restores a prior snapshot; mutating tools while viewing the past call `truncateFuture` and fork the timeline.
 
 ### Migrant reseed toggle
 
@@ -464,7 +470,7 @@ CSS for `#toolbar` exists; DOM toolbar was removed or not yet added. Re-add `<di
 | `render/quality.js` | `QualityController` | adaptive tiers, `effectiveHighlight`, F2 perf HUD |
 | `render/pipeline.js` | `RenderPipeline` | `render()` layer orchestration (3 canvases) |
 | `gpu/simulation-backend.js` | `GpuSimulationBackend` | compute simulation passes, spatial bins, global awareness, conflict resolution, readback; exports `gpuBehaviorToState()` |
-| `ui.js` | `UI` | stats, graph, inspector (Stats + Life Story tabs), World Story feed, Timeline DB viewer, terrain/creature tooltips |
+| `ui.js` | `UI` | stats, graph, inspector (Stats + Life Story tabs), World Story feed, Timeline DB viewer, Time Scrub panel, terrain/creature tooltips |
 | `input.js` | `InputManager` | canvas/panel/keyboard handlers; **F2** perf HUD toggle |
 | `app.js` | `GameApp` | boot, `doGenerate`, `frame` loop; exposes `window.runGpuBenchmark(seconds)` in console |
 

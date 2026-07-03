@@ -1486,7 +1486,8 @@ export class GpuSimulationBackend
     const selectedSlot = state.selected?.gpuSlot;
     const selectedReadbackEligible = (now - state.gpuSimLastReadbackAt) > (this.readbackEveryMs * 0.65);
     if (
-      state.selected
+      !state.scrubActive
+      && state.selected
       && typeof selectedSlot === 'number'
       && selectedSlot >= 0
       && selectedSlot < state.gpuRenderCreatureCount
@@ -1514,7 +1515,7 @@ export class GpuSimulationBackend
     if (state.gpuSimReadbackPending && !state.scrubActive) this.consumeCreatureReadback();
     if (this.selectedReadbackPending && !state.scrubActive) this.consumeSelectedReadback();
 
-    if ((this.tickCounter % this.worldReadbackEveryTicks) === 0) this.syncWorldBackToCpu();
+    if (!state.scrubActive && (this.tickCounter % this.worldReadbackEveryTicks) === 0) this.syncWorldBackToCpu();
     return true;
   }
 
