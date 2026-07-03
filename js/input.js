@@ -1,7 +1,7 @@
 import { clamp } from './utils.js';
 import { SP_KEYS } from './data.js';
 import { state } from './state.js';
-import { $, bindEl } from './dom.js?v=20260702';
+import { $, bindEl } from './dom.js';
 import { camera } from './camera.js';
 import { creatures } from './creatures.js';
 import { ui } from './ui.js';
@@ -219,23 +219,48 @@ export class InputManager
     });
     bindEl('splist', 'pointerdown', e =>
     {
+      if (e.button !== 0) return;
       const row = ui.getSpeciesRowFromEvent(e);
       if (!row || !row.dataset.sp) return;
       e.stopPropagation();
       e.preventDefault();
+      ui.closeSpeciesRowMenu();
       state.lockedSpeciesFromPanel = row.dataset.sp;
       state.hoveredGraphSpecies = null;
       ui.updateUI();
       ui.drawGraph();
     });
+    bindEl('splist', 'contextmenu', e =>
+    {
+      const row = ui.getSpeciesRowFromEvent(e);
+      if (!row || !row.dataset.sp) return;
+      e.preventDefault();
+      e.stopPropagation();
+      state.lockedSpeciesFromPanel = row.dataset.sp;
+      state.hoveredGraphSpecies = null;
+      ui.updateUI();
+      ui.drawGraph();
+      ui.openSpeciesRowMenu(row.dataset.sp, e.clientX, e.clientY);
+    });
 
     addEventListener('pointerdown', e =>
     {
-      if (!state.lockedSelectionFromPanel && !state.lockedSpeciesFromPanel) return;
+      const menuOpen = ui.isSpeciesRowMenuOpen();
+      if (!state.lockedSelectionFromPanel && !state.lockedSpeciesFromPanel && !menuOpen) return;
       if (e.button !== 0) return;
-      const row = ui.getSpeciesRowFromEvent(e);
-      if (row && row.dataset.sp) return;
       const target = e.target && e.target.nodeType === 3 ? e.target.parentElement : e.target;
+      if (menuOpen && target && target.closest && target.closest('#species-row-menu'))
+      {
+        return;
+      }
+      const row = ui.getSpeciesRowFromEvent(e);
+      if (row && row.dataset.sp)
+      {
+        if (menuOpen) ui.closeSpeciesRowMenu();
+        return;
+      }
+      if (menuOpen) ui.closeSpeciesRowMenu();
+      if (!state.lockedSelectionFromPanel && !state.lockedSpeciesFromPanel) return;
       if (target === this.canvas) state.consumeNextCanvasSelect = true;
       ui.deselect();
     }, true);
@@ -276,6 +301,12 @@ export class InputManager
       if (e.repeat) return;
       const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : '';
       if (tag === 'input' || tag === 'textarea') return;
+      if (e.key === 'Escape' && ui.isSpeciesRowMenuOpen())
+      {
+        e.preventDefault();
+        ui.closeSpeciesRowMenu();
+        return;
+      }
       if (e.key === 'F2')
       {
         e.preventDefault();

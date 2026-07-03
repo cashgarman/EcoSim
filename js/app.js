@@ -7,8 +7,8 @@ import { world } from './world.js';
 import { camera } from './camera.js';
 import { creatures } from './creatures.js';
 import { simulation } from './simulation.js';
-import { ui } from './ui.js?v=20260702';
-import { inputManager } from './input.js?v=20260702';
+import { ui } from './ui.js';
+import { inputManager } from './input.js';
 import { initToolButtons } from './tools.js';
 import { terrainRenderer } from './render/terrain-renderer.js';
 import { renderPipeline } from './render/pipeline.js';
@@ -53,6 +53,7 @@ export class GameApp
     ui.initPopHistory();
     ui.initInspectTabs();
     ui.initEventLogClicks();
+    ui.initSpeciesRowMenu();
     ui.setFollowToggleHandler(enabled => ui.setFollowMode(enabled));
     creatures.setLogger(msg => ui.log(msg));
     creatures.setNotifyFn((html, creatureId) => ui.notifyCreatureEvent(html, creatureId));
@@ -236,19 +237,20 @@ export class GameApp
         $('loading').classList.add('hidden');
         ui.log(`🌍 New ${state.worldAreaKm2} km² world generated (seed ${state.SEED}).`);
         ui.refreshTimelineDbView(true);
-        const restoreMeta = async () =>
+        const settleScrub = async () =>
         {
           try
           {
-            const meta = await timelineDb.getScrubMeta();
-            await ui.restoreScrubMeta(meta);
+            await timeScrub.goToPresent();
+            ui.updateScrubLabels();
+            ui.updatePauseIndicator();
           }
           catch (err)
           {
-            console.warn('Failed to restore scrub metadata:', err);
+            console.warn('Failed to settle scrub state:', err);
           }
         };
-        restoreMeta().finally(() => timeScrub.persistState());
+        settleScrub().finally(() => timeScrub.persistState());
       };
 
       timelineDb.initTimelineDb(runMeta).catch(err =>
@@ -344,8 +346,16 @@ export class GameApp
 }
 
 const app = new GameApp();
-app.init().catch(err =>
+if (window.__wildlandsAppStarted)
 {
-  console.error('Wildlands boot failed:', err);
-  $('loadmsg').textContent = 'Startup failed — hard-refresh the page (Ctrl+Shift+R).';
-});
+  console.warn('Wildlands: duplicate app boot skipped.');
+}
+else
+{
+  window.__wildlandsAppStarted = true;
+  app.init().catch(err =>
+  {
+    console.error('Wildlands boot failed:', err);
+    $('loadmsg').textContent = 'Startup failed — hard-refresh the page (Ctrl+Shift+R).';
+  });
+}

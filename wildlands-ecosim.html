@@ -124,6 +124,22 @@
     padding:5px 6px;border:2px solid var(--edge);border-radius:4px;background:rgba(20,26,16,.95);color:var(--text);font-size:6px;line-height:1.4;
     box-shadow:0 3px 10px rgba(0,0,0,.35);
   }
+  #species-row-menu{
+    position:fixed;display:flex;flex-direction:column;gap:6px;min-width:154px;max-width:220px;
+    padding:8px;z-index:70;
+  }
+  #species-row-menu .species-menu-head{
+    font-size:6px;color:var(--gold);line-height:1.4;padding:2px 1px 0;
+  }
+  #species-row-menu .species-menu-btn{
+    width:100%;text-align:left;padding:6px 7px;
+  }
+  #species-row-menu .species-menu-btn[data-species-action="kill-all"]{
+    background:#a64032;border-color:#4d1a14;color:#fff4e6;
+  }
+  #species-row-menu .species-menu-btn[data-species-action="kill-all"]:hover{
+    filter:brightness(1.1);
+  }
 
   /* inspector */
   #inspect{position:absolute;bottom:66px;right:10px;width:250px;padding:12px;z-index:26;display:none;}
@@ -183,11 +199,6 @@
   .db-row-event:hover{border-color:var(--gold);}
   .db-actions{display:flex;gap:6px;margin-top:6px;}
   .db-actions .btn{flex:1;padding:4px 6px;font-size:6px;}
-  #timescrub{position:absolute;left:680px;bottom:80px;width:320px;max-height:calc(100% - 180px);padding:12px;z-index:24;}
-  #scrub-slider{width:100%;height:14px;}
-  #timescrub .scrub-meta{font-size:6px;color:var(--dim);margin:4px 0 2px;}
-  #timescrub .scrub-actions{display:flex;gap:6px;margin-top:6px;}
-  #timescrub .scrub-actions .btn{flex:1;padding:4px 6px;font-size:6px;}
   @keyframes fi{from{opacity:0;transform:translateY(-4px);}to{opacity:1;}}
 
   #loading{position:absolute;inset:0;z-index:60;background:#0c100a;display:flex;flex-direction:column;
@@ -235,7 +246,7 @@
 <canvas id="world-gpu"></canvas>
 <canvas id="world-hl"></canvas>
 
-<div id="loading"><div class="t">WILDLANDS</div><div class="b" id="loadmsg">Generating world…</div></div>
+<div id="loading"><div class="t">WILDLANDS</div><div class="b" id="loadmsg">Loading game modules…</div></div>
 <div id="perfhud" class="stone">
   <div class="perf-row">
     <div class="perf-item perf-item-w1"><span class="perf-lbl">backend</span><span class="perf-val" id="perf-backend">canvas</span></div>
@@ -320,29 +331,6 @@
   </div>
 </div>
 
-<div id="timescrub" class="stone ui-panel collapsed">
-  <div class="panel-head">
-    <h2>Time Scrub</h2>
-    <div class="panel-actions">
-      <button class="btn panel-ui-btn panel-collapse-btn" id="timescrub-collapse-btn" type="button" title="Expand panel">▶</button>
-    </div>
-  </div>
-  <div class="panel-body">
-    <div class="scrub-meta" id="scrub-view">Viewing: Day 0 · t 0.0</div>
-    <div class="scrub-track">
-      <div class="scrub-ticks-layer" id="panel-scrub-ticks-layer"></div>
-      <input type="range" id="scrub-slider" min="0" max="0" step="0.1" value="0" list="scrub-ticks" title="Scrub time (past only)">
-      <div class="scrub-indicator" id="panel-scrub-indicator"></div>
-    </div>
-    <div class="scrub-meta" id="scrub-head">Head: Day 0 · t 0.0</div>
-    <div class="scrub-actions">
-      <button class="btn" id="scrub-present" type="button">Go to Present</button>
-      <button class="btn" id="scrub-fork" type="button">Fork from here</button>
-    </div>
-  </div>
-</div>
-<datalist id="scrub-ticks"></datalist>
-
 <div id="genpanel" class="stone ui-panel collapsed">
   <div class="panel-head">
     <h2>World Generator</h2>
@@ -394,6 +382,11 @@
   </div>
 </div>
 
+<div id="species-row-menu" class="stone hidden" role="menu" aria-hidden="true">
+  <div class="species-menu-head" id="species-menu-title">GOD Actions</div>
+  <button class="btn species-menu-btn" data-species-action="kill-all" type="button">Kill All</button>
+</div>
+
 <div id="inspect" class="stone ui-panel">
   <div class="panel-head">
     <h2 id="i-name">—</h2>
@@ -432,6 +425,36 @@
   </div>
 </div>
 
-<script type="module" src="./js/app.js?v=20260702"></script>
+<script>
+(() =>
+{
+  const showRetryButton = () =>
+  {
+    const loadBox = document.getElementById('loading');
+    const loadMsg = document.getElementById('loadmsg');
+    if (loadMsg) loadMsg.textContent = 'Failed to load game modules. Refresh or retry.';
+    if (!loadBox || loadBox.querySelector('#boot-retry-btn')) return;
+    const retryBtn = document.createElement('button');
+    retryBtn.id = 'boot-retry-btn';
+    retryBtn.className = 'btn gold';
+    retryBtn.type = 'button';
+    retryBtn.textContent = 'Retry';
+    retryBtn.style.marginTop = '10px';
+    retryBtn.addEventListener('click', () => location.reload());
+    loadBox.appendChild(retryBtn);
+  };
+
+  addEventListener('error', e =>
+  {
+    const target = e.target;
+    const targetSrc = target && target.src ? target.src : '';
+    if (target && target.tagName === 'SCRIPT' && targetSrc.includes('/js/app.js'))
+    {
+      showRetryButton();
+    }
+  }, true);
+})();
+</script>
+<script type="module" src="./js/app.js"></script>
 </body>
 </html>

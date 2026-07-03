@@ -111,59 +111,61 @@ export class TimeScrubController
     const seq = ++this._seekSeq;
     this.seeking = true;
     this.syncScrubFlags();
-    const head = this.headT || state.tGlobal;
-    const earliest = this.earliestSnapshotT;
-    const target = Number.isFinite(targetT) ? Number(targetT) : head;
-
-    if (earliest == null && target < head - 0.01) return false;
-
-    const minT = earliest == null ? head : earliest;
-    const clamped = Math.max(minT, Math.min(target, head));
-    await timelineDb.flushNow();
-    await this.captureBaselineIfNeeded();
-    if (seq !== this._seekSeq) return false;
-
-    const row = await timelineDb.getNearestSnapshotAtOrBefore(null, clamped);
-    if (row && row.snapshot)
+    try
     {
+      const head = this.headT || state.tGlobal;
+      const earliest = this.earliestSnapshotT;
+      const target = Number.isFinite(targetT) ? Number(targetT) : head;
+
+      if (earliest == null && target < head - 0.01) return false;
+
+      const minT = earliest == null ? head : earliest;
+      const clamped = Math.max(minT, Math.min(target, head));
+      await timelineDb.flushNow();
+      await this.captureBaselineIfNeeded();
       if (seq !== this._seekSeq) return false;
-      const ok = restoreSnapshot(row);
-      if (ok)
+
+      const row = await timelineDb.getNearestSnapshotAtOrBefore(null, clamped);
+      if (row && row.snapshot)
       {
         if (seq !== this._seekSeq) return false;
-        this.viewT = state.tGlobal;
-        this.active = this.viewT < this.headT - 0.01;
-        this.seeking = false;
-        this.syncScrubFlags();
-        this._afterRestoreSideEffects();
-        this._persistScrubState();
-        return true;
+        const ok = restoreSnapshot(row);
+        if (ok)
+        {
+          if (seq !== this._seekSeq) return false;
+          this.viewT = state.tGlobal;
+          this.active = this.viewT < this.headT - 0.01;
+          this._afterRestoreSideEffects();
+          this._persistScrubState();
+          return true;
+        }
       }
-    }
-    else if (this.baselineSnapshot && clamped >= head - 0.01)
-    {
-      // Allow seeking to the present even when no stored snapshots exist yet.
-      if (seq !== this._seekSeq) return false;
-      const ok = restoreSnapshot(this.baselineSnapshot);
-      if (ok)
+      else if (this.baselineSnapshot && clamped >= head - 0.01)
       {
+        // Allow seeking to the present even when no stored snapshots exist yet.
         if (seq !== this._seekSeq) return false;
-        this.viewT = state.tGlobal;
-        this.active = false;
+        const ok = restoreSnapshot(this.baselineSnapshot);
+        if (ok)
+        {
+          if (seq !== this._seekSeq) return false;
+          this.viewT = state.tGlobal;
+          this.active = false;
+          this._afterRestoreSideEffects();
+          this._persistScrubState();
+          return true;
+        }
+      }
+
+      return false;
+    }
+    finally
+    {
+      if (seq === this._seekSeq)
+      {
         this.seeking = false;
         this.syncScrubFlags();
-        this._afterRestoreSideEffects();
-        this._persistScrubState();
-        return true;
       }
     }
-
-    if (seq === this._seekSeq)
-    {
-      this.seeking = false;
-      this.syncScrubFlags();
-    }
-    return false;
   }
 
   async goToPresent()

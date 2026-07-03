@@ -1,7 +1,7 @@
 import { clamp, lerp } from './utils.js';
 import { SPECIES, SP_KEYS, GENE_KEYS, GENE_LABEL, BIOME_INFO, sexSymbol } from './data.js';
 import { state, idx, inB } from './state.js';
-import { $, bindEl } from './dom.js?v=20260702';
+import { $, bindEl } from './dom.js';
 import { creatures } from './creatures.js';
 import { camera } from './camera.js';
 import { stateLabelFromConfig } from './behavior/loader.js';
@@ -31,6 +31,7 @@ export class UI
     this._scrubEarliestLoading = false;
     this._scrubTicksLoading = false;
     this._scrubTicksLastAt = 0;
+    this._speciesMenuSp = null;
   }
 
   async restoreScrubMeta(meta)
@@ -75,6 +76,7 @@ export class UI
   {
     const list = $('world-story-list');
     if (!list) return;
+    const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight <= 4;
     const row = document.createElement('div');
     const clickable = event.focusId != null || event.altFocusId != null;
     row.className = clickable ? 'ws-entry ws-entry-event' : 'ws-entry';
@@ -86,10 +88,13 @@ export class UI
     const type = this.formatWorldEventType(rawType);
     row.innerHTML = `<span class="ws-meta">Day ${day} · t ${t.toFixed(1)} · ${type}</span>${event.message || ''}`;
     list.appendChild(row);
-    list.scrollTop = list.scrollHeight;
     while (list.children.length > this._maxWorldStoryRows)
     {
       list.removeChild(list.firstChild);
+    }
+    if (atBottom)
+    {
+      list.scrollTop = list.scrollHeight;
     }
     timelineDb.appendWorldEvent({
       type: rawType,
@@ -373,7 +378,6 @@ export class UI
     this.setPanelCollapsed($('stats'), false);
     this.setPanelCollapsed($('worldstory'), true);
     this.setPanelCollapsed($('timelinedb'), true);
-    this.setPanelCollapsed($('timescrub'), true);
     bindEl('gen-collapse-btn', 'click', e =>
     {
       e.stopPropagation();
@@ -401,12 +405,6 @@ export class UI
     {
       e.stopPropagation();
       const panel = $('timelinedb');
-      this.setPanelCollapsed(panel, !panel.classList.contains('collapsed'));
-    });
-    bindEl('timescrub-collapse-btn', 'click', e =>
-    {
-      e.stopPropagation();
-      const panel = $('timescrub');
       this.setPanelCollapsed(panel, !panel.classList.contains('collapsed'));
     });
   }
@@ -501,6 +499,7 @@ export class UI
 
   deselect()
   {
+    this.closeSpeciesRowMenu();
     state.selected = null;
     state.lockedSelectionFromPanel = false;
     state.lockedSpeciesFromPanel = null;
@@ -930,7 +929,7 @@ export class UI
 
   initDraggablePanels()
   {
-    for (const id of ['genpanel', 'stats', 'inspect', 'worldstory', 'timelinedb', 'timescrub'])
+    for (const id of ['genpanel', 'stats', 'inspect', 'worldstory', 'timelinedb'])
     {
       const panel = $(id);
       const head = panel.querySelector('.panel-head');
@@ -967,6 +966,87 @@ export class UI
     }
   }
 
+  initSpeciesRowMenu()
+  {
+    const menu = $('species-row-menu');
+    if (!menu) return;
+    menu.addEventListener('pointerdown', e =>
+    {
+      e.stopPropagation();
+    });
+    menu.addEventListener('contextmenu', e =>
+    {
+      e.preventDefault();
+    });
+    menu.addEventListener('click', e =>
+    {
+      const btn = e.target.closest('[data-species-action]');
+      if (!btn) return;
+      const action = btn.dataset.speciesAction;
+      const sp = this._speciesMenuSp;
+      this.closeSpeciesRowMenu();
+      if (!action || !sp) return;
+      this.runSpeciesGodAction(action, sp).catch(() => {});
+    });
+  }
+
+  isSpeciesRowMenuOpen()
+  {
+    const menu = $('species-row-menu');
+    if (!menu) return false;
+    return !menu.classList.contains('hidden');
+  }
+
+  openSpeciesRowMenu(speciesKey, clientX, clientY)
+  {
+    if (!speciesKey || !SPECIES[speciesKey]) return;
+    const menu = $('species-row-menu');
+    const title = $('species-menu-title');
+    if (!menu || !title) return;
+    this._speciesMenuSp = speciesKey;
+    const S = SPECIES[speciesKey];
+    title.textContent = `${S.emoji} ${S.label} GOD`;
+    menu.classList.remove('hidden');
+    menu.setAttribute('aria-hidden', 'false');
+    const pad = 6;
+    const maxLeft = Math.max(pad, window.innerWidth - menu.offsetWidth - pad);
+    const maxTop = Math.max(pad, window.innerHeight - menu.offsetHeight - pad);
+    const left = clamp(clientX, pad, maxLeft);
+    const top = clamp(clientY, pad, maxTop);
+    menu.style.left = `${left}px`;
+    menu.style.top = `${top}px`;
+  }
+
+  closeSpeciesRowMenu()
+  {
+    const menu = $('species-row-menu');
+    if (!menu) return;
+    this._speciesMenuSp = null;
+    menu.classList.add('hidden');
+    menu.setAttribute('aria-hidden', 'true');
+  }
+
+  async runSpeciesGodAction(action, speciesKey)
+  {
+    if (action !== 'kill-all' || !speciesKey || !SPECIES[speciesKey]) return;
+    if (!state.ready) return;
+    const isPastView = timeScrub.isViewingPast();
+    const S = SPECIES[speciesKey];
+    const killed = creatures.killAllBySpecies(speciesKey, 'removed');
+    this.appendWorldStoryEvent({
+      type: 'god',
+      message: `GOD command: removed all ${S.emoji} ${S.label} (${killed}).`,
+      payload: { action: 'kill-all', species: speciesKey, count: killed },
+    });
+    const didFork = await timeScrub.onMutatingAction();
+    if (didFork || isPastView)
+    {
+      this.updateScrubLabels();
+      this.refreshScrubTicks(true);
+    }
+    this.refreshTimelineDbView(true);
+  }
+
   getSpeciesRowFromEvent(e)
   {
     if (e.composedPath)
@@ -987,22 +1067,14 @@ export class UI
 
   initTimeScrubber()
   {
-    const panelSlider = $('scrub-slider');
-    const panelPresentBtn = $('scrub-present');
-    const panelForkBtn = $('scrub-fork');
-
     const topSlider = $('top-scrub-slider');
     const topPresentBtn = $('top-scrub-present');
+    if (!topSlider) return;
 
-    const sliders = [];
-    if (panelSlider) sliders.push(panelSlider);
-    if (topSlider) sliders.push(topSlider);
-    if (!sliders.length) return;
-
-    const updateFromSlider = async (slider, immediate) =>
+    const updateFromSlider = async (immediate) =>
     {
       if (this._scrubLoading && !immediate) return;
-      const v = Number(slider.value || 0);
+      const v = Number(topSlider.value || 0);
       const doSeek = async () =>
       {
         this._scrubLoading = true;
@@ -1027,24 +1099,20 @@ export class UI
       }
     };
 
-    for (const slider of sliders)
+    topSlider.addEventListener('input', () => updateFromSlider(true));
+    topSlider.addEventListener('change', () => updateFromSlider(true));
+    topSlider.addEventListener('pointerdown', () =>
     {
-      const isTopScrubber = slider.id === 'top-scrub-slider';
-      slider.addEventListener('input', () => updateFromSlider(slider, isTopScrubber));
-      slider.addEventListener('change', () => updateFromSlider(slider, true));
-      slider.addEventListener('pointerdown', () =>
-      {
-        this._scrubDragging = true;
-      });
-      slider.addEventListener('pointerup', () =>
-      {
-        this._scrubDragging = false;
-      });
-      slider.addEventListener('pointercancel', () =>
-      {
-        this._scrubDragging = false;
-      });
-    }
+      this._scrubDragging = true;
+    });
+    topSlider.addEventListener('pointerup', () =>
+    {
+      this._scrubDragging = false;
+    });
+    topSlider.addEventListener('pointercancel', () =>
+    {
+      this._scrubDragging = false;
+    });
 
     const wirePresent = btn =>
     {
@@ -1056,26 +1124,13 @@ export class UI
       });
     };
 
-    wirePresent(panelPresentBtn);
     wirePresent(topPresentBtn);
-
-    if (panelForkBtn)
-    {
-      panelForkBtn.addEventListener('click', async () =>
-      {
-        const did = await timeScrub.onMutatingAction();
-        if (did) this.updateScrubLabels();
-      });
-    }
 
     this.updateScrubLabels();
   }
 
   updateScrubLabels()
   {
-    const viewEl = $('scrub-view');
-    const headEl = $('scrub-head');
-    const panelSlider = $('scrub-slider');
     const topSlider = $('top-scrub-slider');
     const topStatusEl = $('top-scrub-status');
     const head = timeScrub.getCurrentHeadT();
@@ -1084,34 +1139,31 @@ export class UI
     const min = earliest == null ? head : Math.max(0, earliest);
     const disablePast = earliest == null || earliest >= head - 0.01;
 
-    if (viewEl)
-    {
-      const historyMsg = earliest == null ? ' (gathering history...)' : '';
-      viewEl.textContent = `Viewing: Day ${Math.floor(view / 40)} · t ${view.toFixed(1)}${historyMsg}`;
-    }
-    if (headEl) headEl.textContent = `Head: Day ${Math.floor(head / 40)} · t ${head.toFixed(1)}`;
-
+    const historyMsg = earliest == null ? ' (gathering history...)' : '';
     if (topStatusEl)
     {
-      const historyMsg = earliest == null ? ' (gathering)' : '';
-      topStatusEl.textContent = disablePast
-        ? `t ${head.toFixed(1)}`
-        : `t ${view.toFixed(1)}${historyMsg}`;
+      const headDay = Math.floor(head / 40);
+      if (disablePast)
+      {
+        topStatusEl.textContent = `Day ${headDay} · t ${head.toFixed(1)}`;
+      }
+      else
+      {
+        topStatusEl.textContent = `Viewing Day ${Math.floor(view / 40)} · t ${view.toFixed(1)} · head t ${head.toFixed(1)}${historyMsg}`;
+      }
     }
 
     const updateSlider = slider =>
     {
       if (!slider) return;
-      // Avoid browser auto-clamping that can visually "snap" the thumb during drag.
       if (this._scrubDragging) return;
       slider.max = Math.max(0, head).toFixed(1);
       slider.min = min.toFixed(1);
       slider.disabled = disablePast;
       if (!timeScrub.active) slider.value = head.toFixed(1);
       else slider.value = Math.min(Number(slider.max), view).toFixed(1);
-    }
+    };
 
-    updateSlider(panelSlider);
     updateSlider(topSlider);
     this.updateScrubIndicators(view, min, head);
     this.updatePauseIndicator();
@@ -1120,9 +1172,7 @@ export class UI
   updateScrubIndicators(view, min, head)
   {
     const topIndicator = $('top-scrub-indicator');
-    const panelIndicator = $('panel-scrub-indicator');
     const topTrack = document.querySelector('#top-scrubctl .scrub-track');
-    const panelTrack = document.querySelector('#timescrub .scrub-track');
     const max = Math.max(min, head);
     const denominator = max - min;
     const ratio = denominator > 0 ? clamp((view - min) / denominator, 0, 1) : 1;
@@ -1133,7 +1183,6 @@ export class UI
       indicator.style.height = `${track.clientHeight}px`;
     };
     setIndicator(topIndicator, topTrack);
-    setIndicator(panelIndicator, panelTrack);
     if (!timeScrub.active)
     {
       state.graphHoverIndex = -1;
@@ -1173,8 +1222,7 @@ export class UI
     if (timeScrub.active) return;
 
     const topSlider = $('top-scrub-slider');
-    const panelSlider = $('scrub-slider');
-    if (!topSlider && !panelSlider) return;
+    if (!topSlider) return;
 
     this._scrubTicksLoading = true;
     try
@@ -1221,7 +1269,6 @@ export class UI
         }
       };
       applyToScroll('top-scrub-ticks-layer');
-      applyToScroll('panel-scrub-ticks-layer');
     }
     catch (e)
     {

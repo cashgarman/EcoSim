@@ -326,6 +326,23 @@ export class CreatureSystem
     }
   }
 
+  killAllBySpecies(sp, cause = 'removed')
+  {
+    let killed = 0;
+    for (const c of state.creatures)
+    {
+      if (c.dead || c.sp !== sp) continue;
+      this.die(c, cause);
+      killed++;
+    }
+    if (killed > 0)
+    {
+      this.rebuildGrid();
+      state.vegDirty = true;
+    }
+    return killed;
+  }
+
   stepNeeds(c, dt)
   {
     const g = c.genome;
