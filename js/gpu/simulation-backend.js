@@ -1469,7 +1469,8 @@ export class GpuSimulationBackend
     }
     const renderRb = state.gpuSimBuffers.renderReadback;
     if (
-      !state.gpuSimReadbackPending
+      !state.scrubActive
+      && !state.gpuSimReadbackPending
       && renderRb
       && renderRb.mapState === 'unmapped'
       && now - state.gpuSimLastReadbackAt > this.readbackEveryMs
@@ -1510,8 +1511,8 @@ export class GpuSimulationBackend
     dev.queue.submit([cmd]);
 
     if (this.countersReadbackPending) this.consumeCountersReadback();
-    if (state.gpuSimReadbackPending) this.consumeCreatureReadback();
-    if (this.selectedReadbackPending) this.consumeSelectedReadback();
+    if (state.gpuSimReadbackPending && !state.scrubActive) this.consumeCreatureReadback();
+    if (this.selectedReadbackPending && !state.scrubActive) this.consumeSelectedReadback();
 
     if ((this.tickCounter % this.worldReadbackEveryTicks) === 0) this.syncWorldBackToCpu();
     return true;
@@ -1541,10 +1542,21 @@ export class GpuSimulationBackend
   consumeCreatureReadback()
   {
     if (!state.gpuSimReadbackPending) return;
+    if (state.scrubActive)
+    {
+      state.gpuSimReadbackPending = false;
+      return;
+    }
     const rb = state.gpuSimBuffers?.renderReadback;
     if (!rb || rb.mapState !== 'unmapped') return;
     rb.mapAsync(GPUMapMode.READ).then(() =>
     {
+      if (state.scrubActive)
+      {
+        if (rb.mapState === 'mapped') rb.unmap();
+        state.gpuSimReadbackPending = false;
+        return;
+      }
       const floatData = new Float32Array(rb.getMappedRange());
       const alive = [];
       const slotMap = new Map();
@@ -1665,10 +1677,21 @@ export class GpuSimulationBackend
   consumeSelectedReadback()
   {
     if (!this.selectedReadbackPending) return;
+    if (state.scrubActive)
+    {
+      this.selectedReadbackPending = false;
+      return;
+    }
     const rb = state.gpuSimBuffers?.selectedReadback;
     if (!rb || rb.mapState !== 'unmapped') return;
     rb.mapAsync(GPUMapMode.READ).then(() =>
     {
+      if (state.scrubActive)
+      {
+        if (rb.mapState === 'mapped') rb.unmap();
+        this.selectedReadbackPending = false;
+        return;
+      }
       const c = state.selected;
       if (!c)
       {

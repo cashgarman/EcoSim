@@ -74,6 +74,7 @@ export class WebGpuRenderer
   constructor()
   {
     this.gpuCanvas = null;
+    this._dbgGpuBufLastAt = 0;
   }
 
   init(gpuCanvas)
@@ -236,6 +237,36 @@ export class WebGpuRenderer
   renderGpuBuffer(canvas, count)
   {
     if (!state.gpuReady || !state.gpuDevice || !state.gpuContext) return false;
+    const dbgNow = Date.now();
+    if (dbgNow - this._dbgGpuBufLastAt >= 500)
+    {
+      this._dbgGpuBufLastAt = dbgNow;
+      // #region agent log
+      fetch('http://127.0.0.1:7380/ingest/1f42d0b3-052e-4f03-9f2a-63f9a93dd687', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Debug-Session-Id': '556f60',
+        },
+        body: JSON.stringify({
+          sessionId: '556f60',
+          runId: 'post-fix',
+          hypothesisId: 'H5',
+          location: 'js/render/webgpu-renderer.js:237',
+          message: 'renderGpuBuffer invocation',
+          data: {
+            count,
+            camZ: state.cam.z,
+            scrubActive: state.scrubActive,
+            rendererBackend: state.rendererBackend,
+            simBackend: state.simBackend,
+            gpuSimEnabled: state.gpuSimEnabled,
+          },
+          timestamp: dbgNow,
+        }),
+      }).catch(() => {});
+      // #endregion
+    }
     if (!state.gpuBindGroup || !state.gpuCreatureBuffer || count <= 0)
     {
       this.clearOverlay();

@@ -17,6 +17,9 @@ import { quality } from './render/quality.js';
 import { gpuSimulationBackend } from './gpu/simulation-backend.js';
 import { lifeStory } from './life-story.js';
 import { timelineDb } from './timeline-db.js';
+import { timeScrub } from './time-scrub.js';
+import { captureSnapshot } from './snapshot.js';
+import { loadTimelineConfig } from './config.js';
 
 export class GameApp
 {
@@ -24,11 +27,18 @@ export class GameApp
   {
     this.last = performance.now();
     this.uiT = 0;
+    this._dbgLastAt = 0;
+    this._dbgLastScrub = false;
   }
 
   async init()
   {
     setRngSeed(state.SEED);
+    const timelineConfig = await loadTimelineConfig();
+    if (timelineConfig && typeof timelineConfig.snapshotIntervalSec === 'number')
+    {
+      state.snapshotIntervalSec = Math.max(0.5, timelineConfig.snapshotIntervalSec);
+    }
     $('loading').classList.remove('hidden');
     $('loadmsg').textContent = 'Loading species…';
     await loadSpeciesData();
@@ -58,6 +68,7 @@ export class GameApp
     ui.initDraggablePanels();
     ui.initPanelCollapse();
     ui.initTimelineDbViewer();
+    ui.initTimeScrubber();
     simulation.updateDayNight();
     ui.syncGraphCanvas();
     ui.applyStatsPanelMode('normal');
@@ -163,6 +174,8 @@ export class GameApp
     state.timeOfDay = 0.3;
     state.migrantTimer = 0;
     state.heartbeatNextAt = state.heartbeatIntervalSec;
+    state.lastSnapshotAt = 0;
+    timeScrub.resetForNewRun();
     $('loading').classList.remove('hidden');
     $('loadmsg').textContent = 'Sculpting terrain…';
     ui.deselect();
@@ -191,6 +204,16 @@ export class GameApp
         for (const k of SP_KEYS) state.popHistory[k] = [];
 
         creatures.stockLife();
+        try
+        {
+          const initSnap = captureSnapshot();
+          timelineDb.appendSnapshot({ t: initSnap.t, day: initSnap.day, snapshot: initSnap });
+          state.lastSnapshotAt = state.tGlobal;
+        }
+        catch (e)
+        {
+          // initial snapshot optional
+        }
         if (simulationMode === 'gpu_hybrid' && gpuSimulationBackend.initialized)
         {
           try
@@ -215,6 +238,19 @@ export class GameApp
         $('loading').classList.add('hidden');
         ui.log(`🌍 New ${state.worldAreaKm2} km² world generated (seed ${state.SEED}).`);
         ui.refreshTimelineDbView(true);
+        const restoreMeta = async () =>
+        {
+          try
+          {
+            const meta = await timelineDb.getScrubMeta();
+            await ui.restoreScrubMeta(meta);
+          }
+          catch (err)
+          {
+            console.warn('Failed to restore scrub metadata:', err);
+          }
+        };
+        restoreMeta().finally(() => timeScrub.persistState());
       };
 
       timelineDb.initTimelineDb(runMeta).catch(err =>
@@ -235,12 +271,36 @@ export class GameApp
       this.last = now;
       const sdt = dt * state.speed;
 
-      if (state.speed > 0 && state.ready)
+      const viewingPast = timeScrub.isViewingPast();
+      state.scrubActive = viewingPast;
+
+      if (state.speed > 0 && state.ready && !viewingPast)
       {
         state.tGlobal += sdt;
         const steps = Math.min(6, Math.ceil(state.speed));
         const stepDt = sdt / steps;
         for (let i = 0; i < steps; i++) simulation.tick(stepDt);
+      }
+
+      if (!viewingPast)
+      {
+        timeScrub.noteLiveAdvance();
+
+        // Periodic snapshot for time scrubbing (every snapshotIntervalSec)
+        const snapInterval = state.snapshotIntervalSec || 10;
+        if (state.tGlobal >= (state.lastSnapshotAt || 0) + snapInterval)
+        {
+          state.lastSnapshotAt = state.tGlobal;
+          try
+          {
+            const snap = captureSnapshot();
+            timelineDb.appendSnapshot({ t: snap.t, day: snap.day, snapshot: snap });
+          }
+          catch (e)
+          {
+            // snapshot capture failure should not break sim
+          }
+        }
       }
 
       if (state.followSelected)
@@ -263,6 +323,41 @@ export class GameApp
           ? true
           : (quality.frameCounter % quality.renderDecimation) === 0;
         if (shouldRender) renderPipeline.render();
+      }
+      const dbgNow = Date.now();
+      const dbgScrub = !!state.scrubActive;
+      if (dbgScrub && (dbgNow - this._dbgLastAt >= 500 || dbgScrub !== this._dbgLastScrub))
+      {
+        this._dbgLastAt = dbgNow;
+        this._dbgLastScrub = dbgScrub;
+        // #region agent log
+        fetch('http://127.0.0.1:7380/ingest/1f42d0b3-052e-4f03-9f2a-63f9a93dd687', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Debug-Session-Id': '556f60',
+          },
+          body: JSON.stringify({
+            sessionId: '556f60',
+            runId: 'post-fix',
+            hypothesisId: 'H4',
+            location: 'js/app.js:305',
+            message: 'frame render decision',
+            data: {
+              ready: state.ready,
+              shouldRender,
+              speed: state.speed,
+              rendererBackend: state.rendererBackend,
+              simBackend: state.simBackend,
+              gpuSimEnabled: state.gpuSimEnabled,
+              camZ: state.cam.z,
+              viewingPast,
+              scrubActive: state.scrubActive,
+            },
+            timestamp: dbgNow,
+          }),
+        }).catch(() => {});
+        // #endregion
       }
       const frameMs = performance.now() - frameStart;
       quality.updateTier(frameMs);
