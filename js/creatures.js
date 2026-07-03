@@ -1,15 +1,14 @@
 import { rng, ri, rf, gauss, clamp, lerp } from './utils.js';
-import { B, SPECIES, SP_KEYS, GENE_KEYS, GENE_RANGE, isWater, sampleGestation, sampleMateCooldown, sexSymbol } from './data.js';
+import { B, SPECIES, SP_KEYS, GENE_KEYS, GENE_RANGE, isWater } from './data.js';
 import { state, MAX_POP, idx, inB, gkey, CELL } from './state.js';
 import {
   atWaterEdge,
-  nearestWaterEdgeTarget,
   planGridStep,
-  snapWalkableGoal,
   pickRandomWalkableTile,
 } from './nav.js';
 import { quality } from './render/quality.js';
 import { lifeStory } from './life-story.js';
+import { behaviorTree } from './behavior/index.js';
 
 export class CreatureSystem
 {
@@ -310,24 +309,16 @@ export class CreatureSystem
     }
     c.matePartnerId = null;
     if (born > 0) lifeStory.recordGaveBirth(c, born);
-    if (firstBaby)
-    {
-      const S = SPECIES[c.sp];
-      this.notify(
-        `${S.emoji} ${S.label} ${sexSymbol(firstBaby.sex)} born <b>(gen ${firstBaby.gen})</b>`,
-        firstBaby.id,
-      );
-    }
   }
 
   die(c, cause)
   {
     if (c.dead) return;
+    if (cause) c.cause = cause;
     lifeStory.recordDied(c, cause);
     c.dead = true;
     c.gpuNeedsUpload = true;
     state.gpuSimDirtyFromCpu = true;
-    c.cause = cause;
     const ti = idx(clamp(Math.round(c.x), 0, state.W - 1), clamp(Math.round(c.y), 0, state.H - 1));
     if (!isWater(state.biome[ti]))
     {
@@ -335,9 +326,9 @@ export class CreatureSystem
     }
   }
 
-  stepCreature(c, dt)
+  stepNeeds(c, dt)
   {
-    const S = SPECIES[c.sp], g = c.genome;
+    const g = c.genome;
     const load = g.size * g.metab;
     c.hunger -= (0.9 * load + (c.state === 'hunt' ? 0.6 : 0)) * dt;
     c.thirst -= 1.0 * load * dt;
@@ -354,187 +345,36 @@ export class CreatureSystem
     if (c.energy <= 0) c.energy = 0;
     if (c.hunger > 55 && c.thirst > 55 && stress <= 0) c.hp = Math.min(100, c.hp + 4 * dt);
 
-    if (c.hp <= 0) { this.die(c, c.cause || 'exhaustion'); return; }
-    if (c.age >= g.lifespan) { this.die(c, 'old age'); return; }
+    if (c.hp <= 0)
+    {
+      if (!c.cause || c.cause === 'exhaustion')
+      {
+        if (c.hunger <= 0 && c.thirst <= 0) c.cause = 'starvation and dehydration';
+        else if (c.hunger <= 0) c.cause = 'starvation';
+        else if (c.thirst <= 0) c.cause = 'dehydration';
+      }
+      this.die(c, c.cause || 'exhaustion');
+      return false;
+    }
+    if (c.age >= g.lifespan) { this.die(c, 'old age'); return false; }
 
     if (c.pregnant > 0) { c.pregnant -= dt; if (c.pregnant <= 0) this.giveBirth(c); }
+    return true;
+  }
 
-    const senseR = g.sense;
-    const neigh = this.nearby(c, senseR);
-    let threat = null, tdist = 1e9, prey = null, pdist = 1e9, mate = null, mdist = 1e9;
+  runBehaviorDecision(c, dt, options = {})
+  {
+    return behaviorTree.tick(c, dt, this, options);
+  }
 
-    for (const o of neigh)
-    {
-      const d = Math.hypot(o.x - c.x, o.y - c.y);
-      if (S.preyOf && S.preyOf.includes(o.sp) && this.eSize(o) > this.eSize(c) * 0.7)
-      {
-        if (d < tdist) { tdist = d; threat = o; }
-      }
-      if (S.hunts && S.hunts.includes(o.sp) && this.eSize(o) < this.eSize(c) * 1.25)
-      {
-        if (d < pdist) { pdist = d; prey = o; }
-      }
-      if (o.sp === c.sp && o.sex !== c.sex && this.isAdult(o) && this.isAdult(c)
-        && o.mateCd <= 0 && c.mateCd <= 0
-        && o.pregnant <= 0 && c.pregnant <= 0 && o.energy > 45 && c.energy > 45)
-      {
-        if (d < mdist) { mdist = d; mate = o; }
-      }
-    }
+  stepCreature(c, dt)
+  {
+    if (!this.stepNeeds(c, dt)) return;
 
-    let st = 'wander';
-    if (threat) st = 'flee';
-    else if (c.thirst < 30 || (c.state === 'thirst' && c.thirst < 55)) st = 'thirst';
-    else if (c.hunger < 55) st = (S.diet === 0 ? 'graze' : (prey ? 'hunt' : (S.diet === 2 ? 'graze' : 'huntSearch')));
-    else if (c.energy < 18) st = 'rest';
-    else if (mate && c.pregnant <= 0 && c.hunger > 45 && c.thirst > 40) st = 'mate';
-    else if (S.diet >= 1 && prey && c.hunger < 75) st = 'hunt';
-    else st = 'wander';
-    c.state = st;
-    c.target = null;
-
-    let speed = g.speed;
-    if (!this.isAdult(c)) speed *= 0.8;
-    if (state.isNight) { speed *= 0.6; if (st === 'wander' && c.energy < 75) st = 'rest'; }
-
-    const canSwim = SPECIES[c.sp].shape === 'bird';
-
-    const applySnappedGoal = (gx, gy) =>
-    {
-      const sn = snapWalkableGoal(Math.round(gx), Math.round(gy), canSwim, 8);
-      if (sn) { c.tx = sn.x + 0.5; c.ty = sn.y + 0.5; }
-      else { c.tx = gx; c.ty = gy; }
-    };
-
-    switch (st)
-    {
-      case 'flee':
-      {
-        if (atWaterEdge(c.x, c.y) && c.thirst < 55)
-        {
-          c.thirst = Math.min(100, c.thirst + 60 * dt);
-          c.vx *= 0.7;
-          c.vy *= 0.7;
-          break;
-        }
-        c.target = threat ? threat.id : null;
-        const a = Math.atan2(c.y - threat.y, c.x - threat.x);
-        applySnappedGoal(c.x + Math.cos(a) * 6, c.y + Math.sin(a) * 6);
-        this.moveTo(c, speed * 1.25, dt);
-        break;
-      }
-      case 'thirst':
-      {
-        if (atWaterEdge(c.x, c.y)) { c.thirst = Math.min(100, c.thirst + 60 * dt); }
-        else
-        {
-          const w = nearestWaterEdgeTarget(c.x, c.y, senseR + 6);
-          if (w) { c.tx = w.x; c.ty = w.y; }
-          else this.wander(c);
-          this.moveTo(c, speed, dt);
-        }
-        break;
-      }
-      case 'graze':
-      {
-        const ti = idx(clamp(Math.round(c.x), 0, state.W - 1), clamp(Math.round(c.y), 0, state.H - 1));
-        if (state.veg[ti] > 0.04)
-        {
-          const bite = Math.min(state.veg[ti], 3.5 * dt);
-          state.veg[ti] -= bite;
-          c.hunger = Math.min(100, c.hunger + bite * 26);
-          state.vegDirty = true;
-        }
-        else
-        {
-          const t = this.findFood(c, senseR);
-          if (t) applySnappedGoal(t.x, t.y);
-          else this.wander(c);
-          this.moveTo(c, speed, dt);
-        }
-        break;
-      }
-      case 'huntSearch':
-        this.wander(c);
-        this.moveTo(c, speed, dt);
-        break;
-      case 'hunt':
-      {
-        if (prey)
-        {
-          applySnappedGoal(prey.x, prey.y);
-          c.target = prey.id;
-          this.moveTo(c, speed * 1.15, dt);
-          if (pdist < this.eSize(c) * 0.6 + 0.5)
-          {
-            if (rng() < (0.10 + g.agg * 0.10))
-            {
-              prey.hp -= 30 + g.size * 15;
-              prey.cause = 'predation';
-              if (prey.hp <= 0)
-              {
-                c.hunger = Math.min(100, c.hunger + 50);
-                c.energy = Math.min(100, c.energy + 12);
-                lifeStory.recordHunted(c, prey);
-              }
-            }
-          }
-        }
-        else this.wander(c);
-        this.moveTo(c, speed, dt);
-        break;
-      }
-      case 'rest':
-        c.energy = Math.min(100, c.energy + 9 * dt);
-        c.vx *= 0.8;
-        c.vy *= 0.8;
-        break;
-      case 'mate':
-      {
-        if (mate)
-        {
-          c.target = mate.id;
-          applySnappedGoal(mate.x, mate.y);
-          this.moveTo(c, speed, dt);
-          if (mdist < 1.0)
-          {
-            const female = c.sex === 'female' ? c : mate;
-            const male = c.sex === 'male' ? c : mate;
-            if (female.sex === 'female' && male.sex === 'male'
-              && female.pregnant <= 0 && female.mateCd <= 0 && male.mateCd <= 0)
-            {
-              female.pregnant = sampleGestation(c.sp);
-              female.matePartner = male.genome;
-              female.matePartnerId = male.id;
-              female.litterQ = Math.max(1, Math.round(g.litter * rf(0.7, 1.15)));
-              const cd = sampleMateCooldown(c.sp);
-              female.mateCd = cd;
-              male.mateCd = cd * 0.6;
-              female.energy -= 20;
-              male.energy -= 12;
-              lifeStory.recordMated(female, male.id, male.sp, female.sex, male.sex);
-              lifeStory.recordMated(male, female.id, female.sp, male.sex, female.sex);
-              const S = SPECIES[c.sp];
-              this.notify(
-                `${S.emoji} ${S.label} ${sexSymbol(female.sex)} mated with ${sexSymbol(male.sex)} ${S.label.toLowerCase()}`,
-                female.id,
-              );
-            }
-          }
-        }
-        else this.wander(c);
-        break;
-      }
-      default:
-        this.wander(c);
-        this.moveTo(c, speed * 0.7, dt);
-    }
-
-    if (state.simBackend !== 'gpu')
-    {
-      lifeStory.observeDecision(c, c.state, c.target);
-      lifeStory.observeAge(c);
-    }
+    behaviorTree.tick(c, dt, this, {
+      executeActions: state.simBackend !== 'gpu',
+      logLifeStory: state.simBackend !== 'gpu',
+    });
 
     const sp2 = Math.hypot(c.vx, c.vy);
     c.walk += sp2 * dt * 10 + dt * 0.5;

@@ -1,7 +1,7 @@
 import { clamp } from './utils.js';
 import { SP_KEYS } from './data.js';
 import { state } from './state.js';
-import { $ } from './dom.js';
+import { $, bindEl } from './dom.js?v=20260702';
 import { camera } from './camera.js';
 import { creatures } from './creatures.js';
 import { ui } from './ui.js';
@@ -183,7 +183,7 @@ export class InputManager
 
   bindPanelEvents()
   {
-    $('popgraph').addEventListener('mousemove', e =>
+    bindEl('popgraph', 'mousemove', e =>
     {
       if (state.statsPanelMode !== 'max') return;
       const graph = $('popgraph');
@@ -194,14 +194,14 @@ export class InputManager
       state.graphHoverIndex = clamp(Math.round(t * (len - 1)), 0, len - 1);
       ui.drawGraph();
     });
-    $('popgraph').addEventListener('mouseleave', () =>
+    bindEl('popgraph', 'mouseleave', () =>
     {
       state.graphHoverIndex = -1;
       $('popgraph-tip').style.display = 'none';
       if (state.statsPanelMode === 'max') ui.drawGraph();
     });
 
-    $('splist').addEventListener('mouseover', e =>
+    bindEl('splist', 'mouseover', e =>
     {
       const row = ui.getSpeciesRowFromEvent(e);
       if (!row || !row.dataset.sp) return;
@@ -209,38 +209,27 @@ export class InputManager
       state.hoveredGraphSpecies = row.dataset.sp;
       ui.drawGraph();
     });
-    $('splist').addEventListener('mouseleave', () =>
+    bindEl('splist', 'mouseleave', () =>
     {
       if (!state.hoveredGraphSpecies) return;
       state.hoveredGraphSpecies = null;
       ui.drawGraph();
     });
-    $('splist').addEventListener('pointerdown', e =>
+    bindEl('splist', 'pointerdown', e =>
     {
       const row = ui.getSpeciesRowFromEvent(e);
       if (!row || !row.dataset.sp) return;
       e.stopPropagation();
       e.preventDefault();
-      const sp = row.dataset.sp;
-      state.lockedSpeciesFromPanel = sp;
+      state.lockedSpeciesFromPanel = row.dataset.sp;
       state.hoveredGraphSpecies = null;
-      const cx = camera.s2wX(this.canvas.width * 0.5), cy = camera.s2wY(this.canvas.height * 0.5);
-      let best = null, bd = 1e9;
-      for (const c of state.creatures)
-      {
-        if (c.dead || c.sp !== sp) continue;
-        const d = Math.hypot(c.x - cx, c.y - cy);
-        if (d < bd) { bd = d; best = c; }
-      }
-      if (best) ui.setSelectedCreature(best, true);
-      else state.lockedSelectionFromPanel = true;
       ui.updateUI();
       ui.drawGraph();
     });
 
     addEventListener('pointerdown', e =>
     {
-      if (!state.lockedSelectionFromPanel) return;
+      if (!state.lockedSelectionFromPanel && !state.lockedSpeciesFromPanel) return;
       if (e.button !== 0) return;
       const row = ui.getSpeciesRowFromEvent(e);
       if (row && row.dataset.sp) return;
@@ -249,31 +238,34 @@ export class InputManager
       ui.deselect();
     }, true);
 
-    $('stats-min-btn').addEventListener('click', () =>
+    bindEl('stats-max-btn', 'click', () =>
     {
-      ui.applyStatsPanelMode(state.statsPanelMode === 'min' ? 'normal' : 'min');
-    });
-    $('stats-max-btn').addEventListener('click', () =>
-    {
+      const panel = $('stats');
+      if (panel.classList.contains('collapsed'))
+      {
+        ui.setPanelCollapsed(panel, false);
+      }
       ui.applyStatsPanelMode(state.statsPanelMode === 'max' ? 'normal' : 'max');
     });
   }
 
   bindSpeedControls()
   {
+    const slider = $('speed-slider');
+    const label = $('speed-label');
     const setSpeed = v =>
     {
       state.speed = clamp(Math.round(v), 0, 10);
-      $('speed-slider').value = String(state.speed);
-      $('speed-label').textContent = `${state.speed}×`;
+      if (slider) slider.value = String(state.speed);
+      if (label) label.textContent = `${state.speed}×`;
     };
-    $('speed-slider').addEventListener('input', e => { setSpeed(Number(e.target.value)); });
+    bindEl('speed-slider', 'input', e => { setSpeed(Number(e.target.value)); });
     setSpeed(1);
   }
 
   bindFollowControls()
   {
-    $('follow-btn').addEventListener('click', () => { ui.setFollowMode(!state.followSelected); });
+    bindEl('follow-btn', 'click', () => { ui.setFollowMode(!state.followSelected); });
     addEventListener('keydown', e =>
     {
       if (e.repeat) return;

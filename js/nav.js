@@ -3,6 +3,98 @@ import { state, idx, inB } from './state.js';
 
 export const PASS_GROUND_BLOCKED = 1;
 
+const NAV_DIRS = [
+  [0, 1, 10], [1, 0, 10], [0, -1, 10], [-1, 0, 10],
+  [1, 1, 14], [1, -1, 14], [-1, 1, 14], [-1, -1, 14],
+];
+
+let astarGScore = null;
+let astarFScore = null;
+let astarParent = null;
+let astarClosed = null;
+let astarHeapIdx = null;
+let astarHeapVal = null;
+
+function ensureAstarBuffers(cells)
+{
+  if (!astarGScore || astarGScore.length < cells)
+  {
+    astarGScore = new Int32Array(cells);
+    astarFScore = new Int32Array(cells);
+    astarParent = new Int32Array(cells);
+    astarClosed = new Uint8Array(cells);
+    astarHeapIdx = new Int32Array(cells);
+    astarHeapVal = new Int32Array(cells);
+  }
+}
+
+function octileHeuristic(ax, ay, bx, by)
+{
+  const dx = Math.abs(ax - bx);
+  const dy = Math.abs(ay - by);
+  const mn = Math.min(dx, dy);
+  const mx = Math.max(dx, dy);
+  return 14 * mn + 10 * (mx - mn);
+}
+
+function heapPush(heapSize, cellIdx, fScore)
+{
+  let i = heapSize;
+  astarHeapIdx[i] = cellIdx;
+  astarHeapVal[i] = fScore;
+  while (i > 0)
+  {
+    const p = (i - 1) >> 1;
+    if (astarHeapVal[p] <= astarHeapVal[i]) break;
+    const ti = astarHeapIdx[p];
+    const tv = astarHeapVal[p];
+    astarHeapIdx[p] = astarHeapIdx[i];
+    astarHeapVal[p] = astarHeapVal[i];
+    astarHeapIdx[i] = ti;
+    astarHeapVal[i] = tv;
+    i = p;
+  }
+  return heapSize + 1;
+}
+
+function heapPop(heapSize)
+{
+  const cellIdx = astarHeapIdx[0];
+  const last = heapSize - 1;
+  astarHeapIdx[0] = astarHeapIdx[last];
+  astarHeapVal[0] = astarHeapVal[last];
+  let i = 0;
+  while (true)
+  {
+    const l = i * 2 + 1;
+    const r = l + 1;
+    let smallest = i;
+    if (l < last && astarHeapVal[l] < astarHeapVal[smallest]) smallest = l;
+    if (r < last && astarHeapVal[r] < astarHeapVal[smallest]) smallest = r;
+    if (smallest === i) break;
+    const ti = astarHeapIdx[i];
+    const tv = astarHeapVal[i];
+    astarHeapIdx[i] = astarHeapIdx[smallest];
+    astarHeapVal[i] = astarHeapVal[smallest];
+    astarHeapIdx[smallest] = ti;
+    astarHeapVal[smallest] = tv;
+    i = smallest;
+  }
+  return { cellIdx, heapSize: last };
+}
+
+function diagonalBlocked(cx, cy, ddx, ddy, ox, oy, canSwim)
+{
+  if (Math.abs(ddx) + Math.abs(ddy) !== 2) return false;
+  const wx1 = ox + cx + ddx;
+  const wy1 = oy + cy + ddy;
+  const wx2 = ox + cx;
+  const wy2 = oy + cy;
+  if (!isTileWalkable(wx1, wy2, canSwim)) return true;
+  if (!isTileWalkable(wx2, wy1, canSwim)) return true;
+  return false;
+}
+
 export function isBiomePassable(biomeId, canSwim)
 {
   if (biomeId === B.PEAK) return false;
@@ -126,11 +218,6 @@ export function pickRandomWalkableTile(cx, cy, spread, canSwim)
   return { x: cx, y: cy };
 }
 
-const NAV_DIRS = [
-  [0, 1], [1, 0], [0, -1], [-1, 0],
-  [1, 1], [1, -1], [-1, 1], [-1, -1],
-];
-
 export function planGridStep(x, y, goalX, goalY, canSwim, radius = 48)
 {
   const R = Math.max(8, Math.min(64, radius | 0));
@@ -153,62 +240,79 @@ export function planGridStep(x, y, goalX, goalY, canSwim, radius = 48)
   if (flx < 0 || fly < 0 || flx >= side || fly >= side) return { x: gx + 0.5, y: gy + 0.5 };
 
   const cells = side * side;
-  const dist = new Int16Array(cells);
-  dist.fill(-1);
-  const q = new Int32Array(cells);
-  let qh = 0, qt = 0;
+  ensureAstarBuffers(cells);
+  astarGScore.fill(2147483647, 0, cells);
+  astarFScore.fill(2147483647, 0, cells);
+  astarParent.fill(-1, 0, cells);
+  astarClosed.fill(0, 0, cells);
 
-  const gi = gly * side + glx;
-  dist[gi] = 0;
-  q[qt++] = gi;
+  const start = fly * side + flx;
+  const goal = gly * side + glx;
+  astarGScore[start] = 0;
+  astarFScore[start] = octileHeuristic(flx, fly, glx, gly);
+  let heapSize = heapPush(0, start, astarFScore[start]);
 
-  while (qh < qt)
+  while (heapSize > 0)
   {
-    const ci = q[qh++];
-    const cx = ci % side, cy = (ci / side) | 0;
-    const cd = dist[ci];
-    if (cd >= R) continue;
-    for (const [ddx, ddy] of NAV_DIRS)
-    {
-      const nx = cx + ddx, ny = cy + ddy;
-      if (nx < 0 || ny < 0 || nx >= side || ny >= side) continue;
-      const ni = ny * side + nx;
-      if (dist[ni] >= 0) continue;
-      const wx = ox + nx, wy = oy + ny;
-      if (!inB(wx, wy) || !isTileWalkable(wx, wy, canSwim)) continue;
-      dist[ni] = cd + 1;
-      q[qt++] = ni;
-    }
-  }
+    const popped = heapPop(heapSize);
+    heapSize = popped.heapSize;
+    const ci = popped.cellIdx;
+    if (astarClosed[ci]) continue;
+    astarClosed[ci] = 1;
 
-  const fi = fly * side + flx;
-  if (dist[fi] >= 0)
-  {
-    let bestStep = null, bestD = dist[fi];
-    for (const [ddx, ddy] of NAV_DIRS)
+    if (ci === goal)
     {
-      const nx = flx + ddx, ny = fly + ddy;
-      if (nx < 0 || ny < 0 || nx >= side || ny >= side) continue;
-      const ni = ny * side + nx;
-      const nd = dist[ni];
-      if (nd >= 0 && nd < bestD)
+      let step = ci;
+      let prev = astarParent[step];
+      while (prev >= 0 && prev !== start)
       {
-        bestD = nd;
-        bestStep = { x: ox + nx + 0.5, y: oy + ny + 0.5 };
+        step = prev;
+        prev = astarParent[step];
       }
+      const sx = step % side;
+      const sy = (step / side) | 0;
+      return { x: ox + sx + 0.5, y: oy + sy + 0.5 };
     }
-    if (bestStep) return bestStep;
+
+    const cx = ci % side;
+    const cy = (ci / side) | 0;
+    const cg = astarGScore[ci];
+    if (cg >= R * 14) continue;
+
+    for (const [ddx, ddy, cost] of NAV_DIRS)
+    {
+      const nx = cx + ddx;
+      const ny = cy + ddy;
+      if (nx < 0 || ny < 0 || nx >= side || ny >= side) continue;
+      const wx = ox + nx;
+      const wy = oy + ny;
+      if (!inB(wx, wy) || !isTileWalkable(wx, wy, canSwim)) continue;
+      if (diagonalBlocked(cx, cy, ddx, ddy, ox, oy, canSwim)) continue;
+
+      const ni = ny * side + nx;
+      if (astarClosed[ni]) continue;
+      const tg = cg + cost;
+      if (tg >= astarGScore[ni]) continue;
+
+      astarGScore[ni] = tg;
+      astarParent[ni] = ci;
+      const tf = tg + octileHeuristic(nx, ny, glx, gly);
+      astarFScore[ni] = tf;
+      heapSize = heapPush(heapSize, ni, tf);
+    }
   }
 
-  let fallback = null, fbScore = 1e9;
+  let fallback = null;
+  let fbScore = 2147483647;
   for (let cy = 0; cy < side; cy++)
   {
     for (let cx = 0; cx < side; cx++)
     {
       const ni = cy * side + cx;
-      if (dist[ni] < 0) continue;
+      const g = astarGScore[ni];
+      if (g >= 2147483647) continue;
       const md = Math.abs(gx - (ox + cx)) + Math.abs(gy - (oy + cy));
-      const score = dist[ni] * 1000 + md;
+      const score = g * 1000 + md;
       if (score < fbScore)
       {
         fbScore = score;

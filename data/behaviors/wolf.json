@@ -1,0 +1,6 @@
+{
+  "extends": "carnivore",
+  "thresholds": {
+    "restEnergy": 15
+  }
+}

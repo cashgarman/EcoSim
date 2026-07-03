@@ -1,0 +1,125 @@
+{
+  "thresholds": {
+    "thirstUrgent": 30,
+    "thirstExit": 55,
+    "hungerGraze": 55,
+    "hungerHunt": 75,
+    "restEnergy": 18,
+    "nightWanderRestEnergy": 75,
+    "mateHungerMin": 45,
+    "mateThirstMin": 40,
+    "mateEnergyMin": 45
+  },
+  "conditions": {
+    "HasThreat": { "op": "hasThreat" },
+    "AtWaterEdge": { "op": "atWaterEdge" },
+    "ThirstyWhileFleeing": { "op": "thirstBelow", "key": "thirstExit" },
+    "Thirsty": { "op": "thirstBelowOrState", "key": "thirstUrgent", "exitKey": "thirstExit", "state": "thirst" },
+    "HungryHerbivore": { "op": "hungerBelow", "key": "hungerGraze", "dietMax": 0 },
+    "HungryOmnivoreNoPrey": { "op": "hungerBelowNoPrey", "key": "hungerGraze", "diet": 2 },
+    "HungryCarnivoreNearby": { "op": "hungerBelowWithPrey", "key": "hungerGraze" },
+    "HungryCarnivoreStalk": { "op": "hungerBelowNoPrey", "key": "hungerGraze", "dietMin": 1 },
+    "Tired": { "op": "energyBelow", "key": "restEnergy" },
+    "CanMate": { "op": "canMate" },
+    "ModerateHunt": { "op": "hungerBelowWithPrey", "key": "hungerHunt", "dietMin": 1 },
+    "NightWanderTired": { "op": "nightWanderTired" }
+  },
+  "actions": {
+    "FleeDrinkAtShore": {
+      "label": "Fleeing (drinking)",
+      "state": "flee",
+      "goal": "hold",
+      "speedMult": 0,
+      "drinkAtShore": true
+    },
+    "Flee": {
+      "label": "Fleeing!",
+      "state": "flee",
+      "goal": "awayFromThreat",
+      "speedMult": 1.25
+    },
+    "SeekWater": {
+      "label": "Seeking water",
+      "state": "thirst",
+      "goal": "nearestWater"
+    },
+    "Graze": {
+      "label": "Grazing",
+      "state": "graze",
+      "goal": "bestFoodOrWander"
+    },
+    "HuntNearby": {
+      "label": "Hunting",
+      "state": "hunt",
+      "goal": "chasePrey",
+      "speedMult": 1.15
+    },
+    "StalkPrey": {
+      "label": "Stalking",
+      "state": "huntSearch",
+      "goal": "wander"
+    },
+    "Rest": {
+      "label": "Resting",
+      "state": "rest",
+      "goal": "hold"
+    },
+    "Mate": {
+      "label": "Mating",
+      "state": "mate",
+      "goal": "approachMate"
+    },
+    "Wander": {
+      "label": "Wandering",
+      "state": "wander",
+      "goal": "randomWalkable",
+      "speedMult": 0.7
+    }
+  },
+  "trees": {
+    "herbivore_prey": {
+      "type": "selector",
+      "children": [
+        { "type": "sequence", "children": ["HasThreat", "AtWaterEdge", "ThirstyWhileFleeing", "FleeDrinkAtShore"] },
+        { "type": "sequence", "children": ["HasThreat", "Flee"] },
+        { "type": "sequence", "children": ["Thirsty", "SeekWater"] },
+        { "type": "sequence", "children": ["HungryHerbivore", "Graze"] },
+        { "type": "sequence", "children": ["Tired", "Rest"] },
+        { "type": "sequence", "children": ["CanMate", "Mate"] },
+        { "type": "sequence", "children": ["NightWanderTired", "Rest"] },
+        "Wander"
+      ]
+    },
+    "carnivore": {
+      "type": "selector",
+      "children": [
+        { "type": "sequence", "children": ["HasThreat", "AtWaterEdge", "ThirstyWhileFleeing", "FleeDrinkAtShore"] },
+        { "type": "sequence", "children": ["HasThreat", "Flee"] },
+        { "type": "sequence", "children": ["Thirsty", "SeekWater"] },
+        { "type": "sequence", "children": ["HungryCarnivoreNearby", "HuntNearby"] },
+        { "type": "sequence", "children": ["Tired", "Rest"] },
+        { "type": "sequence", "children": ["CanMate", "Mate"] },
+        { "type": "sequence", "children": ["ModerateHunt", "HuntNearby"] },
+        { "type": "sequence", "children": ["HungryCarnivoreStalk", "StalkPrey"] },
+        { "type": "sequence", "children": ["NightWanderTired", "Rest"] },
+        "Wander"
+      ]
+    },
+    "omnivore": {
+      "type": "selector",
+      "children": [
+        { "type": "sequence", "children": ["HasThreat", "AtWaterEdge", "ThirstyWhileFleeing", "FleeDrinkAtShore"] },
+        { "type": "sequence", "children": ["HasThreat", "Flee"] },
+        { "type": "sequence", "children": ["Thirsty", "SeekWater"] },
+        { "type": "sequence", "children": ["HungryCarnivoreNearby", "HuntNearby"] },
+        { "type": "sequence", "children": ["HungryOmnivoreNoPrey", "Graze"] },
+        { "type": "sequence", "children": ["Tired", "Rest"] },
+        { "type": "sequence", "children": ["CanMate", "Mate"] },
+        { "type": "sequence", "children": ["ModerateHunt", "HuntNearby"] },
+        { "type": "sequence", "children": ["HungryCarnivoreStalk", "StalkPrey"] },
+        { "type": "sequence", "children": ["NightWanderTired", "Rest"] },
+        "Wander"
+      ]
+    }
+  }
+}

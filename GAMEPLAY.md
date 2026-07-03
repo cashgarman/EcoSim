@@ -46,8 +46,8 @@ Open **http://127.0.0.1:8765/wildlands-ecosim.html** (append `?v=1` to bust brow
 
 ### Simulation backend
 
-- **GPU path** (default when WebGPU available): creature AI, vegetation, spatial bins, and render-instance packing on compute shaders; throttled readback for inspector/graph
-- **CPU fallback**: full `stepCreature` loop if GPU init fails or adapter limits are exceeded
+- **GPU path** (default when WebGPU available): CPU behavior-tree decisions each tick, then GPU A* nav + needs/actions/movement on compute shaders; throttled readback for inspector/graph
+- **CPU fallback**: full `stepCreature` loop (BT + A* + actions) if GPU init fails or adapter limits are exceeded
 - **Migrants** on — built-in extinction recovery (see Difficulty & Migrants)
 
 ### Tools (wired, toolbar DOM missing)
@@ -335,7 +335,8 @@ Display as a small meter in Challenge mode (new UI element).
 | Inspector | `#inspect` | Selected creature stats/genes |
 | Top bar | `#topbar` | Day/night, pop, gen, veg %, speed, Follow |
 | Terrain / creature tips | overlay | Biome + behavior readouts |
-| Event log | `#log` | Births, deaths, migrations (7 entries, fade) |
+| World Story | `#worldstory` | Collapsible timeline of births, deaths, and clickable world events |
+| Timeline DB | `#timelinedb` | Collapsible browser for current-run timeline tables (world, creature, heartbeat, meta) |
 | Perf HUD | `#perfhud` | F2 — backend, frame ms, quality tier, GPU sim stats |
 
 ### Planned for Challenge mode
@@ -383,11 +384,11 @@ Uses existing pedigree fields (`parentIds`, `offspringIds`, `gen`) in creature o
 
 These sim behaviors are **not** overridden for game feel without explicit scenario flags:
 
-- Creature AI priority (flee → thirst → graze/hunt → rest → mate → wander)
+- Creature AI via JSON behavior trees ([`data/behaviors/`](data/behaviors/); CPU evaluation, GPU execution)
 - Genetics (`breedGenome`, mutation rates)
 - Climate stress from local temp vs genome
-- Spatial hash perception
-- Grid pathfinding around water, peaks, and `passMask` blocked tiles (`js/nav.js`; GPU `planNavStep`)
+- Spatial hash perception (CPU BT; GPU bins for integrate)
+- Grid A* pathfinding around water, peaks, and `passMask` blocked tiles ([`js/nav.js`](js/nav.js); GPU `planNavStep`)
 - Day/night movement penalties
 - Carcass → veg feedback on death
 - `MAX_POP = 6000` cap
@@ -407,7 +408,8 @@ Phased delivery on top of the existing module layout.
 | ES module split (`js/` domains) | Done |
 | WebGPU hybrid render (circles / sprites / fallback) | Done |
 | GPU compute simulation + CPU fallback | Done |
-| Shared grid pathfinding (CPU/GPU `nav.js`) | Done |
+| JSON behavior trees (CPU) + GPU A* pathfinding | Done |
+| Shared grid A* pathfinding (CPU/GPU) | Done |
 | Adaptive quality tiers + F2 perf HUD | Done |
 | Terrain tooltip, infinite ocean, camera clamp/follow | Done |
 | Pop graph, species hover/lock highlights, inspector | Done |
@@ -476,6 +478,17 @@ Not required for MVP. Placeholders:
 - [ ] Failure causes feel fair — player identifies food web mistake in recap.
 - [ ] Creative mode unchanged for existing users.
 - [ ] One Daily Seed scenario is replayable for a week without feeling solved.
+
+---
+
+## Behavior JSON (modding)
+
+Per-species AI is data-driven under [`data/behaviors/`](data/behaviors/):
+
+- **`library.json`** — shared conditions, actions, thresholds, and tree templates (`herbivore_prey`, `carnivore`, `omnivore`)
+- **`rabbit.json`**, **`wolf.json`**, etc. — `"extends"` a template, override thresholds (e.g. `restEnergy`), tweak action `speedMult`, or patch tree order via `tree.insertAfter`
+
+Each species in [`data/species.json`](data/species.json) references its file with `"behavior": "rabbit"`. Reload the page after edits.
 
 ---
 

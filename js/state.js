@@ -104,6 +104,10 @@ export const state = {
   lightLevel: 1,
   isNight: false,
   migrantTimer: 0,
+  autoMigrationEnabled: false,
+  timelineRunId: '',
+  heartbeatIntervalSec: 5,
+  heartbeatNextAt: 0,
 
   ready: false,
   speed: 1,

@@ -17,6 +17,28 @@ export class RenderPipeline
     this.canvas = null;
     this.gpuCanvas = null;
     this.hlCanvas = null;
+    this.gpuCreaturePath = 'webgpu_circles';
+  }
+
+  chooseGpuCreaturePath()
+  {
+    const prev = this.gpuCreaturePath;
+    let next = prev;
+    const z = state.cam.z;
+    const enterSprites = z > 4.6;
+    const leaveSprites = z < 3.9;
+
+    if (prev === 'webgpu_canvas_sprites')
+    {
+      if (leaveSprites) next = 'webgpu_circles';
+    }
+    else
+    {
+      if (enterSprites) next = 'webgpu_canvas_sprites';
+    }
+
+    this.gpuCreaturePath = next;
+    return next;
   }
 
   init(canvas, gpuCanvas, hlCanvas)
@@ -71,7 +93,8 @@ export class RenderPipeline
     {
       if (state.simBackend === 'gpu' && state.gpuSimEnabled)
       {
-        const preferCanvasDetail = q.detail >= 2 && state.cam.z > 4.2;
+        const path = this.chooseGpuCreaturePath();
+        const preferCanvasDetail = path === 'webgpu_canvas_sprites';
         if (preferCanvasDetail)
         {
           webGpuRenderer.clearOverlay();

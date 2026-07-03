@@ -1,10 +1,18 @@
 import { clamp, lerp } from './utils.js';
 import { SPECIES, SP_KEYS, GENE_KEYS, GENE_LABEL, BIOME_INFO, sexSymbol } from './data.js';
 import { state, idx, inB } from './state.js';
-import { $ } from './dom.js';
+import { $, bindEl } from './dom.js?v=20260702';
 import { creatures } from './creatures.js';
 import { camera } from './camera.js';
+import { stateLabelFromConfig } from './behavior/loader.js';
 import { lifeStory } from './life-story.js';
+import { timelineDb } from './timeline-db.js';
+import {
+  formatBornEvent,
+  formatDiedEvent,
+  formatMatedEvent,
+  eventFocusIds,
+} from './creature-notify.js';
 
 export class UI
 {
@@ -12,6 +20,10 @@ export class UI
   {
     this._onFollowToggle = null;
     this._storyRenderKey = '';
+    this._maxWorldStoryRows = 220;
+    this._dbTab = 'world';
+    this._dbCursor = { worldBeforeId: null, creatureBeforeT: null, heartbeatBeforeT: null };
+    this._dbLoading = false;
   }
 
   setFollowToggleHandler(fn)
@@ -21,60 +33,286 @@ export class UI
 
   log(html)
   {
-    const el = document.createElement('div');
-    el.className = 'lm';
-    el.innerHTML = html;
-    const l = $('log');
-    l.appendChild(el);
-    while (l.children.length > 7) l.removeChild(l.firstChild);
-    setTimeout(() =>
-    {
-      el.style.transition = 'opacity 1s';
-      el.style.opacity = 0;
-      setTimeout(() => el.remove(), 1000);
-    }, 8000);
+    this.appendWorldStoryEvent({
+      type: 'log',
+      message: html,
+    });
   }
 
-  notifyCreatureEvent(html, creatureId)
+  appendWorldStoryEvent(event)
   {
-    const el = document.createElement('div');
-    el.className = 'lm lm-event';
-    el.innerHTML = html;
-    if (creatureId != null) el.dataset.creatureId = String(creatureId);
-    const l = $('log');
-    l.appendChild(el);
-    while (l.children.length > 7) l.removeChild(l.firstChild);
-    setTimeout(() =>
+    const list = $('world-story-list');
+    if (!list) return;
+    const row = document.createElement('div');
+    const clickable = event.focusId != null || event.altFocusId != null;
+    row.className = clickable ? 'ws-entry ws-entry-event' : 'ws-entry';
+    if (event.focusId != null) row.dataset.focusId = String(event.focusId);
+    if (event.altFocusId != null) row.dataset.altFocusId = String(event.altFocusId);
+    const t = event.t ?? state.tGlobal;
+    const day = event.day ?? state.day;
+    const rawType = event.type || 'event';
+    const type = this.formatWorldEventType(rawType);
+    row.innerHTML = `<span class="ws-meta">Day ${day} · t ${t.toFixed(1)} · ${type}</span>${event.message || ''}`;
+    list.appendChild(row);
+    list.scrollTop = list.scrollHeight;
+    while (list.children.length > this._maxWorldStoryRows)
     {
-      el.style.transition = 'opacity 1s';
-      el.style.opacity = 0;
-      setTimeout(() => el.remove(), 1000);
-    }, 12000);
+      list.removeChild(list.firstChild);
+    }
+    timelineDb.appendWorldEvent({
+      type: rawType,
+      message: event.message,
+      focusId: event.focusId ?? null,
+      altFocusId: event.altFocusId ?? null,
+      payload: event.payload ?? null,
+      t,
+      day,
+    });
+  }
+
+  notifyCreatureEvent(html, focusId, altFocusId = null, type = 'event')
+  {
+    this.appendWorldStoryEvent({
+      type,
+      message: html,
+      focusId: focusId ?? null,
+      altFocusId: altFocusId ?? null,
+    });
+  }
+
+  notifyCreatureLifeEvent(kind, c, partnerId = null)
+  {
+    if (!c) return;
+    let html = '';
+    if (kind === 'born') html = formatBornEvent(c);
+    else if (kind === 'mated') html = formatMatedEvent(c, partnerId);
+    else if (kind === 'died') html = formatDiedEvent(c);
+    else if (kind === 'hunted') html = `${SPECIES[c.sp].emoji} ${SPECIES[c.sp].label} hunted prey`;
+    else if (kind === 'gaveBirth') html = `${SPECIES[c.sp].emoji} ${SPECIES[c.sp].label} gave birth`;
+    else return;
+    const { focusId, altFocusId } = eventFocusIds(c, kind);
+    this.notifyCreatureEvent(html, focusId, altFocusId, `life:${kind}`);
+  }
+
+  focusCreatureFromEvent(focusId, altFocusId)
+  {
+    if (altFocusId != null)
+    {
+      const killer = creatures.getById(altFocusId);
+      if (killer && !killer.dead)
+      {
+        camera.focusCreature(killer);
+        this.setSelectedCreature(killer, false);
+        return;
+      }
+    }
+    if (focusId == null) return;
+    const target = creatures.getById(focusId);
+    if (!target) return;
+    camera.focusCreature(target);
+    if (!target.dead) this.setSelectedCreature(target, false);
+    else this.inspectDeadCreature(target);
   }
 
   initEventLogClicks()
   {
-    $('log').addEventListener('click', e =>
+    const list = $('world-story-list');
+    if (!list) return;
+    list.addEventListener('click', e =>
     {
-      const row = e.target.closest('[data-creature-id]');
+      const row = e.target.closest('.ws-entry-event');
       if (!row) return;
-      const id = Number(row.dataset.creatureId);
-      const target = creatures.getById(id);
-      if (target && !target.dead)
+      const focusId = row.dataset.focusId != null ? Number(row.dataset.focusId) : null;
+      const altFocusId = row.dataset.altFocusId != null ? Number(row.dataset.altFocusId) : null;
+      if (focusId == null && altFocusId == null) return;
+      this.focusCreatureFromEvent(focusId, altFocusId);
+    });
+  }
+
+  formatWorldEventType(type)
+  {
+    if (!type) return 'event';
+    if (type.startsWith('life:'))
+    {
+      return `life ${type.slice(5)}`;
+    }
+    return type;
+  }
+
+  initTimelineDbViewer()
+  {
+    const tabs = $('timelinedb-tabs');
+    const refreshBtn = $('timelinedb-refresh');
+    const moreBtn = $('timelinedb-more');
+    const creatureInput = $('timelinedb-creature-id');
+    const list = $('timelinedb-list');
+    if (!tabs || !refreshBtn || !moreBtn || !creatureInput || !list) return;
+
+    tabs.addEventListener('click', e =>
+    {
+      const btn = e.target.closest('[data-db-tab]');
+      if (!btn) return;
+      this._dbTab = btn.dataset.dbTab;
+      tabs.querySelectorAll('[data-db-tab]').forEach(node =>
       {
-        camera.focusCreature(target);
-        this.setSelectedCreature(target, false);
+        node.classList.toggle('active', node.dataset.dbTab === this._dbTab);
+      });
+      this.refreshTimelineDbView(true);
+    });
+
+    refreshBtn.addEventListener('click', () =>
+    {
+      this.refreshTimelineDbView(true);
+    });
+    moreBtn.addEventListener('click', () =>
+    {
+      this.refreshTimelineDbView(false);
+    });
+    creatureInput.addEventListener('change', () =>
+    {
+      if (this._dbTab !== 'creature') return;
+      this.refreshTimelineDbView(true);
+    });
+
+    list.addEventListener('click', e =>
+    {
+      const row = e.target.closest('.db-row');
+      if (!row) return;
+      const focusId = row.dataset.focusId != null ? Number(row.dataset.focusId) : null;
+      const altFocusId = row.dataset.altFocusId != null ? Number(row.dataset.altFocusId) : null;
+      const creatureId = row.dataset.creatureId != null ? Number(row.dataset.creatureId) : null;
+      if (focusId != null || altFocusId != null)
+      {
+        this.focusCreatureFromEvent(focusId, altFocusId);
+        return;
+      }
+      if (creatureId != null)
+      {
+        const target = creatures.getById(creatureId);
+        if (target && !target.dead) this.setSelectedCreature(target, false);
+        else if (target) this.inspectDeadCreature(target);
       }
     });
+
+    this.refreshTimelineDbView(true);
+  }
+
+  setTimelineDbStatus(msg)
+  {
+    const meta = $('timelinedb-meta');
+    if (!meta) return;
+    meta.textContent = msg;
+  }
+
+  appendDbRows(rows, mode)
+  {
+    const list = $('timelinedb-list');
+    if (!list) return;
+    let html = '';
+    for (const row of rows)
+    {
+      if (mode === 'world')
+      {
+        const clickable = row.focusId != null || row.altFocusId != null;
+        html += `<div class="db-row${clickable ? ' db-row-event' : ''}"${row.focusId != null ? ` data-focus-id="${row.focusId}"` : ''}${row.altFocusId != null ? ` data-alt-focus-id="${row.altFocusId}"` : ''}>`
+          + `<span class="db-meta">Day ${Number(row.day || 0)} · t ${Number(row.t || 0).toFixed(1)} · ${this.formatWorldEventType(row.type || 'event')}</span>${row.message || ''}</div>`;
+      }
+      else if (mode === 'creature')
+      {
+        const clickable = row.creatureId != null;
+        html += `<div class="db-row${clickable ? ' db-row-event' : ''}"${row.creatureId != null ? ` data-creature-id="${row.creatureId}"` : ''}>`
+          + `<span class="db-meta">Creature #${row.creatureId} · seq ${row.seq} · day ${Number(row.day || 0)} · t ${Number(row.t || 0).toFixed(1)}</span>`
+          + `${row.kind}${row.detail ? ` · ${row.detail}` : ''}${row.inferred ? ' · inferred' : ''}</div>`;
+      }
+      else if (mode === 'heartbeat')
+      {
+        const alive = row.world?.alive ?? 0;
+        html += `<div class="db-row"><span class="db-meta">Heartbeat · day ${Number(row.day || 0)} · t ${Number(row.t || 0).toFixed(1)} · speed ${Number(row.speed || 0).toFixed(1)}x</span>`
+          + `Alive ${alive} · seed ${row.seed}</div>`;
+      }
+    }
+    list.insertAdjacentHTML('beforeend', html);
+  }
+
+  async refreshTimelineDbView(reset)
+  {
+    if (this._dbLoading) return;
+    const list = $('timelinedb-list');
+    const moreBtn = $('timelinedb-more');
+    const creatureInput = $('timelinedb-creature-id');
+    if (!list || !moreBtn || !creatureInput) return;
+    this._dbLoading = true;
+    try
+    {
+      await timelineDb.flushNow();
+      const runMeta = await timelineDb.getRunMeta();
+      this.setTimelineDbStatus(runMeta
+        ? `Run ${runMeta.runId} · seed ${runMeta.seed} · area ${runMeta.worldAreaKm2}km²`
+        : 'No run metadata yet.');
+      if (reset)
+      {
+        list.innerHTML = '';
+        this._dbCursor.worldBeforeId = null;
+        this._dbCursor.creatureBeforeT = null;
+        this._dbCursor.heartbeatBeforeT = null;
+      }
+
+      let rows = [];
+      if (this._dbTab === 'world')
+      {
+        rows = await timelineDb.listWorldEvents({
+          limit: 40,
+          beforeId: this._dbCursor.worldBeforeId,
+        });
+        if (rows.length > 0) this._dbCursor.worldBeforeId = rows[rows.length - 1].id;
+        this.appendDbRows(rows, 'world');
+      }
+      else if (this._dbTab === 'creature')
+      {
+        const text = creatureInput.value.trim();
+        const creatureId = text ? Number(text) : null;
+        rows = await timelineDb.listCreatureEvents({
+          limit: 40,
+          creatureId: Number.isFinite(creatureId) ? creatureId : null,
+          beforeT: this._dbCursor.creatureBeforeT,
+        });
+        if (rows.length > 0) this._dbCursor.creatureBeforeT = rows[rows.length - 1].t;
+        this.appendDbRows(rows, 'creature');
+      }
+      else if (this._dbTab === 'heartbeat')
+      {
+        rows = await timelineDb.listHeartbeats({
+          limit: 40,
+          beforeT: this._dbCursor.heartbeatBeforeT,
+        });
+        if (rows.length > 0) this._dbCursor.heartbeatBeforeT = rows[rows.length - 1].t;
+        this.appendDbRows(rows, 'heartbeat');
+      }
+      else
+      {
+        const meta = await timelineDb.getRunMeta();
+        list.innerHTML = meta
+          ? `<div class="db-row"><span class="db-meta">Current Run</span>seed ${meta.seed} · run ${meta.runId}</div>`
+          : '<div class="db-row">No metadata available.</div>';
+        rows = meta ? [meta] : [];
+      }
+      moreBtn.disabled = this._dbTab === 'meta' || rows.length === 0;
+    }
+    catch (err)
+    {
+      this.setTimelineDbStatus('Timeline DB read failed.');
+    }
+    finally
+    {
+      this._dbLoading = false;
+    }
   }
 
   applyStatsPanelMode(mode)
   {
     const panel = $('stats');
     state.statsPanelMode = mode;
-    panel.classList.toggle('minimized', mode === 'min');
     panel.classList.toggle('maximized', mode === 'max');
-    $('stats-min-btn').classList.toggle('active', mode === 'min');
     $('stats-max-btn').classList.toggle('active', mode === 'max');
     $('stats-max-btn').textContent = mode === 'max' ? '❐' : '□';
     if (mode !== 'max')
@@ -84,6 +322,54 @@ export class UI
     }
     this.syncGraphCanvas();
     this.drawGraph();
+  }
+
+  setPanelCollapsed(panel, collapsed)
+  {
+    panel.classList.toggle('collapsed', collapsed);
+    const btn = panel.querySelector('.panel-collapse-btn');
+    if (btn)
+    {
+      btn.textContent = collapsed ? '▶' : '▼';
+      btn.title = collapsed ? 'Expand panel' : 'Collapse panel';
+    }
+  }
+
+  initPanelCollapse()
+  {
+    this.setPanelCollapsed($('genpanel'), true);
+    this.setPanelCollapsed($('stats'), false);
+    this.setPanelCollapsed($('worldstory'), true);
+    this.setPanelCollapsed($('timelinedb'), true);
+    bindEl('gen-collapse-btn', 'click', e =>
+    {
+      e.stopPropagation();
+      const panel = $('genpanel');
+      this.setPanelCollapsed(panel, !panel.classList.contains('collapsed'));
+    });
+    bindEl('stats-collapse-btn', 'click', e =>
+    {
+      e.stopPropagation();
+      const panel = $('stats');
+      const collapsed = !panel.classList.contains('collapsed');
+      this.setPanelCollapsed(panel, collapsed);
+      if (collapsed && state.statsPanelMode === 'max')
+      {
+        this.applyStatsPanelMode('normal');
+      }
+    });
+    bindEl('worldstory-collapse-btn', 'click', e =>
+    {
+      e.stopPropagation();
+      const panel = $('worldstory');
+      this.setPanelCollapsed(panel, !panel.classList.contains('collapsed'));
+    });
+    bindEl('timelinedb-collapse-btn', 'click', e =>
+    {
+      e.stopPropagation();
+      const panel = $('timelinedb');
+      this.setPanelCollapsed(panel, !panel.classList.contains('collapsed'));
+    });
   }
 
   syncGraphCanvas()
@@ -149,6 +435,18 @@ export class UI
     }
   }
 
+  inspectDeadCreature(creature)
+  {
+    if (!creature) return;
+    state.selected = creature;
+    state.lockedSelectionFromPanel = false;
+    state.inspectPanelTab = 'stats';
+    this.applyInspectTab('stats');
+    $('inspect').style.display = 'block';
+    this.setFollowMode(false);
+    this.drawInspector();
+  }
+
   setFollowMode(enabled)
   {
     const canFollow = state.selected && !state.selected.dead;
@@ -211,7 +509,7 @@ export class UI
     const S = SPECIES[c.sp];
     $('i-name').textContent = `${S.emoji} ${S.label} ${sexSymbol(c.sex)} · gen ${c.gen}${c.dead ? ' †' : ''}`;
     const stg = !creatures.isAdult(c) ? 'juvenile' : c.age > c.genome.lifespan * 0.75 ? 'elder' : 'adult';
-    const stateName = this.creatureStateLabel(c.state);
+    const stateName = this.creatureStateLabel(c.state, c);
     $('i-state').textContent = c.dead ? ('Died: ' + c.cause) : `${stateName} · ${stg} · age ${c.age.toFixed(1)}${c.pregnant > 0 ? ' · 🤰' : ''}`;
     if (state.inspectPanelTab === 'stats') this.drawInspectorStats(c);
     else this.drawInspectorLifeStory(c);
@@ -241,9 +539,9 @@ export class UI
     $('i-genes').innerHTML = gh;
   }
 
-  formatStoryEntry(ev)
+  formatStoryEntry(c, ev)
   {
-    const prefix = `<span class="story-meta">Day ${ev.day} · age ${ev.age.toFixed(1)} · </span>`;
+    const prefix = `<span class="story-meta">Day ${ev.day} · t ${ev.t.toFixed(1)} · age ${ev.age.toFixed(1)} · </span>`;
     const target = lifeStory.targetLabel(ev.targetId, ev.targetSp);
     const targetHtml = target
       ? ` <span class="story-link" data-creature-id="${ev.targetId ?? ''}">${target}</span>`
@@ -259,7 +557,9 @@ export class UI
       }
       case 'decision':
       {
-        const label = this.creatureStateLabel(ev.decision);
+        const label = ev.nodeId
+          ? (stateLabelFromConfig(c.sp, ev.decision, ev.nodeId) || this.creatureStateLabel(ev.decision, c))
+          : this.creatureStateLabel(ev.decision, c);
         if (ev.from)
         {
           return `${prefix}Chose to ${label.toLowerCase()}${target ? ` (${targetHtml})` : ''}`;
@@ -267,11 +567,23 @@ export class UI
         return `${prefix}Started ${label.toLowerCase()}`;
       }
       case 'mated':
-        return `${prefix}Mated with${targetHtml || ' a partner'}${ev.detail ? ` · ${ev.detail}` : ''}`;
+        return `${prefix}Mated with${targetHtml || ' a partner'}${ev.detail ? ` · ${ev.detail}` : ''}${ev.inferred ? ' · inferred' : ''}`;
       case 'gaveBirth':
-        return `${prefix}Gave birth to ${ev.detail || '1'} offspring`;
+        return `${prefix}Gave birth to ${ev.detail || '1'} offspring${ev.inferred ? ' · inferred' : ''}`;
       case 'hunted':
         return `${prefix}Caught prey${targetHtml}`;
+      case 'drank':
+        return `${prefix}Drank water${ev.detail ? ` · ${ev.detail}` : ''}`;
+      case 'rested':
+        return `${prefix}Rested${ev.detail ? ` · ${ev.detail}` : ''}`;
+      case 'wandered':
+        return `${prefix}Wandered the land`;
+      case 'grazed':
+        return `${prefix}Grazed vegetation${ev.detail ? ` · ${ev.detail}` : ''}`;
+      case 'stateEnter':
+        return `${prefix}Entered ${this.creatureStateLabel(ev.detail || ev.decision || 'wander', c).toLowerCase()} state`;
+      case 'stateExit':
+        return `${prefix}Exited ${this.creatureStateLabel(ev.detail || ev.decision || 'wander', c).toLowerCase()} state${ev.duration != null ? ` after ${ev.duration.toFixed(1)}s` : ''}`;
       case 'preyedOn':
         return `${prefix}Attacked by${targetHtml || ' a predator'}`;
       case 'stage':
@@ -299,7 +611,7 @@ export class UI
     let html = '';
     for (let i = events.length - 1; i >= 0; i--)
     {
-      html += `<div class="story-entry">${this.formatStoryEntry(events[i])}</div>`;
+      html += `<div class="story-entry">${this.formatStoryEntry(c, events[i])}</div>`;
     }
     box.innerHTML = html;
   }
@@ -411,8 +723,18 @@ export class UI
     if (state.selected) this.drawInspector();
   }
 
-  creatureStateLabel(st)
+  creatureStateLabel(st, creatureOrSp)
   {
+    if (creatureOrSp && typeof creatureOrSp === 'object')
+    {
+      const fromConfig = stateLabelFromConfig(creatureOrSp.sp, st, creatureOrSp.btNodeId);
+      if (fromConfig) return fromConfig;
+    }
+    else if (typeof creatureOrSp === 'string')
+    {
+      const fromConfig = stateLabelFromConfig(creatureOrSp, st, null);
+      if (fromConfig) return fromConfig;
+    }
     return {
       wander: 'Wandering',
       flee: 'Fleeing!',
@@ -504,7 +826,7 @@ export class UI
       state.lastCreatureTipKey = key;
       const col = SPECIES[target.sp].col;
       dot.style.background = `rgb(${col[0]},${col[1]},${col[2]})`;
-      label.textContent = this.creatureStateLabel(target.state);
+      label.textContent = this.creatureStateLabel(target.state, target);
     }
 
     const sx = camera.w2sX(target.x);
@@ -560,7 +882,7 @@ export class UI
 
   initDraggablePanels()
   {
-    for (const id of ['genpanel', 'stats', 'inspect'])
+    for (const id of ['genpanel', 'stats', 'inspect', 'worldstory', 'timelinedb'])
     {
       const panel = $(id);
       const head = panel.querySelector('.panel-head');

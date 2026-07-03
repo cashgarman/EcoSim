@@ -1,13 +1,14 @@
 import { setRngSeed } from './utils.js';
-import { SP_KEYS, loadSpeciesData, SPECIES, sexSymbol } from './data.js';
+import { SP_KEYS, loadSpeciesData } from './data.js';
+import { loadBehaviorLibrary } from './behavior/loader.js';
 import { state, rendererMode, simulationMode } from './state.js';
 import { $ } from './dom.js';
 import { world } from './world.js';
 import { camera } from './camera.js';
 import { creatures } from './creatures.js';
 import { simulation } from './simulation.js';
-import { ui } from './ui.js';
-import { inputManager } from './input.js';
+import { ui } from './ui.js?v=20260702';
+import { inputManager } from './input.js?v=20260702';
 import { initToolButtons } from './tools.js';
 import { terrainRenderer } from './render/terrain-renderer.js';
 import { renderPipeline } from './render/pipeline.js';
@@ -15,6 +16,7 @@ import { webGpuRenderer } from './render/webgpu-renderer.js';
 import { quality } from './render/quality.js';
 import { gpuSimulationBackend } from './gpu/simulation-backend.js';
 import { lifeStory } from './life-story.js';
+import { timelineDb } from './timeline-db.js';
 
 export class GameApp
 {
@@ -30,6 +32,7 @@ export class GameApp
     $('loading').classList.remove('hidden');
     $('loadmsg').textContent = 'Loading species…';
     await loadSpeciesData();
+    await loadBehaviorLibrary();
 
     const canvas = document.getElementById('world');
     const gpuCanvas = document.getElementById('world-gpu');
@@ -45,26 +48,16 @@ export class GameApp
     ui.setFollowToggleHandler(enabled => ui.setFollowMode(enabled));
     creatures.setLogger(msg => ui.log(msg));
     creatures.setNotifyFn((html, creatureId) => ui.notifyCreatureEvent(html, creatureId));
-    lifeStory.setEventNotify((kind, c) =>
+    lifeStory.setEventNotify((kind, c, partnerId) =>
     {
-      if (!c) return;
-      const S = SPECIES[c.sp];
-      if (kind === 'mated')
-      {
-        ui.notifyCreatureEvent(`${S.emoji} ${S.label} ${sexSymbol(c.sex)} mated`, c.id);
-      }
-      else if (kind === 'born')
-      {
-        ui.notifyCreatureEvent(
-          `${S.emoji} ${S.label} ${sexSymbol(c.sex)} born <b>(gen ${c.gen})</b>`,
-          c.id,
-        );
-      }
+      ui.notifyCreatureLifeEvent(kind, c, partnerId);
     });
 
     ui.syncLabels();
     ui.initWorldgenSliders();
     ui.initDraggablePanels();
+    ui.initPanelCollapse();
+    ui.initTimelineDbViewer();
     simulation.updateDayNight();
     ui.syncGraphCanvas();
     ui.applyStatsPanelMode('normal');
@@ -165,48 +158,72 @@ export class GameApp
   doGenerate(fresh)
   {
     state.ready = false;
+    state.tGlobal = 0;
+    state.day = 0;
+    state.timeOfDay = 0.3;
+    state.migrantTimer = 0;
+    state.heartbeatNextAt = state.heartbeatIntervalSec;
     $('loading').classList.remove('hidden');
     $('loadmsg').textContent = 'Sculpting terrain…';
     ui.deselect();
 
     setTimeout(() =>
     {
-      world.generate(() =>
-      {
-        terrainRenderer.bakeTerrain();
-        terrainRenderer.bakeVegetation();
-      });
+      const runMeta = {
+        runId: `run-${Date.now()}-${Math.floor(Math.random() * 1e6)}`,
+        seed: state.SEED,
+        worldConfig: { ...state.cfg },
+        worldAreaKm2: state.worldAreaKm2,
+      };
 
-      $('loadmsg').textContent = 'Seeding life…';
-      state.creatures = [];
-      state.generationMax = 1;
-      state.nextId = 1;
-      for (const k of SP_KEYS) state.popHistory[k] = [];
-
-      creatures.stockLife();
-      if (simulationMode === 'gpu_hybrid' && gpuSimulationBackend.initialized)
+      const finishGenerate = () =>
       {
-        try
+        world.generate(() =>
         {
-          const setupOk = gpuSimulationBackend.setupForCurrentWorld();
-          if (!setupOk)
+          terrainRenderer.bakeTerrain();
+          terrainRenderer.bakeVegetation();
+        });
+
+        $('loadmsg').textContent = 'Seeding life…';
+        state.creatures = [];
+        state.generationMax = 1;
+        state.nextId = 1;
+        for (const k of SP_KEYS) state.popHistory[k] = [];
+
+        creatures.stockLife();
+        if (simulationMode === 'gpu_hybrid' && gpuSimulationBackend.initialized)
+        {
+          try
+          {
+            const setupOk = gpuSimulationBackend.setupForCurrentWorld();
+            if (!setupOk)
+            {
+              state.simBackend = 'cpu';
+              state.gpuSimEnabled = false;
+              if (!state.gpuSimInitReason) state.gpuSimInitReason = 'setup-failed';
+            }
+          }
+          catch (err)
           {
             state.simBackend = 'cpu';
             state.gpuSimEnabled = false;
-            if (!state.gpuSimInitReason) state.gpuSimInitReason = 'setup-failed';
           }
         }
-        catch (err)
-        {
-          state.simBackend = 'cpu';
-          state.gpuSimEnabled = false;
-        }
-      }
-      camera.centerCam();
-      state.ready = true;
-      state.lastTerrainTipBiome = -1;
-      $('loading').classList.add('hidden');
-      ui.log(`🌍 New ${state.worldAreaKm2} km² world generated (seed ${state.SEED}).`);
+        camera.centerCam();
+        state.ready = true;
+        state.lastTerrainTipBiome = -1;
+        $('loading').classList.add('hidden');
+        ui.log(`🌍 New ${state.worldAreaKm2} km² world generated (seed ${state.SEED}).`);
+        ui.refreshTimelineDbView(true);
+      };
+
+      timelineDb.initTimelineDb(runMeta).catch(err =>
+      {
+        console.warn('Timeline DB init failed:', err);
+      }).finally(() =>
+      {
+        finishGenerate();
+      });
     }, 30);
   }
 
@@ -238,12 +255,17 @@ export class GameApp
 
       const frameStart = performance.now();
       quality.frameCounter++;
+      let shouldRender = false;
       if (state.ready)
       {
-        const shouldRender = (quality.frameCounter % quality.renderDecimation) === 0;
+        const skipDecimationForWebGpu = state.rendererBackend === 'webgpu';
+        shouldRender = skipDecimationForWebGpu
+          ? true
+          : (quality.frameCounter % quality.renderDecimation) === 0;
         if (shouldRender) renderPipeline.render();
       }
-      quality.updateTier(performance.now() - frameStart);
+      const frameMs = performance.now() - frameStart;
+      quality.updateTier(frameMs);
 
       const q = quality.config();
       state.vegBakeInterval = (state.W * state.H >= 100000 ? 0.30 : state.W * state.H >= 60000 ? 0.22 : 0.15) * q.vegMul;
@@ -267,5 +289,5 @@ const app = new GameApp();
 app.init().catch(err =>
 {
   console.error('Wildlands boot failed:', err);
-  $('loadmsg').textContent = 'Failed to load species config.';
+  $('loadmsg').textContent = 'Startup failed — hard-refresh the page (Ctrl+Shift+R).';
 });

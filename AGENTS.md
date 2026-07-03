@@ -21,15 +21,24 @@ EcoSim/
 │   ├── dom.js              # DOM helper ($)
 │   ├── data.js             # Biome enums + loadSpeciesData() from JSON
 │   ├── data/
-│   │   └── species.json    # Species stats, gestation, mate cooldown, genes
+│   │   ├── species.json    # Species stats, gestation, mate cooldown, genes
+│   │   └── behaviors/      # BT library + per-species behavior JSON
+│   ├── behavior/           # BehaviorTree — loader, evaluator, executor (CPU)
+│   │   ├── loader.js       # Merge library + species overrides
+│   │   ├── context.js      # Per-tick perception context
+│   │   ├── conditions.js   # JSON condition ops
+│   │   ├── evaluator.js    # Selector/sequence walker
+│   │   ├── executor.js     # Goal/action application
+│   │   └── state-codes.js  # CPU/GPU state code mapping
 │   ├── utils.js            # Seeded RNG, fbm noise (exported functions)
-│   ├── nav.js              # Passability, LOS, bounded grid pathfinding
+│   ├── nav.js              # Passability, LOS, windowed A* pathfinding
 │   ├── world.js            # World — procedural generation + veg growth
 │   ├── camera.js           # Camera — pan/zoom/clamp transforms
 │   ├── creatures.js        # CreatureSystem — AI, genetics, spatial hash
-│   ├── life-story.js       # LifeStory — per-creature debounced decision log + serialize
-│   ├── simulation.js       # Simulation — tick, day/night, migrants
-│   ├── ui.js               # UI — panels, inspector, graph, log
+│   ├── life-story.js       # LifeStory — per-creature timeline (state enter/exit + milestones) + serialize
+│   ├── simulation.js       # Simulation — tick, day/night, optional migrants, heartbeat snapshots
+│   ├── ui.js               # UI — panels, inspector, graph, World Story + Timeline DB feeds
+│   ├── timeline-db.js      # IndexedDB timeline storage (world events, creature events, heartbeats)
 │   ├── input.js            # InputManager — canvas/panel/keyboard input
 │   ├── tools.js            # Editor tools (spawn, rain, meteor, cull)
 │   ├── fx.js               # Effects — spark/rain particles
@@ -181,7 +190,28 @@ Helpers: `sampleGestation(sp)`, `sampleMateCooldown(sp)`, `sexSymbol(sex)`.
 - **Adult:** `age >= lifespan * 0.25`; juvenile size ×0.55
 - **Effective size:** `eSize(c) = genome.size * (juvenile ? 0.55 : 1)`
 
-### Needs & death (`stepCreature`)
+### AI behavior trees (CPU)
+
+Hybrid JSON-driven behavior trees in [`data/behaviors/`](data/behaviors/) + [`js/behavior/`](js/behavior/):
+
+- **`library.json`** — shared conditions, actions, thresholds, base tree templates (`herbivore_prey`, `carnivore`, `omnivore`)
+- **`{species}.json`** — `extends` template, threshold overrides, action tweaks, tree insert/remove patches
+- Each species in [`data/species.json`](data/species.json) has a `"behavior"` key pointing to its behavior file stem
+- **`BehaviorTree.tick()`** — builds perception context (`nearby` scan), walks selector/sequence nodes, returns first succeeding action
+- **CPU path:** BT sets state + goals, then `applyActionEffects` runs graze/hunt/mate/etc.; `planGridStep` (A*) handles movement
+- **GPU path:** BT runs on CPU each tick (`tickDecisionOnly`); `uploadBehaviorDecisions()` writes goal (`sv.x/y`), state code, target slot; GPU runs `claimBehaviorTargets` → **`planNavStep` (A*)** → `resolveIntegrate` (needs, actions, movement)
+
+**States** (unchanged labels): `flee` · `thirst` · `graze` · `hunt` · `huntSearch` · `rest` · `mate` · `wander`
+
+**Perception:** `nearby(c, senseR)` via spatial hash. Night: speed ×0.6; `NightWanderTired` condition forces rest when energy <75.
+
+**Movement:** Goals from BT action nodes; [`js/nav.js`](js/nav.js) **`planGridStep`** uses **windowed A\*** (8-connected, octile heuristic, corner-cutting guard, LOS shortcut). GPU `planNavStep` mirrors A* in WGSL; goals read from `sv.x/y`, waypoints written to `tv.x/y`.
+
+**Passability:** `BIOME_INFO[].passable` plus optional `state.passMask` (bit 0 = blocked). Packed into GPU `worldData` stride index 5 on upload.
+
+**Predation / mating:** Same rules as before; CPU executes on CPU path; GPU `resolveIntegrate` on GPU path.
+
+### Needs & death (`stepNeeds` / `resolveIntegrate`)
 
 | Need | Decay | Empty penalty |
 |------|-------|-----------------|
@@ -193,37 +223,18 @@ Helpers: `sampleGestation(sp)`, `sampleMateCooldown(sp)`, `sexSymbol(sex)`.
 - Heal +4 hp/s when hunger/thirst >55 and no climate stress
 - Death: hp≤0, or age≥lifespan
 - Carcass: +0.15 veg on tile
-
-### AI state machine (priority order)
-
-1. `flee` — predator in sense range (`preyOf` includes attacker, attacker larger)
-2. `thirst` — thirst <30
-3. `graze` / `hunt` / `huntSearch` — hunger <55 (diet-dependent)
-4. `rest` — energy <18
-5. `mate` — compatible mate nearby, needs met
-6. `hunt` — carnivore with prey, hunger <75
-7. `wander` — default
-
-**Perception:** `nearby(c, senseR)` via spatial hash (see below). Night: speed ×0.6, wander→rest if energy <75.
-
-**Movement:** Goals are chosen by the state machine, then [`js/nav.js`](js/nav.js) **`planGridStep`** computes the next walkable tile (bounded reverse BFS with line-of-sight fast path). CPU uses `moveTowardGoal`; GPU runs a matching **`planNavStep`** compute pass that writes waypoints into `(tx, ty)` before integration. Water and peaks are impassible for ground walkers; birds swim. Thirsty creatures drink in place when `atWaterEdge()` — no movement while adjacent to water.
-
-**Passability:** `BIOME_INFO[].passable` plus optional `state.passMask` (bit 0 = blocked). Packed into GPU `worldData` stride index 5 on upload. Mark future impassible tiles by setting `passMask[i] |= 1` and calling `gpuSimulationBackend.uploadWorld()`.
-
-**Predation:** In range → rng catch `0.10 + agg*0.10` → prey −30−size×15 hp; kill refills hunter hunger/energy.
-
-**Mating:** Opposite sex only; **female-only pregnancy**. Gestation and mate cooldown from per-species `gestationSec` / `mateCooldownSec` in [`data/species.json`](data/species.json). Neither partner may already be pregnant. Within 1 tile; litter size from `genome.litter`. CPU and GPU sim both persist `mateCd` / `pregnant` in creature buffer `lv.z` / `lv.w`.
+- CPU: `stepNeeds()` in `stepCreature`; GPU: `resolveIntegrate`
 
 ### Life story (`lifeStory` on creature)
 
 Each creature carries an append-only in-memory log via [`js/life-story.js`](js/life-story.js):
 
 - **`lifeStory.events[]`** — JSON-serializable entries (`seq`, `t`, `day`, `age`, `kind`, optional `decision`, `from`, `targetId`, `targetSp`, `detail`); capped at 300 (oldest dropped).
-- **Kinds:** `appeared` · `born` · `decision` · `mated` · `gaveBirth` · `hunted` · `preyedOn` · `stage` · `died`
+- **Kinds:** `appeared` · `born` · `decision` · `stateEnter` · `stateExit` · `mated` · `gaveBirth` · `hunted` · `preyedOn` · `drank` · `rested` · `wandered` · `grazed` · `stage` · `died`
 - **Debounced decisions:** AI state commits after `DECISION_DEBOUNCE_SEC` (2.5 sim s) in the same behavior; rapid oscillation (e.g. flee ↔ wander) is not logged per frame.
 - **CPU hooks:** `stepCreature` → `observeDecision` / `observeAge`; `die`, `giveBirth`, mate, hunt → immediate `record()` calls.
-- **GPU hooks:** `consumeCreatureReadback` / `consumeSelectedReadback` → `observeFromSnapshot` (state debounce + pregnant/death transitions).
-- **Export:** `lifeStory.serializeCreature(c)` / `serializeAll()` for future DB persistence.
+- **GPU hooks:** `consumeCreatureReadback` / `consumeSelectedReadback` → `observeFromSnapshot` (state debounce + inferred milestone transitions).
+- **Persistence:** every life event is mirrored into IndexedDB (`timeline-db.js` `creatureEvents` store) with per-world `runId`.
 - **GPU gaps:** GPU-born slots use synthetic ids; pedigree empty on GPU path; hunt may log `preyedOn`/`died` on prey without predator `hunted`.
 
 ### Spatial hash
@@ -287,7 +298,8 @@ Prevents permanent food-web collapse.
   3. **`canvas`** — full Canvas fallback if GPU init/submit fails
 - In GPU sim mode, compute writes a render buffer directly and `WebGpuRenderer.renderGpuBuffer()` draws without CPU repacking creature instances
 - Compute uses **one bind group, 8 storage buffers + 1 uniform** (WebGPU per-stage limit): `creatures`, packed `worldData` (temp/moist/veg/cap/biome), `cellCounts`, `cellEntries`, packed `simAtomics` (counters/species sums/prey+food owners), `simLists` (alive/dead/birth), read-only `speciesTables`, `renderData`, plus `params` uniform
-- **Compute pass order** (`GpuSimulationBackend.step()`): `clearCells` → `clearCounters` → `binCreatures` → `decideAndClaim` → **`planNavStep`** → `resolveIntegrate` → `spawnFromBirthQueue` → `growVegetation` → `composeRenderData`
+- **Compute pass order** (`GpuSimulationBackend.step()`): `clearCells` → `clearCounters` → `binCreatures` → **`claimBehaviorTargets`** → **`planNavStep` (A*)** → `resolveIntegrate` → `spawnFromBirthQueue` → `growVegetation` → `composeRenderData`
+- **CPU BT before GPU step:** `rebuildGrid()` → `behaviorTree.tickDecisionOnly()` per creature → `uploadBehaviorDecisions()`
 - While GPU sim is initializing (`gpuSimInitPending`), CPU creature ticks are skipped so seeded populations are not depleted before upload
 - GPU creature records now keep stable `gpuSlot` indices; CPU sync writes changed slots only (no full stale re-upload each tick), which prevents migration/prune snap-back
 - GPU behavior state is decoded from compute state codes (`wander/flee/thirst/graze/hunt/rest/mate/huntSearch`) for inspector/tooltips instead of showing a raw `gpu` placeholder
@@ -340,6 +352,8 @@ Driven by quality `detail` tier and `cam.z`:
 |-------|-----|---------|
 | World Generator | `#genpanel` | Seed, size, sliders, Generate, Restock |
 | Ecosystem | `#stats` | Pop counts, graph, species row selection |
+| World Story | `#worldstory` | Collapsible, scrollable, clickable world event timeline |
+| Timeline DB | `#timelinedb` | Collapsible DB browser for world/creature/heartbeat rows in current run |
 | Inspector | `#inspect` | Selected creature stats/genes + **Life Story** tab |
 
 ### Top bar stats
@@ -370,9 +384,21 @@ Day/night, population, max generation, avg vegetation %, speed slider (0–10×)
 - **Life Story** — scrollable debounced decision + milestone timeline (`#i-story`, newest first); clickable creature links when target still alive
 - Tab bar mirrors stats panel `.btn.active` pattern; resets to Stats on new selection
 
-### Mate/birth notifications (`#log`)
+### World Story panel (`#worldstory`)
 
-Clickable `.lm-event` rows (`notifyCreatureEvent`) for mating and birth with species + sex. Click pans camera (`camera.focusCreature`) and selects that animal. CPU path notifies from `creatures.notify()`; GPU path from `lifeStory.setEventNotify()` on readback transitions.
+World notifications now stream into the **World Story** panel as persistent rows instead of temporary toasts. Rows remain clickable (`focusCreatureFromEvent`) and are mirrored into IndexedDB `worldEvents` for future rewind tooling.
+
+### Timeline DB panel (`#timelinedb`)
+
+`Timeline DB` is a readonly, paginated viewer over IndexedDB stores (`worldEvents`, `creatureEvents`, `heartbeats`, `meta`) for the active run, with tabbed filters and click-to-focus links for creature-related rows.
+
+### Heartbeat snapshots
+
+`simulation.tick()` periodically writes compact world snapshots to IndexedDB `heartbeats` (`heartbeatIntervalSec`, default 5s) as rewind anchors.
+
+### Migrant reseed toggle
+
+Automatic migrant reseed is now gated by `state.autoMigrationEnabled` (default `false`) for semi-closed ecosystems. Manual god-actions (`Restock`, spawn tools) remain available.
 
 ### Tools (code present; toolbar HTML currently absent)
 
@@ -419,7 +445,7 @@ CSS for `#toolbar` exists; DOM toolbar was removed or not yet added. Re-add `<di
 | `isTileWalkable`, `tilePassFlags`, `buildPassMaskUpload` | Passability from biome + `passMask` |
 | `lineOfSightClear` | Bresenham walkability check |
 | `snapWalkableGoal`, `nearestWaterEdgeTarget`, `pickRandomWalkableTile` | Goal selection helpers |
-| `planGridStep` | Bounded reverse BFS next-step planner (CPU; mirrored in GPU shader) |
+| `planGridStep` | Windowed A* next-step planner (CPU; mirrored in GPU WGSL) |
 | `atWaterEdge` | Shoreline drink detection |
 
 ### Domain modules (classes)
@@ -428,16 +454,17 @@ CSS for `#toolbar` exists; DOM toolbar was removed or not yet added. Re-add `<di
 |--------|-------|------|
 | `world.js` | `World` | `generate`, `biomeAt`, `computeLandBounds`, `growVegetation` |
 | `camera.js` | `Camera` | pan/zoom, `w2s`/`s2w`, `clampCam`, `centerCam` |
-| `creatures.js` | `CreatureSystem` | `makeCreature`, `stepCreature`, genetics, spatial hash |
+| `creatures.js` | `CreatureSystem` | `makeCreature`, `stepCreature`, `stepNeeds`, genetics, spatial hash |
+| `behavior/` | `BehaviorTree` | JSON-driven BT loader, evaluator, executor |
 | `life-story.js` | `LifeStory` | debounced decision log, milestone events, `serializeCreature` / `serializeAll` |
-| `simulation.js` | `Simulation` | `tick`, day/night, migrant re-seed |
+| `simulation.js` | `Simulation` | `tick`, day/night, heartbeat capture, optional migrant pulse |
 | `render/terrain-renderer.js` | `TerrainRenderer` | `bakeTerrain`, `bakeWater`, `bakeVegetation`, infinite ocean |
 | `render/creature-renderer.js` | `CreatureRenderer` | `drawCreature`, `renderHighlights2d`, `renderHighlightsOverlay`, pedigree lines |
 | `render/webgpu-renderer.js` | `WebGpuRenderer` | WebGPU instanced creature circles |
 | `render/quality.js` | `QualityController` | adaptive tiers, `effectiveHighlight`, F2 perf HUD |
 | `render/pipeline.js` | `RenderPipeline` | `render()` layer orchestration (3 canvases) |
 | `gpu/simulation-backend.js` | `GpuSimulationBackend` | compute simulation passes, spatial bins, global awareness, conflict resolution, readback; exports `gpuBehaviorToState()` |
-| `ui.js` | `UI` | stats, graph, inspector (Stats + Life Story tabs), log, terrain/creature tooltips, worldgen labels, stats panel modes |
+| `ui.js` | `UI` | stats, graph, inspector (Stats + Life Story tabs), World Story feed, Timeline DB viewer, terrain/creature tooltips |
 | `input.js` | `InputManager` | canvas/panel/keyboard handlers; **F2** perf HUD toggle |
 | `app.js` | `GameApp` | boot, `doGenerate`, `frame` loop; exposes `window.runGpuBenchmark(seconds)` in console |
 
@@ -502,11 +529,18 @@ CSS for `#toolbar` exists; DOM toolbar was removed or not yet added. Re-add `<di
 2. If GPU sim active, call `gpuSimulationBackend.uploadWorld()` to refresh passability buffer
 3. Pathfinding (`planGridStep` / GPU `planNavStep`) will route around blocked tiles automatically
 
+### Add a behavior override
+
+1. Add or edit [`data/behaviors/{species}.json`](data/behaviors/) — `extends`, `thresholds`, `actions`, `tree` patches
+2. Reference from species via `"behavior": "{stem}"` in [`data/species.json`](data/species.json)
+3. Shared nodes live in [`data/behaviors/library.json`](data/behaviors/library.json)
+
 ### Add a creature behavior state
 
-1. Add detection logic in `stepCreature` priority block
-2. Add `case` in action switch
-3. Add label in `drawInspector` stateName map
+1. Add action + conditions to [`data/behaviors/library.json`](data/behaviors/library.json)
+2. Insert into relevant tree template or species patch
+3. Add `applyActionEffects` case in [`js/behavior/executor.js`](js/behavior/executor.js) if new side effects needed
+4. Add `label` in action definition; inspector uses `stateLabelFromConfig`
 
 ### Change world size
 
@@ -519,7 +553,7 @@ CSS for `#toolbar` exists; DOM toolbar was removed or not yet added. Re-add `<di
 
 1. Import `app.js` from html, init RNG seed via `GameApp`
 2. Init `#world`, `#world-gpu`, `#world-hl` canvases; `RenderPipeline.init(canvas, gpuCanvas, hlCanvas)`
-3. `syncLabels()`, `initDraggablePanels()`, `webGpuRenderer.setup()` (async)
+3. `loadSpeciesData()` + `loadBehaviorLibrary()`; `syncLabels()`, `initDraggablePanels()`, `webGpuRenderer.setup()` (async)
 4. `doGenerate(true)` → `World.generate()` → `stockLife()` → (if GPU enabled) `gpuSimulationBackend.setupForCurrentWorld()` → `ready=true`
 5. `frame()` loop: `Simulation.tick(sdt)` (CPU or GPU backend) → `RenderPipeline.render()` → `UI.updateUI()` (5 Hz)
 

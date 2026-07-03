@@ -97,8 +97,9 @@ export class CreatureRenderer
 
   drawSelectionGlow(camera, sx, sy, size, strong, phaseSeed, glowRgb)
   {
-    const pulse = 0.68 + 0.32 * Math.sin(state.tGlobal * 4.8 + phaseSeed * 0.4);
-    const spin = state.tGlobal * (strong ? 2.8 : 2.1) + phaseSeed * 0.3;
+    const nowSec = performance.now() * 0.001;
+    const pulse = 0.68 + 0.32 * Math.sin(nowSec * 4.8 + phaseSeed * 0.4);
+    const spin = nowSec * (strong ? 2.8 : 2.1) + phaseSeed * 0.3;
     const radius = Math.max(8, size * (strong ? 1.28 : 1.18)) * (0.96 + pulse * 0.08);
     const rgb = glowRgb || (strong ? '242,181,62' : '255,210,120');
     const alphaBase = strong ? 0.72 : 0.52;

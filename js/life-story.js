@@ -1,5 +1,7 @@
 import { SPECIES, sexSymbol } from './data.js';
+import { refineDeathCause, inferKillerId } from './creature-notify.js';
 import { state } from './state.js';
+import { timelineDb } from './timeline-db.js';
 
 export const DECISION_DEBOUNCE_SEC = 2.5;
 export const MAX_LIFE_EVENTS = 300;
@@ -17,9 +19,12 @@ export class LifeStory
     c.lifeStory = {
       events: [],
       committedState: null,
+      committedSince: 0,
       pendingState: null,
+      pendingNodeId: null,
       pendingSince: 0,
       stageFlags: { adult: false, elder: false },
+      actionMarks: {},
       snapshot: {},
       nextSeq: 1,
       deathRecorded: false,
@@ -34,7 +39,7 @@ export class LifeStory
 
   record(c, event)
   {
-    if (!c) return;
+    if (!c) return null;
     const story = this.ensure(c);
     const ev = {
       seq: story.nextSeq++,
@@ -44,33 +49,123 @@ export class LifeStory
       kind: event.kind,
     };
     if (event.decision != null) ev.decision = event.decision;
+    if (event.nodeId != null) ev.nodeId = event.nodeId;
     if (event.from != null) ev.from = event.from;
     if (event.targetId != null) ev.targetId = event.targetId;
     if (event.targetSp != null) ev.targetSp = event.targetSp;
     if (event.detail != null) ev.detail = event.detail;
+    if (event.enteredAt != null) ev.enteredAt = event.enteredAt;
+    if (event.exitedAt != null) ev.exitedAt = event.exitedAt;
+    if (event.duration != null) ev.duration = event.duration;
+    if (event.inferred != null) ev.inferred = !!event.inferred;
     story.events.push(ev);
     while (story.events.length > MAX_LIFE_EVENTS)
     {
       story.events.shift();
     }
+    timelineDb.appendCreatureEvent({
+      creatureId: c.id,
+      seq: ev.seq,
+      t: ev.t,
+      day: ev.day,
+      age: ev.age,
+      kind: ev.kind,
+      decision: ev.decision,
+      nodeId: ev.nodeId,
+      from: ev.from,
+      targetId: ev.targetId,
+      targetSp: ev.targetSp,
+      detail: ev.detail,
+      enteredAt: ev.enteredAt,
+      exitedAt: ev.exitedAt,
+      duration: ev.duration,
+      inferred: !!event.inferred,
+    });
+    return ev;
+  }
+
+  shouldRecordAction(c, key, cooldownSec)
+  {
+    const story = this.ensure(c);
+    const now = state.tGlobal;
+    const lastAt = story.actionMarks[key] || 0;
+    if (now - lastAt < cooldownSec) return false;
+    story.actionMarks[key] = now;
+    return true;
+  }
+
+  recordAction(c, kind, detail, cooldownSec = 4)
+  {
+    if (!c || c.dead) return;
+    if (!this.shouldRecordAction(c, kind, cooldownSec)) return;
+    this.record(c, {
+      kind,
+      detail: detail ?? null,
+    });
+  }
+
+  recordStateEnter(c, stateName, nodeId, targetId)
+  {
+    const story = this.ensure(c);
+    story.committedSince = state.tGlobal;
+    this.record(c, {
+      kind: 'stateEnter',
+      decision: stateName,
+      nodeId: nodeId ?? null,
+      targetId: targetId ?? null,
+      enteredAt: story.committedSince,
+      detail: stateName,
+    });
+  }
+
+  recordStateExit(c, stateName)
+  {
+    const story = this.ensure(c);
+    if (!stateName) return;
+    const enteredAt = story.committedSince || state.tGlobal;
+    const exitedAt = state.tGlobal;
+    this.record(c, {
+      kind: 'stateExit',
+      decision: stateName,
+      enteredAt,
+      exitedAt,
+      duration: Math.max(0, exitedAt - enteredAt),
+      detail: stateName,
+    });
+  }
+
+  hasRecentStateExit(story, stateName)
+  {
+    if (!story?.events?.length) return false;
+    const last = story.events[story.events.length - 1];
+    if (!last) return false;
+    return last.kind === 'stateExit' && (last.detail || last.decision) === stateName;
   }
 
   flushPendingDecision(c, targetId)
   {
     const story = this.ensure(c);
     if (!story.pendingState || story.pendingState === story.committedState) return;
+    if (story.committedState)
+    {
+      this.recordStateExit(c, story.committedState);
+    }
     this.record(c, {
       kind: 'decision',
       from: story.committedState,
       decision: story.pendingState,
+      nodeId: story.pendingNodeId ?? null,
       targetId: targetId ?? null,
     });
     story.committedState = story.pendingState;
+    story.committedNodeId = story.pendingNodeId || null;
+    this.recordStateEnter(c, story.committedState, story.committedNodeId, targetId ?? null);
     story.pendingState = null;
+    story.pendingNodeId = null;
     story.pendingSince = 0;
   }
 
-  observeDecision(c, newState, targetId)
+  observeDecision(c, newState, targetId, nodeId)
   {
     if (!c || c.dead || !newState) return;
     const story = this.ensure(c);
@@ -79,20 +174,25 @@ export class LifeStory
     if (story.committedState == null)
     {
       story.committedState = newState;
-      this.record(c, { kind: 'decision', decision: newState, targetId: targetId ?? null });
+      story.committedNodeId = nodeId || null;
+      story.committedSince = now;
+      this.record(c, { kind: 'decision', decision: newState, nodeId: nodeId ?? null, targetId: targetId ?? null });
+      this.recordStateEnter(c, newState, nodeId, targetId);
       return;
     }
 
-    if (newState === story.committedState)
+    if (newState === story.committedState && (nodeId || null) === (story.committedNodeId || null))
     {
       story.pendingState = null;
+      story.pendingNodeId = null;
       story.pendingSince = 0;
       return;
     }
 
-    if (story.pendingState !== newState)
+    if (story.pendingState !== newState || story.pendingNodeId !== (nodeId || null))
     {
       story.pendingState = newState;
+      story.pendingNodeId = nodeId || null;
       story.pendingSince = now;
       return;
     }
@@ -103,10 +203,16 @@ export class LifeStory
         kind: 'decision',
         from: story.committedState,
         decision: newState,
+        nodeId: nodeId ?? null,
         targetId: targetId ?? null,
       });
+      this.recordStateExit(c, story.committedState);
       story.committedState = newState;
+      story.committedNodeId = nodeId || null;
+      story.committedSince = now;
+      this.recordStateEnter(c, newState, nodeId, targetId);
       story.pendingState = null;
+      story.pendingNodeId = null;
       story.pendingSince = 0;
     }
   }
@@ -135,6 +241,8 @@ export class LifeStory
     {
       const story = this.ensure(c);
       story.committedState = c.state;
+      story.committedSince = state.tGlobal;
+      this.recordStateEnter(c, c.state, c.btNodeId ?? null, c.target ?? null);
     }
   }
 
@@ -147,6 +255,7 @@ export class LifeStory
     });
     const story = this.ensure(c);
     if (c.state) story.committedState = c.state;
+    if (this._eventNotify) this._eventNotify('born', c);
   }
 
   recordMated(c, partnerId, partnerSp, selfSex, partnerSex)
@@ -160,6 +269,7 @@ export class LifeStory
       targetSp: partnerSp ?? null,
       detail,
     });
+    if (this._eventNotify) this._eventNotify('mated', c, partnerId ?? null);
   }
 
   recordGaveBirth(c, count)
@@ -168,6 +278,7 @@ export class LifeStory
       kind: 'gaveBirth',
       detail: String(count),
     });
+    if (this._eventNotify) this._eventNotify('gaveBirth', c);
   }
 
   recordHunted(predator, prey)
@@ -179,9 +290,12 @@ export class LifeStory
         targetId: prey?.id ?? null,
         targetSp: prey?.sp ?? null,
       });
+      if (this._eventNotify) this._eventNotify('hunted', predator, prey?.id ?? null);
     }
     if (prey)
     {
+      if (predator?.id != null) prey.killedById = predator.id;
+      prey.cause = 'predation';
       this.record(prey, {
         kind: 'preyedOn',
         targetId: predator?.id ?? null,
@@ -197,7 +311,19 @@ export class LifeStory
     if (story.deathRecorded) return;
     story.deathRecorded = true;
     this.flushPendingDecision(c, c.target);
-    this.record(c, { kind: 'died', detail: cause || c.cause || 'unknown' });
+    if (story.committedState)
+    {
+      if (!this.hasRecentStateExit(story, story.committedState))
+      {
+        this.recordStateExit(c, story.committedState);
+      }
+    }
+    if (cause) c.cause = cause;
+    const killerId = inferKillerId(c);
+    if (killerId != null) c.cause = 'predation';
+    else if (!c.cause || c.cause === 'exhaustion') c.cause = refineDeathCause(c);
+    this.record(c, { kind: 'died', detail: c.cause || 'unknown' });
+    if (this._eventNotify) this._eventNotify('died', c);
   }
 
   observeFromSnapshot(c, isNewGpuCreature)
@@ -216,7 +342,6 @@ export class LifeStory
       if ((c.age ?? 0) < 0.2)
       {
         this.recordBorn(c, null, null, c.sex);
-        if (this._eventNotify) this._eventNotify('born', c);
       }
       else
       {
@@ -232,15 +357,45 @@ export class LifeStory
     {
       this.observeDecision(c, c.state, c.target);
       this.observeAge(c);
+      if (c.state === 'wander')
+      {
+        this.recordAction(c, 'wandered', null, 9);
+      }
+      if (c.state === 'rest')
+      {
+        this.recordAction(c, 'rested', null, 6);
+      }
+      if (c.state === 'thirst' && c.thirst > 90)
+      {
+        this.recordAction(c, 'drank', 'quenched at shore', 5);
+      }
 
       if ((prev.pregnant || 0) <= 0 && next.pregnant > 0)
       {
-        this.record(c, { kind: 'mated', detail: c.sex ? `${sexSymbol(c.sex)} pregnant` : null });
-        if (this._eventNotify) this._eventNotify('mated', c);
+        let partnerSp = null;
+        if (c.target != null)
+        {
+          const partner = state.creatures.find(x => x.id === c.target);
+          if (partner) partnerSp = partner.sp;
+        }
+        this.record(c, {
+          kind: 'mated',
+          targetId: c.target ?? null,
+          targetSp: partnerSp,
+          detail: c.sex ? `${sexSymbol(c.sex)} pregnant` : null,
+          inferred: true,
+        });
+        if (this._eventNotify) this._eventNotify('mated', c, c.target ?? null);
       }
       if ((prev.pregnant || 0) > 0 && next.pregnant <= 0 && prev.pregnant != null)
       {
-        this.record(c, { kind: 'gaveBirth', detail: '1' });
+        const litterEstimate = Math.max(1, Math.round(c.litterQ || 1));
+        this.record(c, {
+          kind: 'gaveBirth',
+          detail: String(litterEstimate),
+          inferred: true,
+        });
+        if (this._eventNotify) this._eventNotify('gaveBirth', c);
       }
     }
 

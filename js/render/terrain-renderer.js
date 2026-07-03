@@ -153,7 +153,9 @@ export class TerrainRenderer
     const q = quality.config();
     const baseWaterFps = state.W * state.H >= 100000 ? 3 : state.W * state.H >= 60000 ? 5 : 8;
     const waterFps = Math.max(2, Math.round(baseWaterFps * q.waterMul));
-    const fStep = Math.floor(frameTime * waterFps);
+    const prevStep = state.waterFrameAt;
+    const rawStep = Math.floor(frameTime * waterFps);
+    const fStep = prevStep >= 0 ? Math.max(prevStep, rawStep) : rawStep;
     if (fStep === state.waterFrameAt) return;
     state.waterFrameAt = fStep;
     const f = fStep;
