@@ -75,6 +75,7 @@ export class TimeScrubController
     return {
       selectedId: state.selected?.id ?? null,
       wasFollowing: state.followSelected,
+      lockedSpecies: state.lockedSpeciesFromPanel,
     };
   }
 

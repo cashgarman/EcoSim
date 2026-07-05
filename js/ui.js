@@ -502,24 +502,36 @@ export class UI
   reconcileSelectionAfterScrub(preserve)
   {
     if (!preserve) return;
-    const { selectedId, wasFollowing } = preserve;
+    const { selectedId, wasFollowing, lockedSpecies } = preserve;
+    const restoreSpeciesLock = () =>
+    {
+      if (lockedSpecies)
+      {
+        state.lockedSpeciesFromPanel = lockedSpecies;
+        this.drawGraph();
+      }
+    };
+
     if (selectedId == null)
     {
-      if (wasFollowing) this.deselect();
+      if (wasFollowing) this.clearCreatureSelection();
+      restoreSpeciesLock();
       return;
     }
 
     const c = creatures.getById(selectedId);
     if (!c)
     {
-      this.deselect();
+      this.clearCreatureSelection();
+      restoreSpeciesLock();
       return;
     }
 
     if (c.dead)
     {
-      if (wasFollowing) this.deselect();
+      if (wasFollowing) this.clearCreatureSelection();
       else this.inspectDeadCreature(c);
+      restoreSpeciesLock();
       return;
     }
 
@@ -530,6 +542,7 @@ export class UI
     $('inspect').style.display = 'block';
     this.setFollowMode(wasFollowing);
     this.drawInspector();
+    restoreSpeciesLock();
   }
 
   inspectDeadCreature(creature)
@@ -557,14 +570,20 @@ export class UI
     }
   }
 
-  deselect()
+  clearCreatureSelection()
   {
     this.closeSpeciesRowMenu();
     state.selected = null;
     state.lockedSelectionFromPanel = false;
-    state.lockedSpeciesFromPanel = null;
     this.setFollowMode(false);
     $('inspect').style.display = 'none';
+  }
+
+  deselect()
+  {
+    this.clearCreatureSelection();
+    state.lockedSpeciesFromPanel = null;
+    state.hoveredGraphSpecies = null;
     this.drawGraph();
   }
 

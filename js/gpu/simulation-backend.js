@@ -1357,6 +1357,7 @@ export class GpuSimulationBackend
     state.gpuDevice.queue.writeBuffer(state.gpuSimBuffers.creatures, 0, data.buffer, data.byteOffset, data.byteLength);
     state.gpuRenderCreatureCount = poolCount;
     state.gpuSimDirtyFromCpu = false;
+    state.gpuPosSyncAt = performance.now();
   }
 
   uploadDirtyCreaturesFromCpu()

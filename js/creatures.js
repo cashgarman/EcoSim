@@ -185,7 +185,8 @@ export class CreatureSystem
     const scrubbing = state.scrubActive;
     const t = expSmoothT(scrubbing ? 10 : 16, dt);
     const onGpu = state.simBackend === 'gpu' && state.gpuSimEnabled && !scrubbing;
-    const sinceReadback = state.gpuPosSyncAt
+    const extrapolateGpu = onGpu && state.speed > 0 && state.gpuDisplayExtrapolate !== false;
+    const sinceReadback = extrapolateGpu && state.gpuPosSyncAt
       ? (performance.now() - state.gpuPosSyncAt) / 1000
       : 0;
 
@@ -200,7 +201,7 @@ export class CreatureSystem
 
       let tx = c.x;
       let ty = c.y;
-      if (onGpu)
+      if (extrapolateGpu)
       {
         tx = c.x + c.vx * sinceReadback;
         ty = c.y + c.vy * sinceReadback;

@@ -8,6 +8,7 @@ import { ui } from './ui.js';
 import { applyTool } from './tools.js';
 import { quality } from './render/quality.js';
 import { timeScrub } from './time-scrub.js';
+import { gpuSimulationBackend } from './gpu/simulation-backend.js';
 
 export class InputManager
 {
@@ -253,6 +254,10 @@ export class InputManager
       {
         return;
       }
+      if (target?.closest?.('#top-scrubctl') || target?.closest?.('#stats'))
+      {
+        return;
+      }
       const row = ui.getSpeciesRowFromEvent(e);
       if (row && row.dataset.sp)
       {
@@ -280,7 +285,7 @@ export class InputManager
   {
     const slider = $('speed-slider');
     const label = $('speed-label');
-    const setSpeed = v =>
+    this._setSpeedDisplay = v =>
     {
       state.speed = clamp(Math.round(v), 0, 10);
       if (slider) slider.value = String(state.speed);
@@ -288,9 +293,8 @@ export class InputManager
       state.pausedBySpace = state.speed === 0;
       timeScrub.persistState();
     };
-    bindEl('speed-slider', 'input', e => { setSpeed(Number(e.target.value)); });
-    setSpeed(1);
-    this._setSpeedDisplay = setSpeed;
+    bindEl('speed-slider', 'input', e => { this.setSimulationSpeed(Number(e.target.value)); });
+    this.setSimulationSpeed(1);
   }
 
   bindFollowControls()
@@ -300,7 +304,10 @@ export class InputManager
     {
       if (e.repeat) return;
       const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : '';
-      if (tag === 'input' || tag === 'textarea') return;
+      const inputType = e.target && e.target.type ? String(e.target.type).toLowerCase() : '';
+      const isTextEntry = tag === 'textarea'
+        || (tag === 'input' && ['text', 'search', 'password', 'email', 'url', 'number'].includes(inputType));
+      if (isTextEntry) return;
       if (e.key === 'Escape' && ui.isSpeciesRowMenuOpen())
       {
         e.preventDefault();
@@ -329,6 +336,7 @@ export class InputManager
 
   setSimulationSpeed(newSpeed, keepPausedFlag = false)
   {
+    const prevSpeed = state.speed;
     if (typeof this._setSpeedDisplay === 'function')
     {
       this._setSpeedDisplay(newSpeed);
@@ -337,7 +345,45 @@ export class InputManager
     {
       state.pausedBySpace = false;
     }
+    if (prevSpeed === 0 && state.speed > 0) this.onSimulationResume();
+    else if (state.speed === 0 && prevSpeed > 0) this.onSimulationPause();
     ui.updatePauseIndicator();
+  }
+
+  onSimulationPause()
+  {
+    state.gpuDisplayExtrapolate = false;
+    creatures.snapAllDisplayPositions();
+  }
+
+  onSimulationResume()
+  {
+    creatures.snapAllDisplayPositions();
+    state.gpuPosSyncAt = performance.now();
+    state.gpuDisplayExtrapolate = false;
+    const enableExtrap = () =>
+    {
+      creatures.snapAllDisplayPositions();
+      state.gpuPosSyncAt = performance.now();
+      state.gpuDisplayExtrapolate = true;
+    };
+    if (state.gpuSimEnabled && state.simBackend === 'gpu')
+    {
+      const fallback = setTimeout(enableExtrap, 320);
+      gpuSimulationBackend.forceCreatureReadback().then(() =>
+      {
+        clearTimeout(fallback);
+        enableExtrap();
+      }).catch(() =>
+      {
+        clearTimeout(fallback);
+        enableExtrap();
+      });
+    }
+    else
+    {
+      enableExtrap();
+    }
   }
 
   toggleSpacePause()

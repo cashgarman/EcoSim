@@ -318,11 +318,13 @@ export class GameApp
       if (state.followSelected)
       {
         if (state.selected && !state.selected.dead) camera.followSelected(dt);
+        else if (state.scrubActive) ui.clearCreatureSelection();
         else ui.deselect();
       }
       else if (state.selected && state.selected.dead)
       {
-        ui.deselect();
+        if (state.scrubActive) ui.clearCreatureSelection();
+        else ui.deselect();
       }
 
       const frameStart = performance.now();

@@ -26,8 +26,12 @@ export class QualityController
   {
     const panelFocus = state.hoveredGraphSpecies || state.lockedSpeciesFromPanel;
     const hasSelection = state.selected && !state.selected.dead;
-    if (panelFocus || hasSelection) return Math.max(baseHighlight, 1);
-    return baseHighlight;
+    const result = state.lockedSpeciesFromPanel
+      ? Math.max(baseHighlight, 2)
+      : panelFocus || hasSelection
+        ? Math.max(baseHighlight, 1)
+        : baseHighlight;
+    return result;
   }
 
   updateTier(frameMs)
