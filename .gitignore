@@ -1,0 +1,5 @@
+reports/*.json
+!.gitkeep
+.batch-gpu-profile/
+__pycache__/
+.cursor/debug-*.log

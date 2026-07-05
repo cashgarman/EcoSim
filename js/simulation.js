@@ -12,7 +12,11 @@ export class Simulation
 {
   runMigrantPulse(dt)
   {
-    if (!state.autoMigrationEnabled) return;
+    if (state.batchMode)
+    {
+      if (!state.batchConfig?.autoMigration) return;
+    }
+    else if (!state.autoMigrationEnabled) return;
     state.migrantTimer += dt;
     if (state.migrantTimer <= 6) return;
     state.migrantTimer = 0;
@@ -50,6 +54,7 @@ export class Simulation
 
   captureHeartbeat()
   {
+    if (state.batchMode) return;
     const interval = effectiveHeartbeatIntervalSec();
     if (state.tGlobal < state.heartbeatNextAt) return;
     state.heartbeatNextAt = state.tGlobal + interval;

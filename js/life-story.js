@@ -41,6 +41,7 @@ export class LifeStory
   record(c, event)
   {
     if (!c) return null;
+    if (state.batchMode) return null;
     const story = this.ensure(c);
     const ev = {
       seq: story.nextSeq++,

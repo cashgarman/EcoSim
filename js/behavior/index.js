@@ -37,7 +37,7 @@ export class BehaviorTree
       applyActionEffects(decision.action, decision.nodeId, decision.ctx, creatureSystem, dt, speed);
     }
 
-    if (state.simBackend !== 'gpu' || options.logLifeStory)
+    if (!state.batchMode && (state.simBackend !== 'gpu' || options.logLifeStory))
     {
       lifeStory.observeDecision(creature, creature.state, creature.target, decision.nodeId);
       lifeStory.observeAge(creature);
@@ -53,8 +53,11 @@ export class BehaviorTree
     applyDecisionWithContext(creature, decision, decision.ctx, creatureSystem);
     if (state.simBackend !== 'gpu' || !state.gpuSimEnabled)
     {
-      lifeStory.observeDecision(creature, creature.state, creature.target, decision.nodeId);
-      lifeStory.observeAge(creature);
+      if (!state.batchMode)
+      {
+        lifeStory.observeDecision(creature, creature.state, creature.target, decision.nodeId);
+        lifeStory.observeAge(creature);
+      }
     }
     return decision;
   }

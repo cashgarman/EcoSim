@@ -36,6 +36,7 @@ export function shouldRunBehaviorThisSubstep(substep, substepCount)
 
 export function effectiveReadbackEveryMs(baseMs)
 {
+  if (state.batchMode) return 0;
   const speed = Math.max(1, state.speed || 1);
   const tier = state.gpuTelemetry?.qualityTier ?? 0;
   const tierMul = tier >= 3 ? 1.8 : tier >= 2 ? 1.35 : 1;

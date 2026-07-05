@@ -1,7 +1,17 @@
 import { SPECIES, SP_KEYS } from '../data.js';
 
 let behaviorLibrary = null;
+let baseBehaviorLibrary = null;
 const behaviorFileCache = new Map();
+const baseBehaviorFileCache = new Map();
+let behaviorOverrides = { library: {}, species: {} };
+
+const FUZZ_ACTION_KEYS = ['Flee', 'HuntNearby', 'Wander'];
+const THRESHOLD_KEYS = [
+  'thirstUrgent', 'thirstExit', 'hungerGraze', 'hungerHunt',
+  'restEnergy', 'nightWanderRestEnergy',
+  'mateHungerMin', 'mateThirstMin', 'mateEnergyMin',
+];
 
 function deepMerge(base, override)
 {
@@ -115,7 +125,79 @@ async function fetchBehaviorFile(stem)
   if (!res.ok) throw new Error(`Failed to load behavior config (${stem}): ${res.status}`);
   const data = await res.json();
   behaviorFileCache.set(stem, data);
+  baseBehaviorFileCache.set(stem, JSON.parse(JSON.stringify(data)));
   return data;
+}
+
+function effectiveLibrary()
+{
+  if (!baseBehaviorLibrary) return behaviorLibrary;
+  return deepMerge(deepMerge({}, baseBehaviorLibrary), behaviorOverrides.library || {});
+}
+
+export function setBehaviorOverrides(overrides = {})
+{
+  behaviorOverrides = {
+    library: overrides.behaviorLibraryOverrides || overrides.library || {},
+    species: overrides.behaviorSpeciesOverrides || overrides.species || {},
+  };
+}
+
+export function getBehaviorOverrides()
+{
+  return {
+    behaviorLibraryOverrides: JSON.parse(JSON.stringify(behaviorOverrides.library || {})),
+    behaviorSpeciesOverrides: JSON.parse(JSON.stringify(behaviorOverrides.species || {})),
+  };
+}
+
+export function recompileAllBehaviors()
+{
+  const lib = effectiveLibrary();
+  if (!lib) return;
+  behaviorLibrary = lib;
+  for (const sp of SP_KEYS)
+  {
+    const behaviorKey = SPECIES[sp].behavior || sp;
+    const baseFile = baseBehaviorFileCache.get(behaviorKey) || behaviorFileCache.get(behaviorKey) || {};
+    const fileData = deepMerge(JSON.parse(JSON.stringify(baseFile)), behaviorOverrides.species?.[sp] || {});
+    SPECIES[sp].behaviorConfig = compileBehaviorFile(behaviorKey, fileData, lib);
+  }
+}
+
+export function snapshotBehaviorConfig()
+{
+  const out = {};
+  for (const sp of SP_KEYS)
+  {
+    const cfg = SPECIES[sp]?.behaviorConfig;
+    if (!cfg) continue;
+    const actions = {};
+    for (const key of FUZZ_ACTION_KEYS)
+    {
+      if (cfg.actions[key]) actions[key] = { speedMult: cfg.actions[key].speedMult };
+    }
+    out[sp] = {
+      thresholds: { ...cfg.thresholds },
+      actions,
+    };
+  }
+  return out;
+}
+
+export function getBehaviorLibraryDefaults()
+{
+  return baseBehaviorLibrary ? JSON.parse(JSON.stringify(baseBehaviorLibrary)) : null;
+}
+
+export function getBehaviorThresholdKeys()
+{
+  return THRESHOLD_KEYS;
+}
+
+export function getBehaviorActionKeys()
+{
+  return FUZZ_ACTION_KEYS;
 }
 
 export async function loadBehaviorLibrary(url = './data/behaviors/library.json')
@@ -123,7 +205,10 @@ export async function loadBehaviorLibrary(url = './data/behaviors/library.json')
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Failed to load behavior library (${res.status})`);
   behaviorLibrary = await res.json();
+  baseBehaviorLibrary = JSON.parse(JSON.stringify(behaviorLibrary));
+  behaviorOverrides = { library: {}, species: {} };
   behaviorFileCache.clear();
+  baseBehaviorFileCache.clear();
 
   for (const sp of SP_KEYS)
   {

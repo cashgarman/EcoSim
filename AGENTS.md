@@ -8,14 +8,21 @@
 |------|-------|
 | Entry point | `wildlands-ecosim.html` (serve over HTTP — ES modules block `file://`) |
 | Modules | `js/` — ES module classes (see tree below) |
-| Run | `python -m http.server 8765` from repo root → `http://127.0.0.1:8765/wildlands-ecosim.html` |
+| Run | `python serve.py` from repo root → `http://127.0.0.1:8765/wildlands-ecosim.html` |
+| Batch test | `http://127.0.0.1:8765/batch-test.html` — headless ecology/balance runs (CPU default) |
+| Batch CLI | `python scripts/run_batch.py --days 100 --size s` · GPU: `python scripts/run_batch_gpu.py --days 100 --size s` or `--sim gpu` |
 | Stack | Vanilla JS ES modules, Canvas 2D + WebGPU compute simulation + WebGPU creature overlay |
 | Game design | `GAMEPLAY.md` — player-facing rules and planned Challenge mode |
 
 ```
 EcoSim/
 ├── wildlands-ecosim.html   # HTML/CSS shell + DOM (~230 lines)
+├── batch-test.html         # Batch ecology/balance test runner UI
+├── reports/                # Saved batch/fuzz JSON reports (gitignored *.json)
+├── scripts/
+│   └── run_batch.py        # Headless CLI driver (Playwright)
 ├── js/
+│   ├── batch/              # Batch harness, metrics, fuzzer, balance UI
 │   ├── app.js              # GameApp boot + main loop
 │   ├── state.js            # Shared mutable state + grid helpers
 │   ├── dom.js              # DOM helper ($)
@@ -578,6 +585,30 @@ CSS for `#toolbar` exists; DOM toolbar was removed or not yet added. Re-add `<di
 
 ---
 
+## Batch Ecology Test Runner
+
+Headless balance/ecology testing without render or timeline overhead.
+
+| Item | Value |
+|------|-------|
+| UI | [`batch-test.html`](batch-test.html) |
+| Entry | [`js/batch/app.js`](js/batch/app.js) |
+| Harness | [`js/batch/harness.js`](js/batch/harness.js) — CPU sim fast-forward |
+| Reports | IndexedDB `ecosim_batch_reports` + `reports/*.json` via `serve.py` API |
+| CLI | [`scripts/run_batch.py`](scripts/run_batch.py) — Playwright headless driver with Rich live progress (`--sim gpu`, `--fuzz-profile fast-gpu`) |
+
+**URL params:** `seed`, `size`, `days`, `sampleEvery`, `animals`, `sim` (`cpu`|`gpu`), `runs`, `autostart`, `balance` (base64url JSON overrides), `fuzz`, `fuzzTrials`, `fuzzSeed`, `fuzzIntensity`, `fuzzScope`, `fuzzProfile` (`fast`, `fast-gpu`, `deep`, `deep-gpu`).
+
+**GPU batch:** [`js/batch/gpu-setup.js`](js/batch/gpu-setup.js) initializes WebGPU on a hidden canvas, runs the compute sim via [`GpuSimulationBackend`](js/gpu/simulation-backend.js), and syncs creature state with `forceCreatureReadback()` before metrics samples. Fuzz profiles ending in `-gpu` select the GPU backend automatically. Headless Playwright may lack WebGPU — use `--headed` or run from `batch-test.html` in a normal browser.
+
+**Report fields:** `config`, `balanceConfig` (overrides + effective species/behavior snapshot), `outcome`, `score`, `summary`, `samples`.
+
+**Fuzz campaigns:** random perturbations of species stats + behavior thresholds/actions; fast profile uses size `s`, 80 days, sparse samples. Campaign summary at `window.__FUZZ_CAMPAIGN_COMPLETE__`.
+
+**Balance overrides:** in-memory only via [`js/batch/balance-config.js`](js/batch/balance-config.js); hooks in [`js/data.js`](js/data.js) (`applySpeciesOverrides`) and [`js/behavior/loader.js`](js/behavior/loader.js) (`setBehaviorOverrides`, `recompileAllBehaviors`).
+
+---
+
 ## Maintenance
 
 **When changing simulation or architecture, update this file in the same PR/commit.**
@@ -589,4 +620,4 @@ Sections to revise:
 - New UI panels or tools → UI & Input
 - Perf/render pipeline changes → Rendering
 
-*Last synced with codebase: 2026-07-02 (GPU sim, UX overlays, dev-server note)*
+*Last synced with codebase: 2026-07-03 (batch test runner, perf stabilization)*

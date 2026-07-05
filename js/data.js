@@ -50,6 +50,63 @@ export let GENE_KEYS = [];
 export let GENE_RANGE = {};
 export let GENE_LABEL = {};
 
+let baseSpeciesData = null;
+
+function deepMerge(base, override)
+{
+  if (!override) return base;
+  const out = Array.isArray(base) ? [...base] : { ...base };
+  for (const key of Object.keys(override))
+  {
+    const v = override[key];
+    if (v && typeof v === 'object' && !Array.isArray(v) && base[key] && typeof base[key] === 'object' && !Array.isArray(base[key]))
+    {
+      out[key] = deepMerge(base[key], v);
+    }
+    else
+    {
+      out[key] = Array.isArray(v) ? [...v] : v;
+    }
+  }
+  return out;
+}
+
+export function applySpeciesOverrides(overrides = {})
+{
+  if (!baseSpeciesData) return;
+  SPECIES = JSON.parse(JSON.stringify(baseSpeciesData));
+  for (const sp of Object.keys(overrides))
+  {
+    if (!SPECIES[sp]) continue;
+    SPECIES[sp] = deepMerge(SPECIES[sp], overrides[sp]);
+  }
+}
+
+export function snapshotSpeciesConfig()
+{
+  const out = {};
+  for (const sp of SP_KEYS)
+  {
+    const s = SPECIES[sp];
+    if (!s) continue;
+    out[sp] = {
+      base: { ...s.base },
+      gestationSec: [...(s.gestationSec || [3, 5])],
+      mateCooldownSec: [...(s.mateCooldownSec || [3, 5])],
+      stockWeight: s.stockWeight,
+      diet: s.diet,
+      hunts: s.hunts ? [...s.hunts] : undefined,
+      preyOf: s.preyOf ? [...s.preyOf] : undefined,
+    };
+  }
+  return out;
+}
+
+export function getBaseSpeciesData()
+{
+  return baseSpeciesData ? JSON.parse(JSON.stringify(baseSpeciesData)) : null;
+}
+
 export function sampleGestation(sp)
 {
   const range = SPECIES[sp]?.gestationSec;
@@ -120,6 +177,7 @@ export async function loadSpeciesData(url = './data/species.json')
   if (!res.ok) throw new Error(`Failed to load species config (${res.status})`);
   const data = await res.json();
   SPECIES = data.species;
+  baseSpeciesData = JSON.parse(JSON.stringify(data.species));
   SP_KEYS = Object.keys(SPECIES);
   SPECIES_INDEX = Object.fromEntries(SP_KEYS.map((k, i) => [k, i]));
   GENE_KEYS = data.geneKeys;

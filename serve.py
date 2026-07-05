@@ -1,8 +1,16 @@
 #!/usr/bin/env python3
-"""Threaded static file server for EcoSim ES module development."""
+"""Threaded static file server for EcoSim ES module development + batch report API."""
 
-from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
+from http.server import HTTPServer, ThreadingHTTPServer, SimpleHTTPRequestHandler
+import json
 import os
+import re
+import threading
+
+
+REPORTS_DIR = 'reports'
+SAFE_ID = re.compile(r'^[A-Za-z0-9._-]+$')
+_STATIC_SEM = threading.Semaphore(6)
 
 
 class EcoSimHandler(SimpleHTTPRequestHandler):
@@ -11,29 +19,130 @@ class EcoSimHandler(SimpleHTTPRequestHandler):
         self.send_header('Pragma', 'no-cache')
         super().end_headers()
 
-    def send_head(self):
-        path = self.translate_path(self.path)
+    def do_GET(self):
+        if self.path.startswith('/api/batch-reports'):
+            self.handle_batch_reports_get()
+            return
+        if not _STATIC_SEM.acquire(timeout=30):
+            self.send_error(503, 'Server busy')
+            return
+        try:
+            self._serve_static_file()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        except Exception as err:
+            self.log_error('static GET failed: %s', err)
+            if not self.wfile.closed:
+                try:
+                    self.send_error(500, 'Internal server error')
+                except Exception:
+                    pass
+        finally:
+            _STATIC_SEM.release()
+
+    def _serve_static_file(self):
+        path = self.translate_path(self.path.split('?', 1)[0])
         if os.path.isdir(path):
-            return super().send_head()
-
-        ctype = self.guess_type(path)
-        try:
-            file_obj = open(path, 'rb')
-        except OSError:
             self.send_error(404, 'File not found')
-            return None
+            return
+        if not os.path.isfile(path):
+            self.send_error(404, 'File not found')
+            return
 
+        with open(path, 'rb') as file_obj:
+            data = file_obj.read()
+
+        self.send_response(200)
+        if self.path.endswith('.js') or self.path.endswith('.mjs'):
+            ctype = 'text/javascript; charset=utf-8'
+        else:
+            ctype = self.guess_type(path)
+        self.send_header('Content-type', ctype)
+        self.send_header('Content-Length', str(len(data)))
+        self.send_header('Last-Modified', self.date_time_string(os.path.getmtime(path)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def do_POST(self):
+        if self.path == '/api/batch-reports':
+            self.handle_batch_reports_post()
+            return
+        self.send_error(404, 'Not found')
+
+    def handle_batch_reports_get(self):
+        os.makedirs(REPORTS_DIR, exist_ok=True)
+        path = self.path.split('?', 1)[0].rstrip('/')
+        if path == '/api/batch-reports':
+            rows = []
+            for name in sorted(os.listdir(REPORTS_DIR), reverse=True):
+                if not name.endswith('.json'):
+                    continue
+                run_id = name[:-5]
+                file_path = os.path.join(REPORTS_DIR, name)
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                    rows.append({
+                        'runId': data.get('runId') or data.get('campaignId') or run_id,
+                        'outcome': data.get('outcome') or 'campaign',
+                        'startedAt': data.get('startedAt'),
+                        'finalPop': (data.get('summary') or {}).get('finalPop'),
+                        'fuzzTrials': data.get('fuzzTrials'),
+                    })
+                except (OSError, json.JSONDecodeError):
+                    rows.append({'runId': run_id, 'outcome': 'error'})
+            self.send_json(200, rows)
+            return
+
+        if path.startswith('/api/batch-reports/'):
+            run_id = path.rsplit('/', 1)[-1]
+            if not SAFE_ID.match(run_id):
+                self.send_error(400, 'Invalid run id')
+                return
+            file_path = os.path.join(REPORTS_DIR, f'{run_id}.json')
+            if not os.path.isfile(file_path):
+                self.send_error(404, 'Report not found')
+                return
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                self.send_json(200, data)
+            except (OSError, json.JSONDecodeError) as err:
+                self.send_error(500, str(err))
+            return
+
+        self.send_error(404, 'Not found')
+
+    def handle_batch_reports_post(self):
+        length = int(self.headers.get('Content-Length', 0))
+        body = self.rfile.read(length) if length else b'{}'
         try:
-            fs = os.fstat(file_obj.fileno())
-            self.send_response(200)
-            self.send_header('Content-type', ctype)
-            self.send_header('Content-Length', str(fs.st_size))
-            self.send_header('Last-Modified', self.date_time_string(fs.st_mtime))
-            self.end_headers()
-            return file_obj
-        except Exception:
-            file_obj.close()
-            raise
+            data = json.loads(body.decode('utf-8'))
+        except json.JSONDecodeError:
+            self.send_error(400, 'Invalid JSON')
+            return
+
+        run_id = data.get('runId') or data.get('campaignId')
+        if not run_id or not SAFE_ID.match(str(run_id)):
+            self.send_error(400, 'Missing or invalid runId/campaignId')
+            return
+
+        os.makedirs(REPORTS_DIR, exist_ok=True)
+        path = os.path.join(REPORTS_DIR, f'{run_id}.json')
+        try:
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2)
+            self.send_json(201, {'ok': True, 'runId': run_id, 'path': path})
+        except OSError as err:
+            self.send_error(500, str(err))
+
+    def send_json(self, code, payload):
+        raw = json.dumps(payload).encode('utf-8')
+        self.send_response(code)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', str(len(raw)))
+        self.end_headers()
+        self.wfile.write(raw)
 
     def log_message(self, format, *args):
         print(f"[serve] {self.address_string()} {format % args}")
@@ -41,9 +150,15 @@ class EcoSimHandler(SimpleHTTPRequestHandler):
 
 def main():
     port = int(os.environ.get('PORT', '8765'))
-    os.chdir(os.path.dirname(os.path.abspath(__file__)))
-    server = ThreadingHTTPServer(('127.0.0.1', port), EcoSimHandler)
-    print(f'EcoSim dev server: http://127.0.0.1:{port}/wildlands-ecosim.html')
+    batch_mode = os.environ.get('BATCH_SERVER', '') == '1'
+    root = os.path.dirname(os.path.abspath(__file__))
+    os.chdir(root)
+    os.makedirs(os.path.join(root, REPORTS_DIR), exist_ok=True)
+    server_cls = HTTPServer if batch_mode else ThreadingHTTPServer
+    server = server_cls(('127.0.0.1', port), EcoSimHandler)
+    mode = 'batch (sequential)' if batch_mode else 'threaded'
+    print(f'EcoSim dev server ({mode}): http://127.0.0.1:{port}/wildlands-ecosim.html')
+    print(f'Batch test runner: http://127.0.0.1:{port}/batch-test.html')
     print('Press Ctrl+C to stop.')
     try:
         server.serve_forever()

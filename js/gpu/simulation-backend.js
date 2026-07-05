@@ -1581,82 +1581,102 @@ export class GpuSimulationBackend
         return;
       }
       const floatData = new Float32Array(rb.getMappedRange());
-      const alive = [];
-      const slotMap = new Map();
-      for (const c of state.creatures)
-      {
-        if (!c) continue;
-        if (typeof c.gpuSlot === 'number' && c.gpuSlot >= 0)
-        {
-          slotMap.set(c.gpuSlot, c);
-        }
-      }
-      const pending = [];
-      for (let i = 0; i < Math.min(state.gpuRenderCreatureCount, this.maxCreatures); i++)
-      {
-        const base = i * CREATURE_STRIDE_FLOATS;
-        const spIdx = Math.max(0, Math.min(SP_KEYS.length - 1, Math.round(floatData[base + 16])));
-        const aliveFlag = floatData[base + 19] > 0.5;
-        let c = slotMap.get(i);
-        const isNewGpuCreature = !c;
-        if (!c)
-        {
-          if (!aliveFlag) continue;
-          const sp = SP_KEYS[spIdx];
-          c = {
-            id: 1000000 + i,
-            sp,
-            genome: { ...SPECIES[sp].base },
-            parentIds: [],
-            offspringIds: [],
-            gpuSlot: i,
-            gpuNeedsUpload: false,
-          };
-          state.creatures.push(c);
-          slotMap.set(i, c);
-        }
-        c.x = floatData[base + 0];
-        c.y = floatData[base + 1];
-        c.vx = floatData[base + 2];
-        c.vy = floatData[base + 3];
-        c.hp = floatData[base + 4];
-        c.hunger = floatData[base + 5];
-        c.thirst = floatData[base + 6];
-        c.energy = floatData[base + 7];
-        c.age = floatData[base + 8];
-        c.mateCd = floatData[base + 10];
-        c.pregnant = floatData[base + 11];
-        c.tx = floatData[base + 12];
-        c.ty = floatData[base + 13];
-        c.gpuTargetSlot = Math.round(floatData[base + 14]);
-        c.sp = SP_KEYS[spIdx];
-        c.state = gpuBehaviorToState(floatData[base + 15]);
-        c.dead = !aliveFlag;
-        c.gpuSlot = i;
-        c.gpuNeedsUpload = false;
-        c.walk = floatData[base + 27];
-        c.dir = floatData[base + 28] >= 0 ? 1 : -1;
-        c.sex = floatData[base + 29] > 0.5 ? 'male' : 'female';
-        c.litterQ = floatData[base + 30] || 0;
-        if (!c.lifeStory) lifeStory.initCreature(c);
-        pending.push({ c, isNewGpuCreature, aliveFlag, base });
-      }
+      this.applyCreatureReadbackFromBuffer(floatData);
+      const readbackMs = performance.now() - readbackStart;
+      state.gpuTelemetry.readbackMs = state.gpuTelemetry.readbackMs
+        ? state.gpuTelemetry.readbackMs * 0.85 + readbackMs * 0.15
+        : readbackMs;
+      rb.unmap();
+      state.gpuSimReadbackPending = false;
+    }).catch(() =>
+    {
+      if (rb.mapState === 'mapped') rb.unmap();
+      state.gpuSimReadbackPending = false;
+    });
+  }
 
-      for (const row of pending)
+  applyCreatureReadbackFromBuffer(floatData)
+  {
+    const alive = [];
+    const slotMap = new Map();
+    for (const c of state.creatures)
+    {
+      if (!c) continue;
+      if (typeof c.gpuSlot === 'number' && c.gpuSlot >= 0)
       {
-        const c = row.c;
-        const tgtSlot = c.gpuTargetSlot;
-        if (typeof tgtSlot === 'number' && tgtSlot >= 0)
-        {
-          const tgt = slotMap.get(tgtSlot);
-          c.target = tgt?.id ?? null;
-        }
-        else
-        {
-          c.target = null;
-        }
+        slotMap.set(c.gpuSlot, c);
       }
+    }
+    const pending = [];
+    const skipLifeStory = !!state.batchMode;
+    for (let i = 0; i < Math.min(state.gpuRenderCreatureCount, this.maxCreatures); i++)
+    {
+      const base = i * CREATURE_STRIDE_FLOATS;
+      const spIdx = Math.max(0, Math.min(SP_KEYS.length - 1, Math.round(floatData[base + 16])));
+      const aliveFlag = floatData[base + 19] > 0.5;
+      let c = slotMap.get(i);
+      const isNewGpuCreature = !c;
+      if (!c)
+      {
+        if (!aliveFlag) continue;
+        const sp = SP_KEYS[spIdx];
+        c = {
+          id: 1000000 + i,
+          sp,
+          genome: { ...SPECIES[sp].base },
+          parentIds: [],
+          offspringIds: [],
+          gpuSlot: i,
+          gpuNeedsUpload: false,
+        };
+        state.creatures.push(c);
+        slotMap.set(i, c);
+      }
+      c.x = floatData[base + 0];
+      c.y = floatData[base + 1];
+      c.vx = floatData[base + 2];
+      c.vy = floatData[base + 3];
+      c.hp = floatData[base + 4];
+      c.hunger = floatData[base + 5];
+      c.thirst = floatData[base + 6];
+      c.energy = floatData[base + 7];
+      c.age = floatData[base + 8];
+      c.mateCd = floatData[base + 10];
+      c.pregnant = floatData[base + 11];
+      c.tx = floatData[base + 12];
+      c.ty = floatData[base + 13];
+      c.gpuTargetSlot = Math.round(floatData[base + 14]);
+      c.sp = SP_KEYS[spIdx];
+      c.state = gpuBehaviorToState(floatData[base + 15]);
+      c.dead = !aliveFlag;
+      c.gpuSlot = i;
+      c.gpuNeedsUpload = false;
+      c.walk = floatData[base + 27];
+      c.dir = floatData[base + 28] >= 0 ? 1 : -1;
+      c.sex = floatData[base + 29] > 0.5 ? 'male' : 'female';
+      c.litterQ = floatData[base + 30] || 0;
+      c.gen = Math.max(1, Math.round(floatData[base + 26]) || c.gen || 1);
+      if (!skipLifeStory && !c.lifeStory) lifeStory.initCreature(c);
+      pending.push({ c, isNewGpuCreature, aliveFlag, base });
+    }
 
+    for (const row of pending)
+    {
+      const c = row.c;
+      const tgtSlot = c.gpuTargetSlot;
+      if (typeof tgtSlot === 'number' && tgtSlot >= 0)
+      {
+        const tgt = slotMap.get(tgtSlot);
+        c.target = tgt?.id ?? null;
+      }
+      else
+      {
+        c.target = null;
+      }
+    }
+
+    if (!skipLifeStory)
+    {
       for (const row of pending)
       {
         const c = row.c;
@@ -1687,20 +1707,42 @@ export class GpuSimulationBackend
         lifeStory.observeFromSnapshot(c, row.isNewGpuCreature);
         if (row.aliveFlag) alive.push(c);
       }
-      state.gpuSimMirror = alive;
-      const readbackMs = performance.now() - readbackStart;
-      state.gpuTelemetry.readbackMs = state.gpuTelemetry.readbackMs
-        ? state.gpuTelemetry.readbackMs * 0.85 + readbackMs * 0.15
-        : readbackMs;
-      state.gpuTelemetry.poolSize = state.gpuRenderCreatureCount;
-      state.gpuTelemetry.creatureArraySize = state.creatures.length;
-      rb.unmap();
-      state.gpuSimReadbackPending = false;
-    }).catch(() =>
+    }
+    else
     {
-      if (rb.mapState === 'mapped') rb.unmap();
-      state.gpuSimReadbackPending = false;
-    });
+      for (const row of pending)
+      {
+        if (row.aliveFlag) alive.push(row.c);
+        if (row.c.gen > state.generationMax) state.generationMax = row.c.gen;
+      }
+    }
+
+    state.gpuSimMirror = alive;
+    state.gpuTelemetry.poolSize = state.gpuRenderCreatureCount;
+    state.gpuTelemetry.creatureArraySize = state.creatures.length;
+  }
+
+  async forceCreatureReadback()
+  {
+    if (!state.gpuSimEnabled || !state.gpuDevice || !state.gpuSimBuffers) return false;
+    const rb = state.gpuSimBuffers.renderReadback;
+    if (!rb) return false;
+
+    const dev = state.gpuDevice;
+    const bytes = state.gpuRenderCreatureCount * CREATURE_STRIDE_FLOATS * 4;
+    const copyBytes = roundUp(bytes, 256);
+    const encoder = dev.createCommandEncoder();
+    encoder.copyBufferToBuffer(state.gpuSimBuffers.creatures, 0, rb, 0, copyBytes);
+    dev.queue.submit([encoder.finish()]);
+    await dev.queue.onSubmittedWorkDone?.();
+
+    if (rb.mapState === 'mapped') rb.unmap();
+    await rb.mapAsync(GPUMapMode.READ);
+    const floatData = new Float32Array(rb.getMappedRange());
+    this.applyCreatureReadbackFromBuffer(floatData);
+    rb.unmap();
+    state.gpuSimReadbackPending = false;
+    return true;
   }
 
   consumeSelectedReadback()

@@ -138,7 +138,7 @@ export class CreatureSystem
     state.creatures.push(c);
     if ((gen || 1) > state.generationMax) state.generationMax = gen || 1;
     state.gpuSimDirtyFromCpu = true;
-    if (recordStory) lifeStory.recordAppeared(c, 'spawned');
+    if (recordStory && !state.batchMode) lifeStory.recordAppeared(c, 'spawned');
     return c;
   }
 

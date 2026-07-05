@@ -149,6 +149,9 @@ export const state = {
 
   fx: [],
   panelZ: 30,
+
+  batchMode: false,
+  batchConfig: null,
 };
 
 export function idx(x, y)
