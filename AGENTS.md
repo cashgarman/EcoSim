@@ -16,15 +16,24 @@
 
 ```
 EcoSim/
-├── wildlands-ecosim.html   # HTML/CSS shell + DOM (~230 lines)
+├── wildlands-ecosim.html   # HTML/CSS shell + DOM (~480 lines)
 ├── batch-test.html         # Batch ecology/balance test runner UI
+├── serve.py                # Threaded static server + batch report API
+├── config/
+│   └── timeline-config.json # Snapshot interval override (loaded at boot)
 ├── reports/                # Saved batch/fuzz JSON reports (gitignored *.json)
 ├── scripts/
-│   └── run_batch.py        # Headless CLI driver (Playwright)
+│   ├── run_batch.py        # Headless CLI driver (Playwright)
+│   └── run_batch_gpu.py    # GPU-focused batch CLI wrapper
+├── tests/
+│   └── time-scrub.test.js  # Snapshot/scrub unit tests (console)
 ├── js/
-│   ├── batch/              # Batch harness, metrics, fuzzer, balance UI
+│   ├── batch/              # Batch harness, metrics, fuzzer, balance UI, history/campaign detail
 │   ├── app.js              # GameApp boot + main loop
 │   ├── state.js            # Shared mutable state + grid helpers
+│   ├── config.js           # loadTimelineConfig() from JSON
+│   ├── perf-policy.js      # High-speed snapshot/readback/timeline pressure scaling
+│   ├── creature-notify.js  # Death-cause refinement, killer inference, World Story formatting
 │   ├── dom.js              # DOM helper ($)
 │   ├── data.js             # Biome enums + loadSpeciesData() from JSON
 │   ├── data/
@@ -41,14 +50,13 @@ EcoSim/
 │   ├── nav.js              # Passability, LOS, windowed A* pathfinding
 │   ├── world.js            # World — procedural generation + veg growth
 │   ├── camera.js           # Camera — pan/zoom/clamp transforms
-│   ├── creatures.js        # CreatureSystem — AI, genetics, spatial hash
+│   ├── creatures.js        # CreatureSystem — AI, genetics, spatial hash, display smoothing
 │   ├── life-story.js       # LifeStory — per-creature timeline (state enter/exit + milestones) + serialize
 │   ├── simulation.js       # Simulation — tick, day/night, optional migrants, heartbeat snapshots
-│   ├── snapshot.js         # Snapshot capture/restore for time scrub (veg + creatures + scalars)
+│   ├── snapshot.js         # Snapshot capture/restore + reconcileSelectionAfterRestore
 │   ├── time-scrub.js       # TimeScrubController — slider seek, baseline, fork+truncate
-│   ├── ui.js               # UI — panels, inspector, graph, World Story + Timeline DB feeds
+│   ├── ui.js               # UI — panels, inspector, graph, World Story + Timeline DB + scrub + GOD menu
 │   ├── timeline-db.js      # IndexedDB timeline storage (world events, creature events, heartbeats, snapshots)
-│   └── tests/              # Browser console tests (run via window.runTimeScrubTests())
 │   ├── input.js            # InputManager — canvas/panel/keyboard input
 │   ├── tools.js            # Editor tools (spawn, rain, meteor, cull)
 │   ├── fx.js               # Effects — spark/rain particles
@@ -261,20 +269,53 @@ Each creature carries an append-only in-memory log via [`js/life-story.js`](js/l
 - **Bake:** `bakeVegetation()` when dirty (throttled by `vegBakeInterval`)
 - GPU backend treats vegetation as tangible food-state buffers (`veg`, `vegCap`) with deterministic tile-owner claims before bite writes
 
-### Migrant system (every ~6s)
+### Migrant system (every ~6s, opt-in)
 
-If species count ≤1 and total pop <70% MAX_POP:
+Gated by `state.autoMigrationEnabled` (sandbox default `false`) or `batchConfig.autoMigration` in batch mode. When enabled, if species count ≤1 and total pop <70% MAX_POP:
 - Herbivores: 60% chance, spawn 2–3
 - Predators: 25% chance, spawn 1, only if prey species count >2
 
-Prevents permanent food-web collapse.
+Prevents permanent food-web collapse when enabled.
 
 ### Time
 
 - `timeOfDay` cycles in 40s (`dt/40` per tick) → `day = floor(tGlobal/40)`
 - `lightLevel`, `isNight` affect movement/rest only (not sim correctness)
 
----
+### Time scrub & timeline (`time-scrub.js`, `snapshot.js`, `timeline-db.js`)
+
+- **Snapshots** — `captureSnapshot()` every `effectiveSnapshotIntervalSec()` (base from `state.snapshotIntervalSec`, overridden at boot by [`config/timeline-config.json`](config/timeline-config.json), default 1 s in JSON / 10 s in `state.js` before load); stored in IndexedDB `snapshots` store
+- **Heartbeats** — compact metrics rows every `effectiveHeartbeatIntervalSec()` (scales at speed ≥4×)
+- **Scrub controller** — `TimeScrubController.seekTo()` restores nearest snapshot ≤ target; `goToPresent()` restores baseline; `onMutatingAction()` calls `truncateFuture` and forks timeline when tools/GOD actions run while viewing past
+- **Seek UX** — rAF-debounced slider seeks use `light: true` while dragging; snapshot row cache warmed from IndexedDB on first seek; scrub meta persisted to IndexedDB (`persistScrubMeta`)
+- **While scrubbing** (`state.scrubActive`): sim does not advance; GPU creature/world readback skipped; render authority is `cpu_snapshot`; species row lock + selection restored via `reconcileSelectionAfterRestore()` (dead selection cleared when following)
+- **Render while scrubbing** — WebGPU path keeps circle LOD when zoomed out; at sprite LOD uses `scrub-canvas-sprites` branch; species/selection highlights remain via `effectiveHighlight`
+
+### High-speed perf policy (`perf-policy.js`)
+
+At sim speed ≥5×, reduces overhead without changing sim correctness:
+
+| Helper | Effect |
+|--------|--------|
+| `effectiveSnapshotIntervalSec()` | Scales snapshot cadence with speed |
+| `effectiveHeartbeatIntervalSec()` | Scales heartbeat cadence at speed ≥4× |
+| `shouldRunBehaviorThisSubstep()` | BT decisions only on last substep at speed ≥5× |
+| `effectiveReadbackEveryMs()` | GPU readback interval × speed/tier |
+| `effectiveScrubTickRefreshMs()` | UI scrub tick mark refresh throttle |
+| `shouldPersistCreatureEvent()` | Drops non-milestone creature events at speed ≥5× (except selected creature) |
+| `timelineWritePressure()` | `low` / `medium` / `high` — timeline DB may drop writes under pressure (`gpuTelemetry.droppedTimelineWrites`) |
+
+### Creature display smoothing (`creatures.js`)
+
+- Render positions `rx/ry` lerped toward sim `x/y` via `advanceDisplayPositions(dt)`
+- **GPU extrapolation** — when live and `gpuDisplayExtrapolate`, positions advance by `vx/vy` between readbacks; disabled on pause, re-enabled after `forceCreatureReadback()` on resume
+- **Scrub** — faster smoothing (`expSmoothT` 10 vs 16); walk animation continues from restored snapshot state
+
+### Death notifications (`creature-notify.js`)
+
+- `refineDeathCause()` — maps exhaustion to starvation/dehydration/old age when applicable
+- `inferKillerId()` — GPU hunt target slot + life-story `preyedOn` fallback
+- `formatBornEvent` / `formatMatedEvent` / `formatDiedEvent` — World Story HTML strings with sex symbols
 
 ## Rendering
 
@@ -302,10 +343,11 @@ Prevents permanent food-web collapse.
 
 - Falls back to Canvas if no `navigator.gpu`
 - `simulationMode='gpu_hybrid'` enables GPU simulation when WebGPU is available; fallback is CPU simulation
-- **Three creature render paths** (chosen each frame in `RenderPipeline.render()`):
+- **Creature render paths** (chosen each frame in `RenderPipeline.render()`):
   1. **`webgpu_circles`** (default under load / normal zoom) — GPU draws filled circles; highlights on `#world-hl` via `renderHighlightsOverlay()`
   2. **`webgpu_canvas_sprites`** — when `detail >= 2 && cam.z > 4.2`: GPU overlay cleared, full Canvas pixel sprites + highlights on `#world`
-  3. **`canvas`** — full Canvas fallback if GPU init/submit fails
+  3. **`scrub-canvas-sprites`** — while `state.scrubActive` at sprite LOD: Canvas sprites from restored CPU snapshot (GPU overlay hidden)
+  4. **`canvas`** — full Canvas fallback if GPU init/submit fails
 - In GPU sim mode, compute writes a render buffer directly and `WebGpuRenderer.renderGpuBuffer()` draws without CPU repacking creature instances
 - Compute uses **one bind group, 8 storage buffers + 1 uniform** (WebGPU per-stage limit): `creatures`, packed `worldData` (temp/moist/veg/cap/biome), `cellCounts`, `cellEntries`, packed `simAtomics` (counters/species sums/prey+food owners), `simLists` (alive/dead/birth), read-only `speciesTables`, `renderData`, plus `params` uniform
 - **Compute pass order** (`GpuSimulationBackend.step()`): `clearCells` → `clearCounters` → `binCreatures` → **`claimBehaviorTargets`** → **`planNavStep` (A*)** → `resolveIntegrate` → `spawnFromBirthQueue` → `growVegetation` → `composeRenderData`
@@ -313,6 +355,7 @@ Prevents permanent food-web collapse.
 - While GPU sim is initializing (`gpuSimInitPending`), CPU creature ticks are skipped so seeded populations are not depleted before upload
 - GPU creature records now keep stable `gpuSlot` indices; CPU sync writes changed slots only (no full stale re-upload each tick), which prevents migration/prune snap-back
 - GPU behavior state is decoded from compute state codes (`wander/flee/thirst/graze/hunt/rest/mate/huntSearch`) for inspector/tooltips instead of showing a raw `gpu` placeholder
+- **Scrub / pause** — GPU sim stepping and readback skipped while `state.scrubActive`; **Spacebar** pause sets `gpuDisplayExtrapolate=false` and snaps display positions; resume forces readback then re-enables extrapolation
 - Large populations + poor FPS → quality tier rises → creatures simplify to circles/markers (intentional LOD, not a bug)
 - **F2** toggles perf HUD (`#perfhud`), including GPU sim metrics (sim step ms, alive, births, herbivore intake)
 
@@ -368,7 +411,13 @@ Driven by quality `detail` tier and `cam.z`:
 
 ### Top bar stats
 
-Day/night, population, max generation, avg vegetation %, speed slider (0–10×), Follow button, and the timeline scrub slider that mirrors the legacy time-scrub controls (with a Present button).
+Day/night, population, max generation, avg vegetation %, speed slider (0–10×), Follow button, and the **timeline scrub** slider (`#top-scrubctl`) with snapshot tick marks, play/pause indicator (Spacebar), time label, and **Present** button.
+
+### Species GOD menu (`#species-row-menu`)
+
+- **Right-click** species row in Ecosystem panel → context menu titled `{emoji} {label} GOD`
+- **Kill All** — `creatures.killAllBySpecies()`; logs World Story event; calls `timeScrub.onMutatingAction()` when viewing past
+- **Escape** closes menu; left-click species row still locks gold highlight
 
 ### Ecosystem panel (`#stats`)
 
@@ -404,9 +453,9 @@ World notifications now stream into the **World Story** panel as persistent rows
 
 ### Heartbeat snapshots
 
-`simulation.tick()` periodically writes compact world snapshots to IndexedDB `heartbeats` (`heartbeatIntervalSec`, default 5s) as rewind anchors.
+`simulation.tick()` periodically writes compact world snapshots to IndexedDB `heartbeats` (`effectiveHeartbeatIntervalSec()`, base `heartbeatIntervalSec` default 5 s) as rewind anchors.
 
-Full state snapshots (vegetation + creatures) are captured every `snapshotIntervalSec` (default 10s) into the `snapshots` store to power the timeline scrub slider. Scrubbing restores a prior snapshot; mutating tools while viewing the past call `truncateFuture` and fork the timeline.
+Full state snapshots (vegetation + creatures) are captured every `effectiveSnapshotIntervalSec()` into the `snapshots` store to power the timeline scrub slider. Interval base is `state.snapshotIntervalSec` (overridden at boot from [`config/timeline-config.json`](config/timeline-config.json)). Scrubbing restores a prior snapshot; mutating tools or GOD actions while viewing the past call `truncateFuture` and fork the timeline.
 
 ### Migrant reseed toggle
 
@@ -427,7 +476,8 @@ CSS for `#toolbar` exists; DOM toolbar was removed or not yet added. Re-add `<di
 ### Sim speed
 
 - `speed` 0–10×; high speeds use up to 6 substeps per frame for AI stability
-- `tGlobal` accumulates scaled dt; sim paused at speed 0
+- **Spacebar** toggles pause (`speed=0`, `pausedBySpace=true`) and restores `lastSpeedBeforePause`
+- `tGlobal` accumulates scaled dt; sim paused at speed 0 or while scrubbing past (`timeScrub.isViewingPast()`)
 
 ---
 
@@ -460,15 +510,43 @@ CSS for `#toolbar` exists; DOM toolbar was removed or not yet added. Re-add `<di
 | `planGridStep` | Windowed A* next-step planner (CPU; mirrored in GPU WGSL) |
 | `atWaterEdge` | Shoreline drink detection |
 
+### `js/perf-policy.js`
+
+| Export | Role |
+|--------|------|
+| `effectiveSnapshotIntervalSec` | Speed-scaled snapshot cadence |
+| `effectiveHeartbeatIntervalSec` | Speed-scaled heartbeat cadence |
+| `shouldRunBehaviorThisSubstep` | Skip BT on early substeps at high speed |
+| `effectiveReadbackEveryMs` | GPU readback throttle multiplier |
+| `effectiveScrubTickRefreshMs` | Scrub tick UI refresh interval |
+| `shouldPersistCreatureEvent` | Milestone-only creature events at high speed |
+| `timelineWritePressure` | IndexedDB write pressure tier |
+
+### `js/config.js`
+
+| Export | Role |
+|--------|------|
+| `loadTimelineConfig` | Fetch `config/timeline-config.json` at boot |
+
+### `js/creature-notify.js`
+
+| Export | Role |
+|--------|------|
+| `refineDeathCause`, `inferKillerId` | Death attribution for life story + World Story |
+| `formatBornEvent`, `formatMatedEvent`, `formatDiedEvent` | World Story HTML formatters |
+| `eventFocusIds` | Click targets for death events (prey + killer) |
+
 ### Domain modules (classes)
 
 | Module | Class | Role |
 |--------|-------|------|
 | `world.js` | `World` | `generate`, `biomeAt`, `computeLandBounds`, `growVegetation` |
 | `camera.js` | `Camera` | pan/zoom, `w2s`/`s2w`, `clampCam`, `centerCam` |
-| `creatures.js` | `CreatureSystem` | `makeCreature`, `stepCreature`, `stepNeeds`, genetics, spatial hash |
+| `creatures.js` | `CreatureSystem` | `makeCreature`, `stepCreature`, `stepNeeds`, genetics, spatial hash, display smoothing, `killAllBySpecies` |
 | `behavior/` | `BehaviorTree` | JSON-driven BT loader, evaluator, executor |
 | `life-story.js` | `LifeStory` | debounced decision log, milestone events, `serializeCreature` / `serializeAll` |
+| `snapshot.js` | — | `captureSnapshot`, `restoreSnapshot`, `reconcileSelectionAfterRestore` |
+| `time-scrub.js` | `TimeScrubController` | seek, present, fork+truncate, scrub meta persistence |
 | `simulation.js` | `Simulation` | `tick`, day/night, heartbeat capture, optional migrant pulse |
 | `render/terrain-renderer.js` | `TerrainRenderer` | `bakeTerrain`, `bakeWater`, `bakeVegetation`, infinite ocean |
 | `render/creature-renderer.js` | `CreatureRenderer` | `drawCreature`, `renderHighlights2d`, `renderHighlightsOverlay`, pedigree lines |
@@ -476,8 +554,8 @@ CSS for `#toolbar` exists; DOM toolbar was removed or not yet added. Re-add `<di
 | `render/quality.js` | `QualityController` | adaptive tiers, `effectiveHighlight`, F2 perf HUD |
 | `render/pipeline.js` | `RenderPipeline` | `render()` layer orchestration (3 canvases) |
 | `gpu/simulation-backend.js` | `GpuSimulationBackend` | compute simulation passes, spatial bins, global awareness, conflict resolution, readback; exports `gpuBehaviorToState()` |
-| `ui.js` | `UI` | stats, graph, inspector (Stats + Life Story tabs), World Story feed, Timeline DB viewer, top-bar timeline scrub slider, terrain/creature tooltips |
-| `input.js` | `InputManager` | canvas/panel/keyboard handlers; **F2** perf HUD toggle |
+| `ui.js` | `UI` | stats, graph, inspector (Stats + Life Story), World Story, Timeline DB, scrub slider, species GOD menu, terrain/creature tooltips |
+| `input.js` | `InputManager` | canvas/panel/keyboard handlers; **F2** perf HUD; **Spacebar** pause |
 | `app.js` | `GameApp` | boot, `doGenerate`, `frame` loop; exposes `window.runGpuBenchmark(seconds)` in console |
 
 ---
@@ -497,6 +575,11 @@ CSS for `#toolbar` exists; DOM toolbar was removed or not yet added. Re-add `<di
 | Quality tier thresholds | `quality.js` `updateTier` | Perf vs fidelity (detail, highlight, decimation) |
 | `effectiveHighlight` | `quality.js` | Panel hover/lock/selection highlight floor |
 | `navRadius` / `navReplanInterval` | `quality.js` | Pathfinding search radius and replan cadence (GPU params 13–14) |
+| `snapshotIntervalSec` / `config/timeline-config.json` | `state.js` / boot | Base snapshot capture interval for time scrub |
+| `heartbeatIntervalSec` | `state.js` | Base heartbeat metrics interval |
+| `autoMigrationEnabled` | `state.js` | Sandbox migrant reseed gate (default `false`) |
+| `perf-policy.js` helpers | `perf-policy.js` | High-speed snapshot/readback/timeline scaling |
+| `gpuDisplayExtrapolate` | `state.js` | GPU position extrapolation between readbacks |
 | `DECISION_DEBOUNCE_SEC` | `life-story.js` | Min time in a behavior before logging a decision |
 | `MAX_LIFE_EVENTS` | `life-story.js` | Per-creature event ring buffer size |
 | Species `base` / `hunts` / `preyOf` | `data.js` | Food web balance |
@@ -506,7 +589,7 @@ CSS for `#toolbar` exists; DOM toolbar was removed or not yet added. Re-add `<di
 ## Code Conventions
 
 - **ES modules:** each domain in `js/`; html loads `js/app.js` only
-- **No bundler/tests/CI** — edit and refresh browser
+- **No bundler/CI** — edit and refresh browser; scrub tests in [`tests/time-scrub.test.js`](tests/time-scrub.test.js) via `window.runTimeScrubTests()` in console
 - **Naming:** camelCase functions/vars; ALL_CAPS for enums/constants (`B`, `MAX_POP`, `SPECIES`); domain logic in PascalCase classes
 - **Braces:** Allman style for multi-line functions/classes
 - **Performance patterns:** Typed arrays for grids; row-scanned veg growth; baked terrain; viewport culling; optional GPU instancing
@@ -564,23 +647,25 @@ CSS for `#toolbar` exists; DOM toolbar was removed or not yet added. Re-add `<di
 ## Boot Sequence
 
 1. Import `app.js` from html, init RNG seed via `GameApp`
-2. Init `#world`, `#world-gpu`, `#world-hl` canvases; `RenderPipeline.init(canvas, gpuCanvas, hlCanvas)`
+2. `loadTimelineConfig()` → sets `state.snapshotIntervalSec`; init `#world`, `#world-gpu`, `#world-hl` canvases; `RenderPipeline.init(canvas, gpuCanvas, hlCanvas)`
 3. `loadSpeciesData()` + `loadBehaviorLibrary()`; `syncLabels()`, `initDraggablePanels()`, `webGpuRenderer.setup()` (async)
-4. `doGenerate(true)` → `World.generate()` → `stockLife()` → (if GPU enabled) `gpuSimulationBackend.setupForCurrentWorld()` → `ready=true`
-5. `frame()` loop: `Simulation.tick(sdt)` (CPU or GPU backend) → `RenderPipeline.render()` → `UI.updateUI()` (5 Hz)
+4. `doGenerate(true)` → `World.generate()` → `stockLife()` → `timelineDb.initTimelineDb()` → (if GPU enabled) `gpuSimulationBackend.setupForCurrentWorld()` → `ready=true`
+5. `frame()` loop: `Simulation.tick(sdt)` (CPU or GPU backend, skipped while scrubbing past) → `creatures.advanceDisplayPositions()` → `RenderPipeline.render()` → `UI.updateUI()` (5 Hz)
 
 ---
 
 ## Known Gaps / Gotchas
 
 - **Toolbar DOM missing** — tool system wired but no visible toolbar buttons (CSS `#toolbar` only)
+- **Migrants UI missing** — `autoMigrationEnabled` defaults off; no gen-panel toggle yet (batch runner has checkbox)
 - **`fish` shape** referenced in `findSpawnTile` but no fish species defined
 - **Selected dead creature** kept in array for inspector; not counted in pop
 - **GPU readback cadence** — creature/world readback is throttled to reduce stalls; inspector/graph values can lag by a fraction of a second
 - **Selected creature readback** — selected/followed creature receives a faster single-slot readback cadence for smoother inspector bars/camera tracking
 - **Pedigree/target lines under GPU** — behavior-target and pedigree lines draw on `#world`; may be obscured by WebGPU circles at default zoom
 - **Large pop → circles** — WebGPU circle LOD + quality tier reduction is intentional; zoom in + tier 0 for full sprites
-- **ES modules require HTTP** — use `python -m http.server 8765`; opening the HTML file directly will fail module loads
+- **ES modules require HTTP** — use `python serve.py` (preferred) or `python -m http.server 8765`; opening the HTML file directly will fail module loads
+- **Time scrub earliest bound** — slider min follows earliest IndexedDB snapshot; very early sim time may be unreachable until first snapshot writes
 - **Git:** html + js/ tracked; no package.json
 
 ---
@@ -591,13 +676,16 @@ Headless balance/ecology testing without render or timeline overhead.
 
 | Item | Value |
 |------|-------|
-| UI | [`batch-test.html`](batch-test.html) |
+| UI | [`batch-test.html`](batch-test.html) — resizable sidebar, balance overrides panel, campaign/history detail views |
 | Entry | [`js/batch/app.js`](js/batch/app.js) |
-| Harness | [`js/batch/harness.js`](js/batch/harness.js) — CPU sim fast-forward |
+| Harness | [`js/batch/harness.js`](js/batch/harness.js) — CPU/GPU sim fast-forward |
+| GPU setup | [`js/batch/gpu-setup.js`](js/batch/gpu-setup.js) |
+| Form persistence | [`js/batch/form-storage.js`](js/batch/form-storage.js) — localStorage for batch form fields |
 | Reports | IndexedDB `ecosim_batch_reports` + `reports/*.json` via `serve.py` API |
-| CLI | [`scripts/run_batch.py`](scripts/run_batch.py) — Playwright headless driver with Rich live progress (`--sim gpu`, `--fuzz-profile fast-gpu`) |
+| CLI | [`scripts/run_batch.py`](scripts/run_batch.py) — Playwright headless driver with Rich live progress (`--sim gpu`, `--fuzz-profile fast-gpu`, `--auto-migration`) |
+| GPU CLI | [`scripts/run_batch_gpu.py`](scripts/run_batch_gpu.py) — GPU-focused wrapper |
 
-**URL params:** `seed`, `size`, `days`, `sampleEvery`, `animals`, `sim` (`cpu`|`gpu`), `runs`, `autostart`, `balance` (base64url JSON overrides), `fuzz`, `fuzzTrials`, `fuzzSeed`, `fuzzIntensity`, `fuzzScope`, `fuzzProfile` (`fast`, `fast-gpu`, `deep`, `deep-gpu`).
+**URL params:** `seed`, `size`, `days`, `sampleEvery`, `animals`, `sim` (`cpu`|`gpu`), `runs`, `autostart`, `autoMigration`, `balance` (base64url JSON overrides), `fuzz`, `fuzzTrials`, `fuzzSeed`, `fuzzIntensity`, `fuzzScope`, `fuzzProfile` (`fast`, `fast-gpu`, `deep`, `deep-gpu`).
 
 **GPU batch:** [`js/batch/gpu-setup.js`](js/batch/gpu-setup.js) initializes WebGPU on a hidden canvas, runs the compute sim via [`GpuSimulationBackend`](js/gpu/simulation-backend.js), and syncs creature state with `forceCreatureReadback()` before metrics samples. Fuzz profiles ending in `-gpu` select the GPU backend automatically. Headless Playwright may lack WebGPU — use `--headed` or run from `batch-test.html` in a normal browser.
 
@@ -620,4 +708,4 @@ Sections to revise:
 - New UI panels or tools → UI & Input
 - Perf/render pipeline changes → Rendering
 
-*Last synced with codebase: 2026-07-03 (batch test runner, perf stabilization)*
+*Last synced with codebase: 2026-07-05 (time scrub, GOD menu, perf policy, batch UI expansion, migrants default off)*

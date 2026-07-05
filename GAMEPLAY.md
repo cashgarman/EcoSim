@@ -2,7 +2,7 @@
 
 > **Status:** Sandbox is playable today; Challenge mode / Essence / scenarios below are **design intent**, not yet implemented.  
 > **Companion docs:** `AGENTS.md` (simulation architecture), [`data/species.json`](data/species.json) (species stats, gestation, genes).  
-> **Last updated:** 2026-07-02
+> **Last updated:** 2026-07-05
 
 ---
 
@@ -14,10 +14,10 @@ The live build is **Creative mode** — unlimited observation and intervention, 
 
 ```powershell
 cd I:\EcoSim
-python -m http.server 8765
+python serve.py
 ```
 
-Open **http://127.0.0.1:8765/wildlands-ecosim.html** (append `?v=1` to bust browser cache after edits).
+Open **http://127.0.0.1:8765/wildlands-ecosim.html** (`serve.py` sets no-cache headers for ES modules; plain `python -m http.server 8765` also works). Batch reports API: `GET/POST /api/batch-reports`.
 
 ### Player verbs today
 
@@ -25,10 +25,14 @@ Open **http://127.0.0.1:8765/wildlands-ecosim.html** (append `?v=1` to bust brow
 |------|-----|
 | Generate worlds | Seed, size presets, sea/temp/moist/relief/animals sliders → **Generate** |
 | Restock | Re-seed populations on current map |
-| Observe | Pop graph, species rows, inspector, event log |
+| Observe | Pop graph, species rows, inspector, World Story, Timeline DB |
 | Inspect creature | Default tool; click on map |
+| Read life story | Inspector **Life Story** tab — debounced decisions + milestones |
 | Follow lineage | Select creature → **Follow** button, **F**, or double-click |
 | Highlight species | Hover or click species row in Ecosystem panel |
+| GOD action | Right-click species row → **Kill All** (logs to World Story; forks timeline if scrubbing past) |
+| Scrub timeline | Top-bar slider — drag to rewind; **Present** returns to live sim |
+| Pause / resume | **Spacebar** toggles speed 0↔last speed (scrub play indicator in slider track) |
 | Read terrain | Bottom-right biome tooltip under cursor |
 | Read behavior | Creature tooltip above sprite (or pinned while following) |
 | Speed up time | Top-bar slider 0–10× |
@@ -40,7 +44,10 @@ Open **http://127.0.0.1:8765/wildlands-ecosim.html** (append `?v=1` to bust brow
 - **Creature tooltip** — species dot + behavior label (`Wandering`, `Hunting`, etc.); follows selected animal in follow mode
 - **Species highlights** — blue glow on graph hover, gold glow on row click-lock; kept visible at low quality when panel focus or selection is active
 - **Selection lines** — solid behavior-target line (color by state) + dashed pedigree links to parents (gold) and offspring (blue)
-- **Ecosystem panel** — minimize / maximize; expanded graph shows hover sample tooltip
+- **Ecosystem panel** — minimize / maximize; expanded graph shows hover sample tooltip; right-click row opens species GOD menu
+- **World Story** — collapsible feed of births, deaths, GOD commands, and other world events (clickable creature links)
+- **Timeline DB** — collapsible IndexedDB browser for world/creature events, heartbeats, and meta for the active run
+- **Time scrub** — top-bar slider with snapshot tick marks; restores veg + creatures from IndexedDB snapshots; mutating tools while in the past fork the timeline
 - **Infinite ocean** — off-map deep water around the landmass
 - **Camera** — pan (right/middle drag), wheel zoom, clamped to land bounds; follow centers on selection
 
@@ -48,7 +55,8 @@ Open **http://127.0.0.1:8765/wildlands-ecosim.html** (append `?v=1` to bust brow
 
 - **GPU path** (default when WebGPU available): CPU behavior-tree decisions each tick, then GPU A* nav + needs/actions/movement on compute shaders; throttled readback for inspector/graph
 - **CPU fallback**: full `stepCreature` loop (BT + A* + actions) if GPU init fails or adapter limits are exceeded
-- **Migrants** on — built-in extinction recovery (see Difficulty & Migrants)
+- **High-speed perf policy** (`js/perf-policy.js`): snapshot/heartbeat intervals, GPU readback cadence, and non-milestone timeline writes scale with sim speed to reduce stalls at 5–10×
+- **Migrants off by default** — automatic extinction recovery is gated by `state.autoMigrationEnabled` (default `false`); see Difficulty & Migrants. Batch runner and CLI expose an opt-in **Auto migration** checkbox/flag.
 
 ### Tools (wired, toolbar DOM missing)
 
@@ -98,7 +106,7 @@ Emotional hooks:
 | Worldgen | Full access to seed, size, sea/temp/moist/relief/animals sliders |
 | Tools | Free, unlimited in code; toolbar UI not exposed yet (inspect only from UI) |
 | Restock | Available anytime |
-| Migrants | On (sim's built-in recovery) |
+| Migrants | Off by default (`autoMigrationEnabled`); no UI toggle in gen panel yet — enable in code or via batch runner |
 | Objectives | None |
 | Speed | 0–10× |
 | Sim backend | GPU compute when WebGPU available; CPU fallback |
@@ -142,7 +150,7 @@ flowchart LR
 ```
 
 1. **Setup** — Load scenario: world cfg, starting populations, objective list, Essence budget, tool unlocks.
-2. **Observe** — Pop graph (min/max), species row hover/lock, inspector, terrain tooltip, creature behavior tooltip (hover or follow), event log, F2 perf HUD.
+2. **Observe** — Pop graph (min/max), species row hover/lock/GOD menu, inspector (Stats + Life Story), terrain tooltip, creature behavior tooltip (hover or follow), World Story, Timeline DB, time scrub slider, F2 perf HUD.
 3. **Intervene** — Select tool, click map; Essence deducted if allowed.
 4. **Simulate** — Day/night, AI, veg growth, optional scheduled events.
 5. **Judge** — End-of-day (or continuous) objective evaluation.
@@ -284,15 +292,15 @@ Event announcements use existing log pipeline in `js/ui.js` / `creatures.log()`.
 
 ## Difficulty & Migrants
 
-The sim already re-seeds extinct species via `Simulation.tick()` migrant logic (`js/simulation.js`). For a game, this must be a **difficulty knob**, not a hidden crutch.
+The sim can re-seed extinct species via `Simulation.tick()` migrant logic (`js/simulation.js`), gated by `state.autoMigrationEnabled` (sandbox default **off**) or `batchConfig.autoMigration` in the batch runner. For Challenge mode, this must be a **difficulty knob**, not a hidden crutch.
 
 | Setting | Migrants | Essence regen | Event severity |
 |---------|----------|---------------|----------------|
-| Easy | On (default) | ×1.25 | ×0.75 |
+| Easy | On | ×1.25 | ×0.75 |
 | Normal | Delayed (first after day 20) | ×1.0 | ×1.0 |
-| Hard | Off | ×0.85 | ×1.25 |
+| Hard | Off (sandbox default today) | ×0.85 | ×1.25 |
 
-When migrants are off, extinction is a fail unless the scenario allows local loss (e.g. "hawks optional").
+When migrants are off, extinction is a fail unless the scenario allows local loss (e.g. "hawks optional"). Manual **Restock** and spawn tools remain available in Creative mode.
 
 ---
 
@@ -331,11 +339,12 @@ Display as a small meter in Challenge mode (new UI element).
 | Element | Placement | Purpose |
 |---------|-----------|---------|
 | World Generator | `#genpanel` | Seed, size, sliders, Generate, Restock |
-| Ecosystem stats | `#stats` | Pop graph (min/max modes), species rows, hover/lock highlights |
-| Inspector | `#inspect` | Selected creature stats/genes |
-| Top bar | `#topbar` | Day/night, pop, gen, veg %, speed, Follow |
+| Ecosystem stats | `#stats` | Pop graph (min/max modes), species rows, hover/lock/GOD menu |
+| Inspector | `#inspect` | Stats + **Life Story** tabs for selected creature |
+| Species GOD menu | `#species-row-menu` | Right-click species row → Kill All |
+| Top bar | `#topbar` | Day/night, pop, gen, veg %, speed, Follow, **timeline scrub** slider + Present |
 | Terrain / creature tips | overlay | Biome + behavior readouts |
-| World Story | `#worldstory` | Collapsible timeline of births, deaths, and clickable world events |
+| World Story | `#worldstory` | Collapsible timeline of births, deaths, GOD commands, clickable world events |
 | Timeline DB | `#timelinedb` | Collapsible browser for current-run timeline tables (world, creature, heartbeat, meta) |
 | Perf HUD | `#perfhud` | F2 — backend, frame ms, quality tier, GPU sim stats |
 
@@ -415,7 +424,13 @@ Phased delivery on top of the existing module layout.
 | Pop graph, species hover/lock highlights, inspector | Done |
 | Pedigree + behavior-target lines | Done |
 | Ecosystem panel min/max + graph tooltip | Done |
-| Migrant recovery, genetics, day/night | Done |
+| Migrant recovery (opt-in), genetics, day/night | Done |
+| IndexedDB timeline + time scrub slider | Done |
+| World Story panel + Life Story inspector tab | Done |
+| Species GOD menu (Kill All) | Done |
+| Spacebar pause + GPU display extrapolation on resume | Done |
+| High-speed perf policy (snapshot/readback/timeline pressure) | Done |
+| Batch ecology test runner (CPU/GPU, fuzz, balance UI) | Done |
 
 ### Phase 0 — Foundation (MVP "it's a game")
 
@@ -496,7 +511,7 @@ Each species in [`data/species.json`](data/species.json) references its file wit
 
 Update this file when:
 
-- Sandbox UX or controls change (tooltips, follow, graph, panels)
+- Sandbox UX or controls change (tooltips, follow, graph, panels, scrub, GOD menu, pause)
 - Objectives, costs, or scenario schema change
 - New game modes ship
 - Migrants / difficulty rules change
@@ -504,4 +519,4 @@ Update this file when:
 
 Keep `AGENTS.md` focused on sim architecture; keep `GAMEPLAY.md` focused on player-facing rules and content.
 
-*Sandbox synced with codebase: 2026-07-02. Challenge-mode numbers remain preliminary until playtests.*
+*Sandbox synced with codebase: 2026-07-05. Challenge-mode numbers remain preliminary until playtests.*
