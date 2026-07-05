@@ -691,9 +691,11 @@ Headless balance/ecology testing without render or timeline overhead.
 
 **Report fields:** `config`, `balanceConfig` (overrides + effective species/behavior snapshot), `outcome`, `score`, `summary`, `samples`.
 
-**Fuzz campaigns:** random perturbations of species stats + behavior thresholds/actions; fast profile uses size `s`, 80 days, sparse samples. Campaign summary at `window.__FUZZ_CAMPAIGN_COMPLETE__`.
+**Fuzz campaigns:** random perturbations of species stats + behavior thresholds/actions; fast profile uses size `s`, 80 days, sparse samples. Campaign summary at `window.__FUZZ_CAMPAIGN_COMPLETE__`. Each trial gets a `balanceScore` (stability score + bonuses for species survival, pop band, veg health, pop stability). Campaign reports include `recommendations` from [`js/batch/balance-recommendations.js`](js/batch/balance-recommendations.js): human-readable tweak list + override buckets from the best trial vs `baselineBalanceConfig`.
 
-**Balance overrides:** in-memory only via [`js/batch/balance-config.js`](js/batch/balance-config.js); hooks in [`js/data.js`](js/data.js) (`applySpeciesOverrides`) and [`js/behavior/loader.js`](js/behavior/loader.js) (`setBehaviorOverrides`, `recompileAllBehaviors`).
+**Recommendations workflow:** fuzz completes → campaign panel shows **Recommended balance tweaks** card (confidence, summary, grouped tweak bullets) → **Apply recommended config** writes overrides to balance panel + `localStorage` (`ecosim-batch-balance`) → **Apply & validate** runs a single confirmation batch. Per-trial expanded rows show tweaks vs baseline. Rankings sort by `balanceScore` then stability `score`.
+
+**Balance overrides:** in-memory via [`js/batch/balance-config.js`](js/batch/balance-config.js); hooks in [`js/data.js`](js/data.js) (`applySpeciesOverrides`) and [`js/behavior/loader.js`](js/behavior/loader.js) (`setBehaviorOverrides`, `recompileAllBehaviors`). Persisted in `localStorage` key `ecosim-batch-balance`. **Sandbox:** [`js/app.js`](js/app.js) loads `?balance=` URL param or localStorage on boot and before each `doGenerate()`; gen panel shows **Balance tuning active** banner with reset ([`js/ui.js`](js/ui.js)).
 
 ---
 
@@ -708,4 +710,4 @@ Sections to revise:
 - New UI panels or tools → UI & Input
 - Perf/render pipeline changes → Rendering
 
-*Last synced with codebase: 2026-07-05 (time scrub, GOD menu, perf policy, batch UI expansion, migrants default off)*
+*Last synced with codebase: 2026-07-05 (fuzz balance recommendations, sandbox override boot)*

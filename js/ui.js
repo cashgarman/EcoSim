@@ -15,6 +15,12 @@ import {
   formatMatedEvent,
   eventFocusIds,
 } from './creature-notify.js';
+import {
+  applyBalanceOverrides,
+  emptyBalanceOverrides,
+  hasActiveOverrides,
+  saveBalanceToStorage,
+} from './batch/balance-config.js';
 
 function getGameUiScale()
 {
@@ -1004,6 +1010,38 @@ export class UI
       state.SEED = (Math.random() * 1e9) >>> 0;
       this.syncLabels();
     });
+  }
+
+  initBalanceTuningControls()
+  {
+    const resetBtn = $('balance-tuning-reset');
+    if (!resetBtn) return;
+    resetBtn.addEventListener('click', () =>
+    {
+      const empty = emptyBalanceOverrides();
+      applyBalanceOverrides(empty);
+      saveBalanceToStorage(empty);
+      this.updateBalanceTuningBanner(empty);
+      this.log('Balance tuning reset to defaults. Regenerate the world to apply.');
+    });
+  }
+
+  updateBalanceTuningBanner(overrides)
+  {
+    const banner = $('balance-tuning-banner');
+    const label = $('balance-tuning-label');
+    if (!banner || !label) return;
+    const active = hasActiveOverrides(overrides);
+    banner.classList.toggle('hidden', !active);
+    if (!active) return;
+    const nSp = Object.keys(overrides.speciesOverrides || {}).length;
+    const nLib = hasActiveOverrides({
+      speciesOverrides: {},
+      behaviorLibraryOverrides: overrides.behaviorLibraryOverrides || {},
+      behaviorSpeciesOverrides: {},
+    }) ? 1 : 0;
+    const nBehSp = Object.keys(overrides.behaviorSpeciesOverrides || {}).length;
+    label.textContent = `Balance tuning active — ${nSp} species${nLib ? ', global behavior' : ''}${nBehSp ? `, ${nBehSp} species behavior` : ''}`;
   }
 
   initDraggablePanels()

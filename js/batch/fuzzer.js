@@ -7,6 +7,7 @@ import {
 import { getBaseSpeciesData } from '../data.js';
 import { clamp, setRngSeed, rng } from '../utils.js';
 import { mergeOverrides, emptyBalanceOverrides } from './balance-config.js';
+import { computeBalanceScore, buildCampaignRecommendations } from './balance-recommendations.js';
 
 function gauss()
 {
@@ -123,12 +124,22 @@ export function buildCampaignSummary(trials, options = {})
     histogram[t.outcome] = (histogram[t.outcome] || 0) + 1;
   }
 
-  const ranked = [...trials]
-    .sort((a, b) => (b.score || 0) - (a.score || 0) || (b.summary?.finalPop || 0) - (a.summary?.finalPop || 0))
+  const scoredTrials = trials.map(t => ({
+    ...t,
+    balanceScore: t.balanceScore ?? computeBalanceScore(t),
+  }));
+
+  const ranked = [...scoredTrials]
+    .sort((a, b) =>
+      (b.balanceScore || 0) - (a.balanceScore || 0) ||
+      (b.score || 0) - (a.score || 0) ||
+      (b.summary?.finalPop || 0) - (a.summary?.finalPop || 0),
+    )
     .slice(0, options.topN ?? trials.length)
     .map(t => ({
       runId: t.runId,
       score: t.score,
+      balanceScore: t.balanceScore,
       outcome: t.outcome,
       finalPop: t.summary?.finalPop ?? 0,
       generationMax: t.summary?.generationMax ?? 0,
@@ -148,7 +159,7 @@ export function buildCampaignSummary(trials, options = {})
   const wallMsTotal = trials.reduce((a, t) => a + (t.wallMs || 0), 0);
   const trialsPerMinute = wallMsTotal > 0 ? (trials.length / (wallMsTotal / 60000)) : 0;
 
-  return {
+  const campaign = {
     campaignId: options.campaignId || `fuzz-${Date.now()}`,
     fuzzSeed: options.fuzzSeed,
     fuzzTrials: trials.length,
@@ -161,7 +172,11 @@ export function buildCampaignSummary(trials, options = {})
     ranked,
     histogram,
     trials: trials.map(t => t.runId),
+    trialsFull: scoredTrials,
   };
+
+  campaign.recommendations = buildCampaignRecommendations(campaign);
+  return campaign;
 }
 
 export function createFuzzRng(seed)

@@ -5,7 +5,7 @@ import { BalanceUi } from './balance-ui.js';
 import { batchReportStore } from './report-store.js';
 import { mergeStoredParams, saveStoredFormConfig } from './form-storage.js';
 import { buildHistoryDetailElement } from './history-detail.js';
-import { buildCampaignDetailElement } from './campaign-detail.js';
+import { buildCampaignDetailElement, buildCampaignRecommendationsElement } from './campaign-detail.js';
 import { initPanelResize } from './panel-resize.js';
 
 class BatchTestApp
@@ -276,6 +276,45 @@ class BatchTestApp
     });
   }
 
+  applyRecommendedConfig(recommendations)
+  {
+    if (!recommendations?.overrides) return;
+    this.balanceUi.setOverrides(recommendations.overrides);
+    this.setStatus('Recommended balance config applied to tuning panel.', true);
+  }
+
+  async applyRecommendedAndValidate(recommendations)
+  {
+    this.applyRecommendedConfig(recommendations);
+    const sim = document.getElementById('sim-config');
+    if (sim?.fuzz) sim.fuzz.checked = false;
+    const params = this.readParamsFromForm();
+    params.fuzz = false;
+    params.runs = 1;
+    if (params.fuzzProfile?.includes('deep') || params.days < 120)
+    {
+      params.days = Math.max(params.days, 120);
+      if (sim?.days) sim.days.value = String(params.days);
+    }
+    document.getElementById('run-btn').disabled = true;
+    this.setStatus('Validating recommended config…');
+    try
+    {
+      await this.runner.start(params);
+      this.setStatus('Validation run complete.', true);
+    }
+    catch (err)
+    {
+      console.error(err);
+      this.setStatus(`Validation error: ${err.message}`, true);
+    }
+    finally
+    {
+      document.getElementById('run-btn').disabled = false;
+      await this.refreshHistory();
+    }
+  }
+
   renderHistoryTable()
   {
     this.updateHistorySortHeaders();
@@ -519,6 +558,7 @@ class BatchTestApp
     switch (key)
     {
       case 'score': return row.score ?? 0;
+      case 'balance': return row.balanceScore ?? 0;
       case 'outcome': return row.outcome || '';
       case 'pop': return row.finalPop ?? 0;
       case 'gen': return row.generationMax ?? 0;
@@ -594,6 +634,14 @@ class BatchTestApp
     histLine.textContent = `stable ${hist.stable ?? 0} · partial ${hist.partial_collapse ?? 0} · extinct ${hist.total_extinction ?? 0} · timeout ${hist.timeout ?? 0}`;
     el.appendChild(histLine);
 
+    if (campaign.recommendations)
+    {
+      el.appendChild(buildCampaignRecommendationsElement(campaign.recommendations, {
+        onApply: rec => this.applyRecommendedConfig(rec),
+        onApplyAndValidate: rec => this.applyRecommendedAndValidate(rec),
+      }));
+    }
+
     const wrap = document.createElement('div');
     wrap.className = 'batch-table-wrap campaign-table-wrap';
     const table = document.createElement('table');
@@ -601,6 +649,7 @@ class BatchTestApp
     table.innerHTML = `<thead><tr>
       <th aria-label="Expand"></th>
       <th><button type="button" class="sort-header" data-sort="score">Score <span class="sort-indicator"></span></button></th>
+      <th><button type="button" class="sort-header" data-sort="balance">Balance <span class="sort-indicator"></span></button></th>
       <th><button type="button" class="sort-header" data-sort="outcome">Outcome <span class="sort-indicator"></span></button></th>
       <th><button type="button" class="sort-header" data-sort="pop">Pop <span class="sort-indicator"></span></button></th>
       <th><button type="button" class="sort-header" data-sort="gen">Gen <span class="sort-indicator"></span></button></th>
@@ -635,6 +684,7 @@ class BatchTestApp
 
       const cells = [
         row.score?.toFixed(2) ?? '0.00',
+        row.balanceScore != null ? row.balanceScore.toFixed(2) : '—',
         row.outcome,
         row.finalPop,
         row.generationMax,
@@ -678,8 +728,10 @@ class BatchTestApp
         const detailTr = document.createElement('tr');
         detailTr.className = 'campaign-detail-row';
         const detailTd = document.createElement('td');
-        detailTd.colSpan = 6;
-        detailTd.appendChild(buildCampaignDetailElement(row));
+        detailTd.colSpan = 7;
+        detailTd.appendChild(buildCampaignDetailElement(row, {
+          baselineBalanceConfig: campaign.baselineBalanceConfig,
+        }));
         detailTr.appendChild(detailTd);
         tbody.appendChild(detailTr);
       }

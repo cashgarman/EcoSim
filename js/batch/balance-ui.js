@@ -16,6 +16,7 @@ import {
   saveBalanceToStorage,
   loadBalanceFromStorage,
   encodeBalanceParam,
+  hasActiveOverrides,
 } from './balance-config.js';
 
 export class BalanceUi
@@ -62,16 +63,64 @@ export class BalanceUi
     this.emitChange();
   }
 
-  isChanged(path)
+  isChanged(category, sp, key, subKey = null)
   {
-    // simplified: any override key present
+    if (category === 'libThreshold')
+    {
+      return this.overrides.behaviorLibraryOverrides?.thresholds?.[key] !== undefined;
+    }
+    if (category === 'libAction')
+    {
+      return this.overrides.behaviorLibraryOverrides?.actions?.[key]?.speedMult !== undefined;
+    }
+    if (category === 'speciesGene')
+    {
+      return this.overrides.speciesOverrides?.[sp]?.base?.[key] !== undefined;
+    }
+    if (category === 'speciesField')
+    {
+      return this.overrides.speciesOverrides?.[sp]?.[key] !== undefined;
+    }
+    if (category === 'speciesBehThreshold')
+    {
+      return this.overrides.behaviorSpeciesOverrides?.[sp]?.thresholds?.[key] !== undefined;
+    }
+    if (category === 'speciesBehAction')
+    {
+      return this.overrides.behaviorSpeciesOverrides?.[sp]?.actions?.[key]?.speedMult !== undefined;
+    }
     return false;
+  }
+
+  _valueChanged(cur, defaultVal)
+  {
+    if (Array.isArray(cur) && Array.isArray(defaultVal))
+    {
+      return Math.abs(cur[0] - defaultVal[0]) > 0.001 || Math.abs(cur[1] - defaultVal[1]) > 0.001;
+    }
+    return Math.abs(cur - defaultVal) > 0.001;
+  }
+
+  _defaultSpecies(sp)
+  {
+    return this.defaults.species?.[sp] || SPECIES[sp];
   }
 
   render()
   {
     if (!this.root) return;
     this.root.innerHTML = '';
+
+    if (hasActiveOverrides(this.overrides))
+    {
+      const banner = document.createElement('p');
+      banner.className = 'balance-active-banner';
+      const nSp = Object.keys(this.overrides.speciesOverrides || {}).length;
+      const nLib = Object.keys(this.overrides.behaviorLibraryOverrides || {}).length ? 1 : 0;
+      const nBehSp = Object.keys(this.overrides.behaviorSpeciesOverrides || {}).length;
+      banner.textContent = `Active tuning profile — ${nSp} species, ${nLib ? 'global behavior, ' : ''}${nBehSp} behavior overrides`;
+      this.root.appendChild(banner);
+    }
 
     const globalSec = document.createElement('details');
     globalSec.innerHTML = '<summary>Global Behavior Thresholds</summary>';
@@ -82,11 +131,13 @@ export class BalanceUi
     {
       for (const key of getBehaviorThresholdKeys())
       {
+        const baseVal = lib.thresholds[key];
+        const cur = this.overrides.behaviorLibraryOverrides?.thresholds?.[key] ?? baseVal;
         globalBody.appendChild(this._numberRow(
           `lib-th-${key}`,
           key,
-          this.overrides.behaviorLibraryOverrides?.thresholds?.[key] ?? lib.thresholds[key],
-          lib.thresholds[key],
+          cur,
+          baseVal,
           5,
           95,
           val =>
@@ -98,6 +149,7 @@ export class BalanceUi
             this.overrides.behaviorLibraryOverrides.thresholds[key] = val;
             this.emitChange();
           },
+          this.isChanged('libThreshold', null, key) || this._valueChanged(cur, baseVal),
         ));
       }
     }
@@ -111,10 +163,11 @@ export class BalanceUi
     for (const key of getBehaviorActionKeys())
     {
       const baseVal = lib?.actions?.[key]?.speedMult ?? 1;
+      const cur = this.overrides.behaviorLibraryOverrides?.actions?.[key]?.speedMult ?? baseVal;
       actionsBody.appendChild(this._numberRow(
         `lib-act-${key}`,
         key,
-        this.overrides.behaviorLibraryOverrides?.actions?.[key]?.speedMult ?? baseVal,
+        cur,
         baseVal,
         0.3,
         2,
@@ -125,6 +178,7 @@ export class BalanceUi
           this.overrides.behaviorLibraryOverrides.actions[key].speedMult = val;
           this.emitChange();
         },
+        this.isChanged('libAction', null, key) || this._valueChanged(cur, baseVal),
       ));
     }
     actionsSec.appendChild(actionsBody);
@@ -138,13 +192,14 @@ export class BalanceUi
       const det = document.createElement('details');
       const S = SPECIES[sp];
       det.innerHTML = `<summary>${S.emoji} ${S.label}</summary>`;
+      const defSp = this._defaultSpecies(sp);
       const body = document.createElement('div');
       body.className = 'balance-grid balance-grid-species';
       for (const gene of GENE_KEYS)
       {
         if (gene === 'hue') continue;
         const range = GENE_RANGE[gene];
-        const baseVal = S.base[gene];
+        const baseVal = defSp.base[gene];
         const cur = this.overrides.speciesOverrides?.[sp]?.base?.[gene] ?? baseVal;
         body.appendChild(this._numberRow(
           `${sp}-${gene}`,
@@ -160,15 +215,16 @@ export class BalanceUi
             this.overrides.speciesOverrides[sp].base[gene] = val;
             this.emitChange();
           },
+          this.isChanged('speciesGene', sp, gene) || this._valueChanged(cur, baseVal),
         ));
       }
-      body.appendChild(this._rangeRow(`${sp}-gest`, 'gestationSec', sp, 'gestationSec', S.gestationSec, 1, 12));
-      body.appendChild(this._rangeRow(`${sp}-mate`, 'mateCooldownSec', sp, 'mateCooldownSec', S.mateCooldownSec, 1, 15));
+      body.appendChild(this._rangeRow(`${sp}-gest`, 'gestationSec', sp, 'gestationSec', defSp.gestationSec, 1, 12));
+      body.appendChild(this._rangeRow(`${sp}-mate`, 'mateCooldownSec', sp, 'mateCooldownSec', defSp.mateCooldownSec, 1, 15));
       body.appendChild(this._numberRow(
         `${sp}-stock`,
         'stockWeight',
-        this.overrides.speciesOverrides?.[sp]?.stockWeight ?? S.stockWeight,
-        S.stockWeight,
+        this.overrides.speciesOverrides?.[sp]?.stockWeight ?? defSp.stockWeight,
+        defSp.stockWeight,
         0.01,
         0.6,
         val =>
@@ -177,6 +233,8 @@ export class BalanceUi
           this.overrides.speciesOverrides[sp].stockWeight = val;
           this.emitChange();
         },
+        this.isChanged('speciesField', sp, 'stockWeight') ||
+          this._valueChanged(this.overrides.speciesOverrides?.[sp]?.stockWeight ?? defSp.stockWeight, defSp.stockWeight),
       ));
       det.appendChild(body);
       speciesSec.appendChild(det);
@@ -196,10 +254,11 @@ export class BalanceUi
         const resolved = SPECIES[sp]?.behaviorConfig?.thresholds?.[key];
         const cur = this.overrides.behaviorSpeciesOverrides?.[sp]?.thresholds?.[key];
         if (resolved == null && cur == null) continue;
+        const display = cur ?? resolved;
         body.appendChild(this._numberRow(
           `${sp}-bth-${key}`,
           key,
-          cur ?? resolved,
+          display,
           resolved,
           5,
           95,
@@ -210,16 +269,18 @@ export class BalanceUi
             this.overrides.behaviorSpeciesOverrides[sp].thresholds[key] = val;
             this.emitChange();
           },
+          this.isChanged('speciesBehThreshold', sp, key) || this._valueChanged(display, resolved),
         ));
       }
       for (const key of getBehaviorActionKeys())
       {
         const resolved = SPECIES[sp]?.behaviorConfig?.actions?.[key]?.speedMult;
         const cur = this.overrides.behaviorSpeciesOverrides?.[sp]?.actions?.[key]?.speedMult;
+        const display = cur ?? resolved;
         body.appendChild(this._numberRow(
           `${sp}-bact-${key}`,
           `${key} speedMult`,
-          cur ?? resolved,
+          display,
           resolved,
           0.3,
           2,
@@ -231,6 +292,7 @@ export class BalanceUi
             this.overrides.behaviorSpeciesOverrides[sp].actions[key].speedMult = val;
             this.emitChange();
           },
+          this.isChanged('speciesBehAction', sp, key) || this._valueChanged(display, resolved),
         ));
       }
       det.appendChild(body);
@@ -258,11 +320,11 @@ export class BalanceUi
     this.root.appendChild(tools);
   }
 
-  _numberRow(id, label, value, defaultVal, min, max, onInput)
+  _numberRow(id, label, value, defaultVal, min, max, onInput, changed = null)
   {
     const cell = document.createElement('div');
     cell.className = 'balance-cell';
-    if (Math.abs(value - defaultVal) > 0.001) cell.classList.add('changed');
+    if (changed == null ? this._valueChanged(value, defaultVal) : changed) cell.classList.add('changed');
     const lab = document.createElement('span');
     lab.className = 'balance-cell-label';
     lab.textContent = label;
@@ -289,7 +351,7 @@ export class BalanceUi
     const cell = document.createElement('div');
     cell.className = 'balance-cell balance-range-cell';
     const cur = this.overrides.speciesOverrides?.[sp]?.[field] ?? baseRange;
-    if (Math.abs(cur[0] - baseRange[0]) > 0.001 || Math.abs(cur[1] - baseRange[1]) > 0.001)
+    if (this.isChanged('speciesField', sp, field) || this._valueChanged(cur, baseRange))
     {
       cell.classList.add('changed');
     }

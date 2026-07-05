@@ -110,6 +110,13 @@
   .sizerow .btn{flex:1;padding:6px 2px;}
   .genbtns{display:flex;gap:6px;margin-top:6px;}
   .genbtns .btn{flex:1;}
+  .balance-tuning-banner{
+    display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:8px;padding:6px 8px;
+    border:1px solid var(--gold);border-radius:4px;background:rgba(216,194,58,.08);font-size:calc(6px * var(--text-scale));
+  }
+  .balance-tuning-banner.hidden{display:none;}
+  #balance-tuning-label{flex:1;color:var(--gold);line-height:1.4;}
+  #balance-tuning-reset{font-size:calc(6px * var(--text-scale));padding:4px 6px;}
 
   /* stats panel */
   #stats{position:absolute;top:92px;right:10px;width:250px;max-height:calc(100% - 150px);overflow-y:auto;
@@ -386,6 +393,10 @@
   <div class="field"><label>Moisture <b id="v-moist">Balanced</b></label><input type="range" id="r-moist" min="0" max="100" value="50"></div>
   <div class="field"><label>Terrain relief <b id="v-relief">Medium</b></label><input type="range" id="r-relief" min="20" max="100" value="60"></div>
   <div class="field"><label>Starting animals <b id="v-anim">Normal</b></label><input type="range" id="r-anim" min="0" max="100" value="45"></div>
+  <div id="balance-tuning-banner" class="balance-tuning-banner hidden">
+    <span id="balance-tuning-label">Balance tuning active</span>
+    <button class="btn" id="balance-tuning-reset" type="button">Reset tuning</button>
+  </div>
   <div class="genbtns">
     <button class="btn gold" id="generate">⟳ Generate World</button>
   </div>

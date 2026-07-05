@@ -86,6 +86,30 @@ export function applyBalanceOverrides(overrides = emptyBalanceOverrides())
   }
 }
 
+export function hasActiveOverrides(overrides = emptyBalanceOverrides())
+{
+  const hasKeys = obj =>
+  {
+    if (!obj || typeof obj !== 'object') return false;
+    for (const k of Object.keys(obj))
+    {
+      const v = obj[k];
+      if (v && typeof v === 'object' && !Array.isArray(v))
+      {
+        if (hasKeys(v)) return true;
+      }
+      else if (v !== undefined && v !== null)
+      {
+        return true;
+      }
+    }
+    return false;
+  };
+  return hasKeys(overrides.speciesOverrides) ||
+    hasKeys(overrides.behaviorLibraryOverrides) ||
+    hasKeys(overrides.behaviorSpeciesOverrides);
+}
+
 export function saveBalanceToStorage(overrides)
 {
   try

@@ -21,6 +21,22 @@ import { timeScrub } from './time-scrub.js';
 import { captureSnapshot } from './snapshot.js';
 import { loadTimelineConfig } from './config.js';
 import { effectiveSnapshotIntervalSec } from './perf-policy.js';
+import {
+  loadBalanceFromStorage,
+  applyBalanceOverrides,
+  decodeBalanceParam,
+  hasActiveOverrides,
+  emptyBalanceOverrides,
+  saveBalanceToStorage,
+} from './batch/balance-config.js';
+
+function resolveBalanceOverrides()
+{
+  const params = new URLSearchParams(window.location.search);
+  const encoded = params.get('balance');
+  if (encoded) return decodeBalanceParam(encoded);
+  return loadBalanceFromStorage();
+}
 
 export class GameApp
 {
@@ -42,6 +58,7 @@ export class GameApp
     $('loadmsg').textContent = 'Loading species…';
     await loadSpeciesData();
     await loadBehaviorLibrary();
+    this.applyStoredBalanceOverrides();
 
     const canvas = document.getElementById('world');
     const gpuCanvas = document.getElementById('world-gpu');
@@ -65,6 +82,7 @@ export class GameApp
 
     ui.syncLabels();
     ui.initWorldgenSliders();
+    ui.initBalanceTuningControls();
     ui.initDraggablePanels();
     ui.initPanelCollapse();
     ui.initTimelineDbViewer();
@@ -167,6 +185,17 @@ export class GameApp
     requestAnimationFrame(t => this.frame(t));
   }
 
+  applyStoredBalanceOverrides()
+  {
+    const overrides = resolveBalanceOverrides();
+    if (hasActiveOverrides(overrides))
+    {
+      applyBalanceOverrides(overrides);
+    }
+    ui.updateBalanceTuningBanner(overrides);
+    return overrides;
+  }
+
   doGenerate(fresh)
   {
     state.ready = false;
@@ -192,6 +221,8 @@ export class GameApp
 
       const finishGenerate = () =>
       {
+        this.applyStoredBalanceOverrides();
+
         world.generate(() =>
         {
           terrainRenderer.bakeTerrain();

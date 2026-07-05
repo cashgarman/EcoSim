@@ -7,6 +7,7 @@ import {
   getCurrentOverrides,
 } from './balance-config.js';
 import { generateFuzzOverrides, buildCampaignSummary, createFuzzRng } from './fuzzer.js';
+import { computeBalanceScore } from './balance-recommendations.js';
 
 export function parseBatchParams(search = window.location.search)
 {
@@ -196,6 +197,7 @@ export class BatchRunner
           });
         }
       });
+      report.balanceScore = computeBalanceScore(report);
       trials.push(report);
       if (fuzzParams.saveServer) await batchReportStore.postToServer(report);
       await batchReportStore.saveReport(report);
