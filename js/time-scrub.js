@@ -337,6 +337,7 @@ export class TimeScrubController
       statsPanelMode: state.statsPanelMode,
       speed: state.speed,
       scrubActive: this.active,
+      timelineViewport: state.timelineViewportMeta,
       timestamp: Date.now(),
     };
   }

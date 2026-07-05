@@ -1,6 +1,7 @@
 import { state } from '../js/state.js';
 import { captureSnapshot, restoreSnapshot, serializeCreature, deserializeCreature, nearestSnapshotForT, reconcileSelectionAfterRestore } from '../js/snapshot.js';
 import { timeScrub } from '../js/time-scrub.js';
+import { effectiveSnapshotIntervalSec } from '../js/perf-policy.js';
 
 function approx(a, b, eps = 1e-6)
 {
@@ -214,6 +215,22 @@ export async function runTimeScrubTests()
     record('missing creature clears follow', !result.rebound && state.selected === null && !state.followSelected);
   }
   catch (e) { record('missing creature follow', false, e.message); }
+
+  // 12. snapshot interval is fixed in sim-time regardless of speed
+  try
+  {
+    const savedSpeed = state.speed;
+    const savedInterval = state.snapshotIntervalSec;
+    state.snapshotIntervalSec = 2;
+    state.speed = 1;
+    const at1x = effectiveSnapshotIntervalSec();
+    state.speed = 10;
+    const at10x = effectiveSnapshotIntervalSec();
+    state.speed = savedSpeed;
+    state.snapshotIntervalSec = savedInterval;
+    record('snapshot interval ignores speed', at1x === at10x && approx(at1x, 2));
+  }
+  catch (e) { record('snapshot interval ignores speed', false, e.message); }
 
   const summary = { total: passed + failed, passed, failed, results };
   console.log('TimeScrub test summary:', summary);

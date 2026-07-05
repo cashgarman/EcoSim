@@ -26,7 +26,8 @@ EcoSim/
 │   ├── run_batch.py        # Headless CLI driver (Playwright)
 │   └── run_batch_gpu.py    # GPU-focused batch CLI wrapper
 ├── tests/
-│   └── time-scrub.test.js  # Snapshot/scrub unit tests (console)
+│   ├── time-scrub.test.js  # Snapshot/scrub unit tests (console)
+│   └── timeline-viewport.test.js # Viewport zoom/pan unit tests (console)
 ├── js/
 │   ├── batch/              # Batch harness, metrics, fuzzer, balance UI, history/campaign detail
 │   ├── app.js              # GameApp boot + main loop
@@ -56,6 +57,8 @@ EcoSim/
 │   ├── snapshot.js         # Snapshot capture/restore + reconcileSelectionAfterRestore
 │   ├── time-scrub.js       # TimeScrubController — slider seek, baseline, fork+truncate
 │   ├── ui.js               # UI — panels, inspector, graph, World Story + Timeline DB + scrub + GOD menu
+│   ├── timeline-viewport.js # TimelineViewport zoom/pan + sim-time clock helpers
+│   ├── timeline-renderer.js # Canvas day-night strip + viewport tick layout
 │   ├── timeline-db.js      # IndexedDB timeline storage (world events, creature events, heartbeats, snapshots)
 │   ├── input.js            # InputManager — canvas/panel/keyboard input
 │   ├── tools.js            # Editor tools (spawn, rain, meteor, cull)
@@ -282,9 +285,10 @@ Prevents permanent food-web collapse when enabled.
 - `timeOfDay` cycles in 40s (`dt/40` per tick) → `day = floor(tGlobal/40)`
 - `lightLevel`, `isNight` affect movement/rest only (not sim correctness)
 
-### Time scrub & timeline (`time-scrub.js`, `snapshot.js`, `timeline-db.js`)
+### Time scrub & timeline (`time-scrub.js`, `snapshot.js`, `timeline-db.js`, `timeline-viewport.js`, `timeline-renderer.js`)
 
-- **Snapshots** — `captureSnapshot()` every `effectiveSnapshotIntervalSec()` (base from `state.snapshotIntervalSec`, overridden at boot by [`config/timeline-config.json`](config/timeline-config.json), default 1 s in JSON / 10 s in `state.js` before load); stored in IndexedDB `snapshots` store
+- **Snapshots** — `captureSnapshot()` every `effectiveSnapshotIntervalSec()` sim-seconds of `tGlobal` (equals `state.snapshotIntervalSec`, overridden at boot by [`config/timeline-config.json`](config/timeline-config.json), default 1 s in JSON / 10 s in `state.js` before load; **not** scaled by speed multiplier); stored in IndexedDB `snapshots` store without app-level count cap (browser quota applies); snapshot writes are never dropped from the timeline queue
+- **Timeline UI** — canvas day-night strip (`#top-scrub-canvas`) under tick marks; `TimelineViewport` zoom (wheel), pan (MMB/RMB drag), seek (LMB drag); hover tooltip (`#timeline-tip`) shows day, 12-hour clock, and dawn/day/dusk/night icon; double-click track resets zoom
 - **Heartbeats** — compact metrics rows every `effectiveHeartbeatIntervalSec()` (scales at speed ≥4×)
 - **Scrub controller** — `TimeScrubController.seekTo()` restores nearest snapshot ≤ target; `goToPresent()` restores baseline; `onMutatingAction()` calls `truncateFuture` and forks timeline when tools/GOD actions run while viewing past
 - **Seek UX** — rAF-debounced slider seeks use `light: true` while dragging; snapshot row cache warmed from IndexedDB on first seek; scrub meta persisted to IndexedDB (`persistScrubMeta`)
@@ -297,11 +301,11 @@ At sim speed ≥5×, reduces overhead without changing sim correctness:
 
 | Helper | Effect |
 |--------|--------|
-| `effectiveSnapshotIntervalSec()` | Scales snapshot cadence with speed |
+| `effectiveSnapshotIntervalSec()` | Fixed sim-time snapshot cadence (`snapshotIntervalSec`, not speed-scaled) |
 | `effectiveHeartbeatIntervalSec()` | Scales heartbeat cadence at speed ≥4× |
 | `shouldRunBehaviorThisSubstep()` | BT decisions only on last substep at speed ≥5× |
 | `effectiveReadbackEveryMs()` | GPU readback interval × speed/tier |
-| `effectiveScrubTickRefreshMs()` | UI scrub tick mark refresh throttle |
+| `effectiveScrubTickRefreshMs()` | Fixed 800 ms scrub tick mark refresh interval |
 | `shouldPersistCreatureEvent()` | Drops non-milestone creature events at speed ≥5× (except selected creature) |
 | `timelineWritePressure()` | `low` / `medium` / `high` — timeline DB may drop writes under pressure (`gpuTelemetry.droppedTimelineWrites`) |
 
@@ -411,7 +415,7 @@ Driven by quality `detail` tier and `cam.z`:
 
 ### Top bar stats
 
-Day/night, population, max generation, avg vegetation %, speed slider (0–10×), Follow button, and the **timeline scrub** slider (`#top-scrubctl`) with snapshot tick marks, play/pause indicator (Spacebar), time label, and **Present** button.
+Day/night, population, max generation, avg vegetation %, speed slider (0–10×), Follow button, and the **timeline scrub** bar (`#top-scrubctl`) with zoomable/pannable canvas day-night strip, snapshot tick marks, play/pause indicator (Spacebar), 12-hour clock, and **Present** button.
 
 ### Species GOD menu (`#species-row-menu`)
 
@@ -455,7 +459,7 @@ World notifications now stream into the **World Story** panel as persistent rows
 
 `simulation.tick()` periodically writes compact world snapshots to IndexedDB `heartbeats` (`effectiveHeartbeatIntervalSec()`, base `heartbeatIntervalSec` default 5 s) as rewind anchors.
 
-Full state snapshots (vegetation + creatures) are captured every `effectiveSnapshotIntervalSec()` into the `snapshots` store to power the timeline scrub slider. Interval base is `state.snapshotIntervalSec` (overridden at boot from [`config/timeline-config.json`](config/timeline-config.json)). Scrubbing restores a prior snapshot; mutating tools or GOD actions while viewing the past call `truncateFuture` and fork the timeline.
+Full state snapshots (vegetation + creatures) are captured every `effectiveSnapshotIntervalSec()` sim-seconds into the `snapshots` store to power the interactive timeline scrub bar (even tick spacing at any speed). Interval is `state.snapshotIntervalSec` (overridden at boot from [`config/timeline-config.json`](config/timeline-config.json)). Scrubbing restores a prior snapshot; mutating tools or GOD actions while viewing the past call `truncateFuture` and fork the timeline. Viewport zoom/pan is persisted in scrub meta.
 
 ### Migrant reseed toggle
 
@@ -514,11 +518,11 @@ CSS for `#toolbar` exists; DOM toolbar was removed or not yet added. Re-add `<di
 
 | Export | Role |
 |--------|------|
-| `effectiveSnapshotIntervalSec` | Speed-scaled snapshot cadence |
+| `effectiveSnapshotIntervalSec` | Fixed sim-time snapshot cadence (`snapshotIntervalSec`) |
 | `effectiveHeartbeatIntervalSec` | Speed-scaled heartbeat cadence |
 | `shouldRunBehaviorThisSubstep` | Skip BT on early substeps at high speed |
 | `effectiveReadbackEveryMs` | GPU readback throttle multiplier |
-| `effectiveScrubTickRefreshMs` | Scrub tick UI refresh interval |
+| `effectiveScrubTickRefreshMs` | Scrub tick UI refresh interval (800 ms) |
 | `shouldPersistCreatureEvent` | Milestone-only creature events at high speed |
 | `timelineWritePressure` | IndexedDB write pressure tier |
 
@@ -554,7 +558,7 @@ CSS for `#toolbar` exists; DOM toolbar was removed or not yet added. Re-add `<di
 | `render/quality.js` | `QualityController` | adaptive tiers, `effectiveHighlight`, F2 perf HUD |
 | `render/pipeline.js` | `RenderPipeline` | `render()` layer orchestration (3 canvases) |
 | `gpu/simulation-backend.js` | `GpuSimulationBackend` | compute simulation passes, spatial bins, global awareness, conflict resolution, readback; exports `gpuBehaviorToState()` |
-| `ui.js` | `UI` | stats, graph, inspector (Stats + Life Story), World Story, Timeline DB, scrub slider, species GOD menu, terrain/creature tooltips |
+| `ui.js` | `UI` | stats, graph, inspector (Stats + Life Story), World Story, Timeline DB, interactive timeline scrub, species GOD menu, terrain/creature/timeline tooltips |
 | `input.js` | `InputManager` | canvas/panel/keyboard handlers; **F2** perf HUD; **Spacebar** pause |
 | `app.js` | `GameApp` | boot, `doGenerate`, `frame` loop; exposes `window.runGpuBenchmark(seconds)` in console |
 
@@ -665,7 +669,8 @@ CSS for `#toolbar` exists; DOM toolbar was removed or not yet added. Re-add `<di
 - **Pedigree/target lines under GPU** — behavior-target and pedigree lines draw on `#world`; may be obscured by WebGPU circles at default zoom
 - **Large pop → circles** — WebGPU circle LOD + quality tier reduction is intentional; zoom in + tier 0 for full sprites
 - **ES modules require HTTP** — use `python serve.py` (preferred) or `python -m http.server 8765`; opening the HTML file directly will fail module loads
-- **Time scrub earliest bound** — slider min follows earliest IndexedDB snapshot; very early sim time may be unreachable until first snapshot writes
+- **Time scrub earliest bound** — earliest seekable sim time follows earliest IndexedDB snapshot; very early sim time may be unreachable until first snapshot writes
+- **Timeline zoom** — double-click scrub track resets viewport to full range
 - **Git:** html + js/ tracked; no package.json
 
 ---

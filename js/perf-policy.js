@@ -13,9 +13,7 @@ const MILESTONE_EVENT_KINDS = new Set([
 
 export function effectiveSnapshotIntervalSec()
 {
-  const base = Math.max(1, state.snapshotIntervalSec || 10);
-  const speed = Math.max(1, state.speed || 1);
-  return base * Math.max(1, speed / 2);
+  return Math.max(0.5, state.snapshotIntervalSec || 10);
 }
 
 export function effectiveHeartbeatIntervalSec()
@@ -45,10 +43,7 @@ export function effectiveReadbackEveryMs(baseMs)
 
 export function effectiveScrubTickRefreshMs()
 {
-  const speed = Math.max(1, state.speed || 1);
-  if (speed >= 8) return 8000;
-  if (speed >= 5) return 5000;
-  return 1600;
+  return 800;
 }
 
 export function shouldPersistCreatureEvent(kind, creatureId = null)

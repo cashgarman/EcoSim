@@ -126,6 +126,7 @@ export class TimelineDb
       seed: runMeta.seed ?? state.SEED,
       worldConfig: runMeta.worldConfig ? { ...runMeta.worldConfig } : { ...state.cfg },
       worldAreaKm2: runMeta.worldAreaKm2 ?? state.worldAreaKm2,
+      timeOfDayOrigin: runMeta.timeOfDayOrigin ?? state.timeOfDay ?? 0.3,
       createdAt: nowIso(),
     };
     await new Promise((resolve, reject) =>
@@ -189,6 +190,10 @@ export class TimelineDb
         state.gpuTelemetry.droppedTimelineWrites = this._droppedWrites;
         return;
       }
+      if (kind === 'snapshot')
+      {
+        this._flushQueue();
+      }
     }
     this._queue.push({ kind, payload });
     if (this._flushScheduled) return;
@@ -197,7 +202,7 @@ export class TimelineDb
     {
       this._flushScheduled = false;
       this._flushQueue();
-    }, 30);
+    }, kind === 'snapshot' ? 8 : 30);
   }
 
   async _flushQueue()
@@ -541,6 +546,23 @@ export class TimelineDb
       {
         reject(request.error || new Error('Failed to list snapshots.'));
       };
+    });
+  }
+
+  async countSnapshots(runId)
+  {
+    await this._open();
+    runId = runId || this._runId || state.timelineRunId;
+    if (!runId) return 0;
+    return new Promise((resolve, reject) =>
+    {
+      const tx = this._tx([STORE_SNAPSHOTS]);
+      const store = tx.objectStore(STORE_SNAPSHOTS);
+      const index = store.index('run_t');
+      const range = IDBKeyRange.bound([runId, -Number.MAX_SAFE_INTEGER], [runId, Number.MAX_SAFE_INTEGER]);
+      const request = index.count(range);
+      request.onsuccess = () => resolve(request.result || 0);
+      request.onerror = () => reject(request.error || new Error('Failed to count snapshots.'));
     });
   }
 

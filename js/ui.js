@@ -1,4 +1,7 @@
 import { clamp, dayPhaseFromTimeOfDay, formatTimeOfDay12, lerp } from './utils.js';
+import { effectiveScrubTickRefreshMs } from './perf-policy.js';
+import { TimelineViewport, simTimeToDay, timeOfDayAtSimT } from './timeline-viewport.js';
+import { buildVisibleTickTimes, renderTimelineDayNight } from './timeline-renderer.js';
 import { SPECIES, SP_KEYS, GENE_KEYS, GENE_LABEL, BIOME_INFO, sexSymbol } from './data.js';
 import { state, idx, inB } from './state.js';
 import { $, bindEl } from './dom.js';
@@ -8,7 +11,6 @@ import { stateLabelFromConfig } from './behavior/loader.js';
 import { lifeStory } from './life-story.js';
 import { timelineDb } from './timeline-db.js';
 import { timeScrub } from './time-scrub.js';
-import { effectiveScrubTickRefreshMs } from './perf-policy.js';
 import {
   formatBornEvent,
   formatDiedEvent,
@@ -59,12 +61,15 @@ export class UI
     this._dbLoading = false;
     this._scrubDragging = false;
     this._scrubEarliestLoading = false;
-    this._scrubTicksLoading = false;
     this._scrubTicksLastAt = 0;
     this._wasScrubActive = false;
     this._scrubPendingT = null;
     this._scrubSeekFrame = 0;
     this._speciesMenuSp = null;
+    this.timelineViewport = new TimelineViewport();
+    this._timelinePanning = false;
+    this._timelinePanLastX = 0;
+    this._timelineResizeObs = null;
   }
 
   async restoreScrubMeta(meta)
@@ -87,6 +92,10 @@ export class UI
     if (typeof meta.viewT === 'number')
     {
       await timeScrub.seekTo(meta.viewT);
+    }
+    if (meta.timelineViewport)
+    {
+      this.timelineViewport.restore(meta.timelineViewport);
     }
     this.updateScrubLabels();
     this.updatePauseIndicator();
@@ -1186,7 +1195,7 @@ export class UI
     if (didFork || isPastView)
     {
       this.updateScrubLabels();
-      this.refreshScrubTicks(true);
+      this.renderTimeline(true);
     }
     this.refreshTimelineDbView(true);
   }
@@ -1211,9 +1220,10 @@ export class UI
 
   initTimeScrubber()
   {
-    const topSlider = $('top-scrub-slider');
+    const track = $('top-scrub-track');
+    const hitLayer = $('top-scrub-hitlayer');
     const topPresentBtn = $('top-scrub-present');
-    if (!topSlider) return;
+    if (!track || !hitLayer) return;
 
     const runScrubSeek = async (immediate) =>
     {
@@ -1239,9 +1249,9 @@ export class UI
       }
     };
 
-    const scheduleScrubSeek = (immediate) =>
+    const scheduleScrubSeek = (targetT, immediate) =>
     {
-      this._scrubPendingT = Number(topSlider.value || 0);
+      this._scrubPendingT = targetT;
       if (immediate)
       {
         if (this._scrubSeekFrame)
@@ -1262,86 +1272,216 @@ export class UI
       if (this._scrubDragging) this.updateScrubLabels(this._scrubPendingT);
     };
 
-    topSlider.addEventListener('input', () => scheduleScrubSeek(false));
-    topSlider.addEventListener('change', () => scheduleScrubSeek(true));
-    topSlider.addEventListener('pointerdown', () =>
+    const seekAtClientX = (clientX, immediate) =>
     {
-      this._scrubDragging = true;
-      timeScrub.setDragging(true);
-    });
-    topSlider.addEventListener('pointerup', () =>
-    {
-      this._scrubDragging = false;
-      timeScrub.setDragging(false);
-      scheduleScrubSeek(true);
-    });
-    topSlider.addEventListener('pointercancel', () =>
-    {
-      this._scrubDragging = false;
-      timeScrub.setDragging(false);
-      scheduleScrubSeek(true);
-    });
-
-    const wirePresent = btn =>
-    {
-      if (!btn) return;
-      btn.addEventListener('click', async () =>
-      {
-        await timeScrub.goToPresent();
-        this.updateScrubLabels();
-      });
+      const rect = track.getBoundingClientRect();
+      const earliest = timeScrub.getEarliestT();
+      const head = timeScrub.getCurrentHeadT();
+      const minT = earliest == null ? head : Math.max(0, earliest);
+      if (earliest == null || earliest >= head - 0.01) return;
+      let t = this.timelineViewport.clientXToT(clientX, rect);
+      t = clamp(t, minT, head);
+      scheduleScrubSeek(t, immediate);
     };
 
-    wirePresent(topPresentBtn);
+    hitLayer.addEventListener('pointerdown', e =>
+    {
+      if (e.button === 1 || e.button === 2)
+      {
+        e.preventDefault();
+        this._timelinePanning = true;
+        this._timelinePanLastX = e.clientX;
+        hitLayer.setPointerCapture(e.pointerId);
+        return;
+      }
+      if (e.button !== 0) return;
+      this._scrubDragging = true;
+      timeScrub.setDragging(true);
+      seekAtClientX(e.clientX, false);
+      hitLayer.setPointerCapture(e.pointerId);
+    });
+
+    hitLayer.addEventListener('pointermove', e =>
+    {
+      if (this._timelinePanning)
+      {
+        const dx = e.clientX - this._timelinePanLastX;
+        this._timelinePanLastX = e.clientX;
+        this.timelineViewport.panByPixels(dx, track.clientWidth);
+        this.renderTimeline(true);
+        this.persistTimelineViewportMeta();
+        return;
+      }
+      if (this._scrubDragging)
+      {
+        seekAtClientX(e.clientX, false);
+      }
+      this.updateTimelineTooltip(e.clientX, e.clientY);
+    });
+
+    const endPointer = e =>
+    {
+      if (this._timelinePanning)
+      {
+        this._timelinePanning = false;
+        try { hitLayer.releasePointerCapture(e.pointerId); } catch (err) {}
+        this.persistTimelineViewportMeta();
+        return;
+      }
+      if (!this._scrubDragging) return;
+      this._scrubDragging = false;
+      timeScrub.setDragging(false);
+      seekAtClientX(e.clientX, true);
+      try { hitLayer.releasePointerCapture(e.pointerId); } catch (err) {}
+    };
+
+    hitLayer.addEventListener('pointerup', endPointer);
+    hitLayer.addEventListener('pointercancel', endPointer);
+
+    hitLayer.addEventListener('wheel', e =>
+    {
+      e.preventDefault();
+      const rect = track.getBoundingClientRect();
+      const anchorT = this.timelineViewport.clientXToT(e.clientX, rect);
+      const factor = e.deltaY < 0 ? 0.87 : 1.15;
+      this.timelineViewport.zoomAt(anchorT, factor);
+      this.renderTimeline(true);
+      this.persistTimelineViewportMeta();
+    }, { passive: false });
+
+    hitLayer.addEventListener('contextmenu', e => e.preventDefault());
+
+    hitLayer.addEventListener('mouseenter', e =>
+    {
+      this.updateTimelineTooltip(e.clientX, e.clientY);
+    });
+
+    hitLayer.addEventListener('mouseleave', () =>
+    {
+      this.hideTimelineTooltip();
+    });
+
+    track.addEventListener('dblclick', () =>
+    {
+      this.timelineViewport.fitAll();
+      this.renderTimeline(true);
+      this.persistTimelineViewportMeta();
+    });
+
+    if (!this._timelineResizeObs && typeof ResizeObserver !== 'undefined')
+    {
+      this._timelineResizeObs = new ResizeObserver(() =>
+      {
+        this.renderTimeline(true);
+      });
+      this._timelineResizeObs.observe(track);
+    }
+
+    if (topPresentBtn)
+    {
+      topPresentBtn.addEventListener('click', async () =>
+      {
+        await timeScrub.goToPresent();
+        const head = timeScrub.getCurrentHeadT();
+        this.timelineViewport.ensureHeadVisible(head);
+        this.timelineViewport.fitAll();
+        this.updateScrubLabels();
+        this.renderTimeline(true);
+      });
+    }
 
     this.updateScrubLabels();
+    this.renderTimeline(true);
+  }
+
+  persistTimelineViewportMeta()
+  {
+    state.timelineViewportMeta = this.timelineViewport.serialize();
+    timeScrub.persistState();
+  }
+
+  getTimelineOriginTimeOfDay()
+  {
+    return state.timeOfDayOrigin ?? state.timeOfDay ?? 0.3;
+  }
+
+  updateTimelineTooltip(clientX, clientY)
+  {
+    const tip = $('timeline-tip');
+    const iconEl = $('timeline-tip-icon');
+    const labelEl = $('timeline-tip-label');
+    const track = $('top-scrub-track');
+    if (!tip || !track) return;
+    const rect = track.getBoundingClientRect();
+    if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom)
+    {
+      this.hideTimelineTooltip();
+      return;
+    }
+    const t = this.timelineViewport.clientXToT(clientX, rect);
+    const origin = this.getTimelineOriginTimeOfDay();
+    const tod = timeOfDayAtSimT(t, origin);
+    const phase = dayPhaseFromTimeOfDay(tod);
+    const clock = formatTimeOfDay12(tod);
+    const day = simTimeToDay(t);
+    if (iconEl) iconEl.textContent = phase.icon;
+    if (labelEl) labelEl.textContent = `Day ${day} · ${clock}`;
+    tip.classList.remove('hidden');
+    const uiScale = getGameUiScale();
+    const tipW = tip.offsetWidth || 120;
+    let left = clientX - tipW * 0.5;
+    left = clamp(left, 8, window.innerWidth - tipW - 8);
+    tip.style.left = `${left / uiScale}px`;
+    tip.style.top = `${(rect.top - 30) / uiScale}px`;
+  }
+
+  hideTimelineTooltip()
+  {
+    const tip = $('timeline-tip');
+    if (tip) tip.classList.add('hidden');
+  }
+
+  renderTimeline(force = false)
+  {
+    const track = $('top-scrub-track');
+    const canvas = $('top-scrub-canvas');
+    if (!track || !canvas) return;
+    const now = performance.now();
+    const refreshMs = effectiveScrubTickRefreshMs();
+    if (!force && now - this._scrubTicksLastAt < refreshMs) return;
+    if (!state.ready) return;
+
+    renderTimelineDayNight(canvas, this.timelineViewport, this.getTimelineOriginTimeOfDay());
+    this.refreshScrubTicks(true);
+    this._scrubTicksLastAt = now;
   }
 
   updateScrubLabels(previewViewT = null)
   {
-    const topSlider = $('top-scrub-slider');
     const head = timeScrub.getCurrentHeadT();
     const wasScrubbing = this._wasScrubActive;
     const isScrubbing = timeScrub.active || timeScrub.isViewingPast() || this._scrubDragging;
     this._wasScrubActive = isScrubbing;
-    if (wasScrubbing && !isScrubbing) this.refreshScrubTicks(true);
+    if (wasScrubbing && !isScrubbing) this.renderTimeline(true);
     const earliest = timeScrub.getEarliestT();
     const view = previewViewT != null
       ? previewViewT
       : (timeScrub.active ? timeScrub.viewT : head);
-    const min = earliest == null ? head : Math.max(0, earliest);
-    const disablePast = earliest == null || earliest >= head - 0.01;
-
-    const updateSlider = slider =>
-    {
-      if (!slider) return;
-      if (this._scrubDragging) return;
-      slider.max = Math.max(0, head).toFixed(1);
-      slider.min = min.toFixed(1);
-      slider.disabled = disablePast;
-      if (!timeScrub.active) slider.value = head.toFixed(1);
-      else slider.value = Math.min(Number(slider.max), view).toFixed(1);
-    };
-
-    updateSlider(topSlider);
-    this.updateScrubIndicators(view, min, head);
+    const minT = earliest == null ? 0 : Math.max(0, earliest);
+    if (!timeScrub.active && !this._timelinePanning) this.timelineViewport.ensureHeadVisible(head);
+    this.timelineViewport.setBounds(minT, head, isScrubbing || this._timelinePanning);
+    state.timelineViewportMeta = this.timelineViewport.serialize();
+    this.updateScrubIndicators(view);
     this.updatePauseIndicator();
   }
 
-  updateScrubIndicators(view, min, head)
+  updateScrubIndicators(view)
   {
-    const topIndicator = $('top-scrub-indicator');
-    const topTrack = document.querySelector('#top-scrubctl .scrub-track');
-    const max = Math.max(min, head);
-    const denominator = max - min;
-    const ratio = denominator > 0 ? clamp((view - min) / denominator, 0, 1) : 1;
-    const setIndicator = (indicator, track) =>
-    {
-      if (!indicator || !track) return;
-      indicator.style.left = `calc(${(ratio * 100).toFixed(2)}% - 1px)`;
-      indicator.style.height = `${track.clientHeight}px`;
-    };
-    setIndicator(topIndicator, topTrack);
+    const playhead = $('top-scrub-playhead');
+    const track = $('top-scrub-track');
+    if (!playhead || !track) return;
+    const ratio = this.timelineViewport.tToRatio(view);
+    playhead.style.left = `calc(${(ratio * 100).toFixed(2)}% - 1px)`;
     if (!timeScrub.active)
     {
       state.graphHoverIndex = -1;
@@ -1372,77 +1512,28 @@ export class UI
     this.drawGraph();
   }
 
-  async refreshScrubTicks(force)
+  refreshScrubTicks(force)
   {
-    if (this._scrubTicksLoading) return;
-    const now = performance.now();
-    const refreshMs = effectiveScrubTickRefreshMs();
-    if (!force && now - this._scrubTicksLastAt < refreshMs) return;
-    if (!state.ready) return;
-    if (timeScrub.active) return;
+    if (!force && timeScrub.active) return;
+    const track = $('top-scrub-track');
+    const layer = document.getElementById('top-scrub-ticks-layer');
+    if (!track || !layer) return;
 
-    const topSlider = $('top-scrub-slider');
-    if (!topSlider) return;
+    const budgeted = buildVisibleTickTimes(this.timelineViewport, track.clientWidth);
+    layer.innerHTML = '';
+    for (const t of budgeted)
+    {
+      const ratio = this.timelineViewport.tToRatio(t);
+      const line = document.createElement('div');
+      line.className = 'scrub-tick-line';
+      line.style.left = `calc(${(ratio * 100).toFixed(2)}% - 0.5px)`;
+      layer.appendChild(line);
+    }
+  }
 
-    this._scrubTicksLoading = true;
-    try
-    {
-      const head = timeScrub.getCurrentHeadT();
-      const rows = await timelineDb.listSnapshots({ limit: 200, beforeT: head });
-      const ts = [];
-      for (const r of rows)
-      {
-        const t = r && typeof r.t === 'number' ? r.t : null;
-        if (t == null) continue;
-        if (t < 0) continue;
-        ts.push(t);
-      }
-      ts.sort((a, b) => a - b);
-      const minT = timeScrub.getEarliestT();
-      const lo = minT == null ? 0 : minT;
-      const hi = head;
-      const sampled = ts.filter(t => t >= lo - 0.0001 && t <= hi + 0.0001);
-      const budgeted = [];
-      const MAX_NOTCHES = 60;
-      if (sampled.length <= MAX_NOTCHES)
-      {
-        budgeted.push(...sampled);
-      }
-      else
-      {
-        const step = Math.max(1, Math.round(sampled.length / MAX_NOTCHES));
-        for (let i = 0; i < sampled.length; i += step) budgeted.push(sampled[i]);
-      }
-      if (hi > lo + 0.01 && (!budgeted.length || budgeted[budgeted.length - 1] < hi - 0.01))
-      {
-        budgeted.push(hi);
-      }
-      const applyToScroll = (layerId) =>
-      {
-        const layer = document.getElementById(layerId);
-        if (!layer) return;
-        layer.innerHTML = '';
-        const range = hi - lo;
-        for (const t of budgeted)
-        {
-          const ratio = range > 0 ? (t - lo) / range : 1;
-          const line = document.createElement('div');
-          line.className = 'scrub-tick-line';
-          line.style.left = `calc(${(ratio * 100).toFixed(2)}% - 0.5px)`;
-          layer.appendChild(line);
-        }
-      };
-      applyToScroll('top-scrub-ticks-layer');
-    }
-    catch (e)
-    {
-      // ignore tick update failures
-    }
-    finally
-    {
-      this._scrubTicksLoading = false;
-      this._scrubTicksLastAt = now;
-    }
+  invalidateScrubTicks()
+  {
+    this._scrubTicksLastAt = 0;
   }
 
   // called from updateUI periodically
@@ -1463,7 +1554,7 @@ export class UI
     }
 
     this.updateScrubLabels();
-    this.refreshScrubTicks(false);
+    this.renderTimeline(false);
   }
 }
 

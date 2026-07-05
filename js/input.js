@@ -70,6 +70,7 @@ export class InputManager
     canvas.addEventListener('contextmenu', e => e.preventDefault());
     canvas.addEventListener('mousedown', e =>
     {
+      if (e.target?.closest?.('#top-scrubctl')) return;
       state.lastMx = e.clientX;
       state.lastMy = e.clientY;
       if (state.consumeNextCanvasSelect) { state.consumeNextCanvasSelect = false; return; }
@@ -86,6 +87,7 @@ export class InputManager
     });
     canvas.addEventListener('wheel', e =>
     {
+      if (e.target?.closest?.('#top-scrubctl')) return;
       e.preventDefault();
       const wx = camera.s2wX(e.clientX), wy = camera.s2wY(e.clientY);
       state.cam.z = clamp(state.cam.z * (e.deltaY < 0 ? 1.15 : 0.87), state.minZoom, state.maxZoom);
@@ -348,6 +350,7 @@ export class InputManager
     if (prevSpeed === 0 && state.speed > 0) this.onSimulationResume();
     else if (state.speed === 0 && prevSpeed > 0) this.onSimulationPause();
     ui.updatePauseIndicator();
+    ui.renderTimeline(true);
   }
 
   onSimulationPause()

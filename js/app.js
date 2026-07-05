@@ -221,7 +221,9 @@ export class GameApp
         seed: state.SEED,
         worldConfig: { ...state.cfg },
         worldAreaKm2: state.worldAreaKm2,
+        timeOfDayOrigin: state.timeOfDay,
       };
+      state.timeOfDayOrigin = state.timeOfDay;
 
       const finishGenerate = () =>
       {
@@ -290,7 +292,18 @@ export class GameApp
         settleScrub().finally(() => timeScrub.persistState());
       };
 
-      timelineDb.initTimelineDb(runMeta).catch(err =>
+      timelineDb.initTimelineDb(runMeta).then(async () =>
+      {
+        try
+        {
+          const meta = await timelineDb.getRunMeta();
+          if (meta && typeof meta.timeOfDayOrigin === 'number')
+          {
+            state.timeOfDayOrigin = meta.timeOfDayOrigin;
+          }
+        }
+        catch (e) {}
+      }).catch(err =>
       {
         console.warn('Timeline DB init failed:', err);
       }).finally(() =>
@@ -326,21 +339,28 @@ export class GameApp
       {
         timeScrub.noteLiveAdvance();
 
-        // Periodic snapshot for time scrubbing (every snapshotIntervalSec)
+        // Periodic snapshot for time scrubbing (fixed sim-time interval, one bucket per frame)
         const snapInterval = effectiveSnapshotIntervalSec();
-        if (state.tGlobal >= (state.lastSnapshotAt || 0) + snapInterval)
+        const lastAt = state.lastSnapshotAt || 0;
+        if (state.tGlobal >= lastAt + snapInterval - 1e-6)
         {
-          state.lastSnapshotAt = state.tGlobal;
-          try
+          const bucketT = Math.floor(state.tGlobal / snapInterval) * snapInterval;
+          if (bucketT > lastAt + 1e-6)
           {
-            const snap = captureSnapshot();
-            const row = { t: snap.t, day: snap.day, snapshot: snap };
-            timelineDb.appendSnapshot(row);
-            timeScrub.cacheSnapshotRow(row);
-          }
-          catch (e)
-          {
-            // snapshot capture failure should not break sim
+            state.lastSnapshotAt = bucketT;
+            try
+            {
+              const snap = captureSnapshot();
+              const row = { t: snap.t, day: snap.day, snapshot: snap };
+              timelineDb.appendSnapshot(row);
+              timeScrub.cacheSnapshotRow(row);
+              ui.invalidateScrubTicks();
+              ui.renderTimeline(true);
+            }
+            catch (e)
+            {
+              // snapshot capture failure should not break sim
+            }
           }
         }
       }
