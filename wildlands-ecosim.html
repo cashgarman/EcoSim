@@ -98,6 +98,76 @@
   .ui-panel.collapsed .panel-head{margin-bottom:-2px;border-bottom:none;}
   .ui-panel.collapsed .panel-body{display:none;}
 
+  /* Custom scrollbars — match stone UI panels */
+  #genpanel::-webkit-scrollbar,
+  #stats::-webkit-scrollbar,
+  #speciestats::-webkit-scrollbar,
+  #worldstory::-webkit-scrollbar,
+  #timelinedb::-webkit-scrollbar,
+  .story-log::-webkit-scrollbar,
+  #timelinedb-list::-webkit-scrollbar,
+  #world-story-list::-webkit-scrollbar{
+    width:8px;
+  }
+  #genpanel::-webkit-scrollbar-track,
+  #stats::-webkit-scrollbar-track,
+  #speciestats::-webkit-scrollbar-track,
+  #worldstory::-webkit-scrollbar-track,
+  #timelinedb::-webkit-scrollbar-track,
+  .story-log::-webkit-scrollbar-track,
+  #timelinedb-list::-webkit-scrollbar-track,
+  #world-story-list::-webkit-scrollbar-track{
+    background:var(--panel-darker);
+    border-left:2px solid var(--edge);
+  }
+  #genpanel::-webkit-scrollbar-thumb,
+  #stats::-webkit-scrollbar-thumb,
+  #speciestats::-webkit-scrollbar-thumb,
+  #worldstory::-webkit-scrollbar-thumb,
+  #timelinedb::-webkit-scrollbar-thumb,
+  .story-log::-webkit-scrollbar-thumb,
+  #timelinedb-list::-webkit-scrollbar-thumb,
+  #world-story-list::-webkit-scrollbar-thumb{
+    background:linear-gradient(180deg,var(--panel),var(--panel-dark));
+    border:2px solid var(--edge);
+    border-radius:4px;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.08);
+  }
+  #genpanel::-webkit-scrollbar-thumb:hover,
+  #stats::-webkit-scrollbar-thumb:hover,
+  #speciestats::-webkit-scrollbar-thumb:hover,
+  #worldstory::-webkit-scrollbar-thumb:hover,
+  #timelinedb::-webkit-scrollbar-thumb:hover,
+  .story-log::-webkit-scrollbar-thumb:hover,
+  #timelinedb-list::-webkit-scrollbar-thumb:hover,
+  #world-story-list::-webkit-scrollbar-thumb:hover{
+    background:var(--gold);
+    border-color:#7a5b17;
+  }
+  #genpanel::-webkit-scrollbar-button,
+  #stats::-webkit-scrollbar-button,
+  #speciestats::-webkit-scrollbar-button,
+  #worldstory::-webkit-scrollbar-button,
+  #timelinedb::-webkit-scrollbar-button,
+  .story-log::-webkit-scrollbar-button,
+  #timelinedb-list::-webkit-scrollbar-button,
+  #world-story-list::-webkit-scrollbar-button{
+    display:none;
+    width:0;
+    height:0;
+  }
+  #genpanel,
+  #stats,
+  #speciestats,
+  #worldstory,
+  #timelinedb,
+  .story-log,
+  #timelinedb-list,
+  #world-story-list{
+    scrollbar-width:thin;
+    scrollbar-color:var(--panel) var(--panel-darker);
+  }
+
   /* left worldgen panel */
   #genpanel{position:absolute;top:92px;left:10px;width:250px;max-height:calc(100% - 150px);overflow-y:auto;
     padding:12px;z-index:25;}
@@ -162,6 +232,24 @@
     padding:5px 6px;border:2px solid var(--edge);border-radius:4px;background:rgba(20,26,16,.95);color:var(--text);font-size:6px;line-height:1.4;
     box-shadow:0 3px 10px rgba(0,0,0,.35);
   }
+
+  /* species stats panel */
+  #speciestats{position:absolute;top:480px;right:10px;width:250px;max-height:calc(100% - 520px);overflow-y:auto;
+    padding:12px;z-index:25;}
+  #speciestats .panel-head h2{text-align:left;font-size:8px;}
+  #speciestats-graph{width:100%;height:70px;background:var(--panel-darker);border:2px solid var(--edge);
+    border-radius:4px;display:block;image-rendering:pixelated;margin-bottom:6px;}
+  #speciestats-needs{margin:6px 0 8px;}
+  .spstats-summary{display:flex;flex-direction:column;gap:4px;margin-bottom:8px;}
+  .spstats-row{display:flex;justify-content:space-between;align-items:center;font-size:calc(6px * 1.3);color:var(--dim);}
+  .spstats-row b{color:var(--gold);font-size:calc(7px * 1.3);}
+  .spstats-deaths-title{font-size:calc(6px * 1.3);color:var(--dim);margin:4px 0 6px;}
+  .spstats-death-row{display:flex;align-items:center;gap:6px;background:var(--panel-darker);border:2px solid var(--edge);
+    border-radius:4px;padding:4px 6px;margin-bottom:4px;font-size:calc(6px * 1.3);}
+  .spstats-death-row .spstats-death-icon{flex:none;font-size:calc(8px * 1.3);width:1.4em;text-align:center;}
+  .spstats-death-row .spstats-death-label{flex:1;color:var(--text);}
+  .spstats-death-row .spstats-death-count{color:var(--gold);font-size:calc(7px * 1.3);}
+
   #species-row-menu{
     position:fixed;display:flex;flex-direction:column;gap:6px;min-width:154px;max-width:220px;
     padding:8px;z-index:70;
@@ -182,7 +270,15 @@
   /* inspector */
   #inspect{position:absolute;bottom:66px;right:10px;width:250px;padding:12px;z-index:26;display:none;}
   #inspect .panel-head{margin-bottom:6px;padding-right:30px;position:relative;}
-  #inspect h2{font-size:9px;color:var(--gold);text-align:center;}
+  #inspect .inspect-title-wrap{display:flex;flex-direction:row;align-items:center;justify-content:center;
+    gap:6px;flex:1;min-width:0;flex-wrap:wrap;}
+  #inspect h2{font-size:9px;color:var(--gold);text-align:center;line-height:1.35;flex:none;margin:0;}
+  .inspect-sex{display:inline-flex;align-items:center;gap:4px;flex:none;}
+  .inspect-sex.hidden{display:none;}
+  .inspect-sex-icon{font-size:16px;line-height:1;flex:none;}
+  .inspect-sex.male .inspect-sex-icon{color:var(--blue);}
+  .inspect-sex.female .inspect-sex-icon{color:#e878b8;}
+  .inspect-sex-label{font-size:7px;color:var(--text);letter-spacing:0.5px;white-space:nowrap;}
   .closex{position:absolute;top:6px;right:6px;width:20px;height:20px;color:#ff5a4a;background:var(--panel-darker);
     border:2px solid var(--edge);border-radius:4px;font-size:10px;cursor:pointer;font-family:inherit;z-index:1;}
   .needbar{height:11px;background:#1a1f14;border:2px solid var(--edge);border-radius:3px;overflow:hidden;margin:2px 0 5px;}
@@ -446,6 +542,30 @@
   </div>
 </div>
 
+<div id="speciestats" class="stone ui-panel hidden">
+  <div class="panel-head">
+    <h2 id="speciestats-title">Species Stats</h2>
+    <div class="panel-actions">
+      <button class="btn panel-ui-btn panel-collapse-btn" id="speciestats-collapse-btn" type="button" title="Collapse panel">▼</button>
+    </div>
+  </div>
+  <div id="speciestats-body" class="panel-body">
+    <canvas id="speciestats-graph" width="226" height="70"></canvas>
+    <div id="speciestats-needs">
+      <div class="needlab"><span>❤️ Health</span><span id="ss-hp">—</span></div>
+      <div class="needbar"><div id="b-ss-hp" style="width:0%;background:var(--hp)"></div></div>
+      <div class="needlab"><span>🍖 Fullness</span><span id="ss-hun">—</span></div>
+      <div class="needbar"><div id="b-ss-hun" style="width:0%;background:#d98a3a"></div></div>
+      <div class="needlab"><span>💧 Hydration</span><span id="ss-thi">—</span></div>
+      <div class="needbar"><div id="b-ss-thi" style="width:0%;background:#3aa8d8"></div></div>
+      <div class="needlab"><span>⚡ Energy</span><span id="ss-ene">—</span></div>
+      <div class="needbar"><div id="b-ss-ene" style="width:0%;background:#d8c23a"></div></div>
+    </div>
+    <div id="speciestats-summary" class="spstats-summary"></div>
+    <div id="speciestats-deaths" class="spstats-deaths"></div>
+  </div>
+</div>
+
 <div id="species-row-menu" class="stone hidden" role="menu" aria-hidden="true">
   <div class="species-menu-head" id="species-menu-title">GOD Actions</div>
   <button class="btn species-menu-btn" data-species-action="kill-all" type="button">Kill All</button>
@@ -453,7 +573,13 @@
 
 <div id="inspect" class="stone ui-panel">
   <div class="panel-head">
-    <h2 id="i-name">—</h2>
+    <div class="inspect-title-wrap">
+      <h2 id="i-name">—</h2>
+      <div class="inspect-sex hidden" id="i-sex-badge">
+        <span class="inspect-sex-icon" id="i-sex-icon" aria-hidden="true">♀</span>
+        <span class="inspect-sex-label" id="i-sex-label">Female</span>
+      </div>
+    </div>
     <button class="closex" onclick="deselect()">✕</button>
   </div>
   <div class="state" id="i-state">—</div>
@@ -462,6 +588,7 @@
     <button class="btn inspect-tab" data-inspect-tab="story" type="button">Life Story</button>
   </div>
   <div id="inspect-tab-stats">
+  <div class="needlab"><span>🧬 Generation</span><span id="i-gen">—</span></div>
   <div class="needlab"><span>❤️ Health</span><span id="i-hp">100%</span></div>
   <div class="needbar"><div id="b-hp" style="width:100%;background:var(--hp)"></div></div>
   <div class="needlab"><span>🍖 Fullness</span><span id="i-hun">100%</span></div>

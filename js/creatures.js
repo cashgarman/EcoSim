@@ -515,6 +515,25 @@ export class CreatureSystem
     return best;
   }
 
+  findNearestOfSpecies(sp, wx, wy)
+  {
+    let best = null;
+    let bestD2 = Infinity;
+    for (const c of state.creatures)
+    {
+      if (c.dead || c.sp !== sp) continue;
+      const dx = this.displayX(c) - wx;
+      const dy = this.displayY(c) - wy;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < bestD2)
+      {
+        bestD2 = d2;
+        best = c;
+      }
+    }
+    return best;
+  }
+
   collectVisible(camera)
   {
     const pad = Math.max(30, state.cam.z * 4);

@@ -16,6 +16,7 @@ export class InputManager
   {
     this.canvas = null;
     this._setSpeedDisplay = null;
+    this._speciesRowClick = { sp: null, t: 0 };
   }
 
   init(canvas)
@@ -40,27 +41,38 @@ export class InputManager
   {
     if (state.lockedSelectionFromPanel) return;
     const best = creatures.findAt(wx, wy);
-    if (best)
+    if (best) this.selectAndFollowCreature(best);
+  }
+
+  selectAndFollowCreature(c)
+  {
+    if (!c || c.dead) return;
+    ui.setSelectedCreature(c, false);
+    const landW = Math.max(1, state.landBounds.maxX - state.landBounds.minX);
+    const landH = Math.max(1, state.landBounds.maxY - state.landBounds.minY);
+    const zToPanX = this.canvas.width / (landW * 0.92);
+    const zToPanY = this.canvas.height / (landH * 0.92);
+    const minFollowZoom = clamp(
+      Math.max(state.minZoom * 1.25, zToPanX, zToPanY),
+      state.minZoom,
+      state.maxZoom,
+    );
+    if (state.cam.z < minFollowZoom)
     {
-      ui.setSelectedCreature(best, false);
-      const landW = Math.max(1, state.landBounds.maxX - state.landBounds.minX);
-      const landH = Math.max(1, state.landBounds.maxY - state.landBounds.minY);
-      const zToPanX = this.canvas.width / (landW * 0.92);
-      const zToPanY = this.canvas.height / (landH * 0.92);
-      const minFollowZoom = clamp(
-        Math.max(state.minZoom * 1.25, zToPanX, zToPanY),
-        state.minZoom,
-        state.maxZoom,
-      );
-      if (state.cam.z < minFollowZoom)
-      {
-        state.cam.z = minFollowZoom;
-        state.cam.x = best.x - this.canvas.width / (2 * state.cam.z);
-        state.cam.y = best.y - this.canvas.height / (2 * state.cam.z);
-        camera.clampCam();
-      }
-      ui.setFollowMode(true);
+      state.cam.z = minFollowZoom;
     }
+    camera.focusCreature(c, null);
+    ui.setFollowMode(true);
+  }
+
+  followNearestOfSpecies(sp)
+  {
+    const cx = camera.s2wX(this.canvas.width / 2);
+    const cy = camera.s2wY(this.canvas.height / 2);
+    const best = creatures.findNearestOfSpecies(sp, cx, cy);
+    if (!best) return false;
+    this.selectAndFollowCreature(best);
+    return true;
   }
 
   bindCanvasEvents()
@@ -226,12 +238,21 @@ export class InputManager
       const row = ui.getSpeciesRowFromEvent(e);
       if (!row || !row.dataset.sp) return;
       e.stopPropagation();
+      const sp = row.dataset.sp;
+      const now = performance.now();
+      const isDouble = this._speciesRowClick.sp === sp && (now - this._speciesRowClick.t) <= 350;
+      this._speciesRowClick = { sp, t: now };
       e.preventDefault();
       ui.closeSpeciesRowMenu();
-      state.lockedSpeciesFromPanel = row.dataset.sp;
+      state.lockedSpeciesFromPanel = sp;
       state.hoveredGraphSpecies = null;
+      if (isDouble)
+      {
+        this.followNearestOfSpecies(sp);
+      }
       ui.updateUI();
       ui.drawGraph();
+      ui.syncSpeciesStatsPanel();
     });
     bindEl('splist', 'contextmenu', e =>
     {
@@ -243,6 +264,7 @@ export class InputManager
       state.hoveredGraphSpecies = null;
       ui.updateUI();
       ui.drawGraph();
+      ui.syncSpeciesStatsPanel();
       ui.openSpeciesRowMenu(row.dataset.sp, e.clientX, e.clientY);
     });
 
@@ -256,7 +278,7 @@ export class InputManager
       {
         return;
       }
-      if (target?.closest?.('#top-scrubctl') || target?.closest?.('#stats'))
+      if (target?.closest?.('#top-scrubctl') || target?.closest?.('.ui-panel'))
       {
         return;
       }

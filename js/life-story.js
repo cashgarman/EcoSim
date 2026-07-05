@@ -1,5 +1,6 @@
 import { SPECIES, sexSymbol } from './data.js';
 import { refineDeathCause, inferKillerId } from './creature-notify.js';
+import { recordSpeciesBirth, recordSpeciesDeath } from './species-stats.js';
 import { state } from './state.js';
 import { timelineDb } from './timeline-db.js';
 import { shouldPersistCreatureEvent } from './perf-policy.js';
@@ -242,6 +243,7 @@ export class LifeStory
 
   recordAppeared(c, detail)
   {
+    if (!state.batchMode) recordSpeciesBirth(c.sp, state.tGlobal);
     this.record(c, { kind: 'appeared', detail: detail || 'spawned' });
     if (c.state)
     {
@@ -254,6 +256,7 @@ export class LifeStory
 
   recordBorn(c, motherId, fatherId, sex)
   {
+    if (!state.batchMode) recordSpeciesBirth(c.sp, state.tGlobal);
     this.record(c, {
       kind: 'born',
       targetId: motherId ?? null,
@@ -329,6 +332,7 @@ export class LifeStory
     if (killerId != null) c.cause = 'predation';
     else if (!c.cause || c.cause === 'exhaustion') c.cause = refineDeathCause(c);
     this.record(c, { kind: 'died', detail: c.cause || 'unknown' });
+    if (!state.batchMode) recordSpeciesDeath(c);
     if (this._eventNotify) this._eventNotify('died', c);
   }
 

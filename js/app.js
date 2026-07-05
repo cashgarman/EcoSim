@@ -21,6 +21,8 @@ import { timeScrub } from './time-scrub.js';
 import { captureSnapshot } from './snapshot.js';
 import { loadTimelineConfig } from './config.js';
 import { effectiveSnapshotIntervalSec } from './perf-policy.js';
+import { initSpeciesStats } from './species-stats.js';
+import { applyPanelLayout } from './panel-layout.js';
 import {
   loadBalanceFromStorage,
   applyBalanceOverrides,
@@ -69,6 +71,7 @@ export class GameApp
     inputManager.init(canvas);
 
     ui.initPopHistory();
+    initSpeciesStats();
     ui.initInspectTabs();
     ui.initEventLogClicks();
     ui.initSpeciesRowMenu();
@@ -132,6 +135,7 @@ export class GameApp
     addEventListener('resize', () =>
     {
       camera.resize(state.gpuContext, state.gpuDevice, state.gpuCanvasFormat, state.gpuReady);
+      applyPanelLayout();
       ui.syncGraphCanvas();
       ui.drawGraph();
     });
@@ -240,6 +244,7 @@ export class GameApp
         state.generationMax = 1;
         state.nextId = 1;
         for (const k of SP_KEYS) state.popHistory[k] = [];
+        initSpeciesStats();
 
         creatures.stockLife();
         try

@@ -56,6 +56,8 @@ EcoSim/
 │   ├── simulation.js       # Simulation — tick, day/night, optional migrants, heartbeat snapshots
 │   ├── snapshot.js         # Snapshot capture/restore + reconcileSelectionAfterRestore
 │   ├── time-scrub.js       # TimeScrubController — slider seek, baseline, fork+truncate
+│   ├── panel-layout.js     # Draggable panel position persistence (localStorage)
+│   ├── species-stats.js    # Per-species birth/death counters + death-cause aggregation
 │   ├── ui.js               # UI — panels, inspector, graph, World Story + Timeline DB + scrub + GOD menu
 │   ├── timeline-viewport.js # TimelineViewport zoom/pan + sim-time clock helpers
 │   ├── timeline-renderer.js # Canvas day-night strip + viewport tick layout
@@ -175,7 +177,7 @@ Sliders in left panel map to these. `SEED` drives `setRngSeed(SEED)` at generati
 
 Loaded at boot with `loadSpeciesData()`. Each species entry includes `label`, `emoji`, `diet`, `shape`, `col`, `base` genes, `gestationSec` `[min,max]`, `mateCooldownSec` `[min,max]`, `stockWeight`, plus optional `hunts` / `preyOf`.
 
-Helpers: `sampleGestation(sp)`, `sampleMateCooldown(sp)`, `sexSymbol(sex)`.
+Helpers: `sampleGestation(sp)`, `sampleMateCooldown(sp)`, `sexSymbol(sex)`, `sexLabel(sex)`.
 
 | Key | Diet | Hunts | Prey of | Shape |
 |-----|------|-------|---------|-------|
@@ -405,10 +407,13 @@ Driven by quality `detail` tier and `cam.z`:
 
 ### Panels (draggable via `.panel-head`)
 
+Panel positions are saved to `localStorage` key `ecosim-panel-layout` on drag end and restored on boot/resize via [`js/panel-layout.js`](js/panel-layout.js). Invalid or missing entries fall back to CSS default positions (below the top bar).
+
 | Panel | ID | Purpose |
 |-------|-----|---------|
 | World Generator | `#genpanel` | Seed, size, sliders, Generate, Restock |
 | Ecosystem | `#stats` | Pop counts, graph, species row selection |
+| Species Stats | `#speciestats` | Per-species graph, avg needs, pop/death stats (visible when species row clicked) |
 | World Story | `#worldstory` | Collapsible, scrollable, clickable world event timeline |
 | Timeline DB | `#timelinedb` | Collapsible DB browser for world/creature/heartbeat rows in current run |
 | Inspector | `#inspect` | Selected creature stats/genes + **Life Story** tab |
@@ -428,13 +433,24 @@ Day/night, population, max generation, avg vegetation %, speed slider (0–10×)
 - **Panel modes** (`statsPanelMode`): normal · minimized (`−`) · maximized (`□`)
 - **Pop graph** — species-colored lines; updates every 5 UI ticks (~1 Hz)
 - **Maximized graph** — taller canvas (220 px), hover crosshair + `#popgraph-tip` sample tooltip
-- **Species rows** — count + max gen per species; click/hover for map highlights (see Selection)
+- **Species rows** — population count only; click/hover for map highlights (see Selection)
+
+### Species Stats panel (`#speciestats`)
+
+- **Visibility** — shown when a species row is **left-clicked** (`lockedSpeciesFromPanel`); hidden on click-away deselect
+- **Collapse** — starts expanded; independent of Ecosystem panel collapse
+- **Population graph** — single-species line from `state.popHistory[sp]` on `#speciestats-graph`
+- **Average needs** — mean Health / Fullness / Hydration / Energy across living members (same `.needlab`/`.needbar` UI as inspector)
+- **Summary stats** — current pop, total deaths, total ever lived, birthrate (births in last 1 sim-day / 40 sim-seconds)
+- **Death causes** — aggregated `deathsByKey` sorted by count; predation broken out by killer species emoji
+- **Tracking** — [`js/species-stats.js`](js/species-stats.js) hooks via `lifeStory.recordAppeared` / `recordBorn` / `recordDied`; resets on world generate (not timeline scrub)
 
 ### Selection & map overlays
 
 - Click creature (inspect tool) → inspector
 - Double-click or **F** → follow camera (`followSelected`); camera tracks selected via `Camera.followSelected()`
-- Species row **click** → lock selection to nearest of that species (`lockedSpeciesFromPanel`); gold glow on all of that species on map
+- Species row **click** → lock species map/graph focus (`lockedSpeciesFromPanel`); gold glow on all of that species on map
+- Species row **double-click** → lock species, jump camera to nearest living member of that species (relative to viewport center), select it, and enable follow
 - Species row **hover** → `hoveredGraphSpecies`; graph line + row outline highlight; blue glow on all of that species on map (persists at low quality via `effectiveHighlight`)
 - `lockedSelectionFromPanel` prevents canvas click from clearing until click-away
 - **Terrain tooltip** (`#terrain-tip`, bottom-right) — biome name + color dot under cursor; shows "Off map" outside grid
@@ -443,7 +459,7 @@ Day/night, population, max generation, avg vegetation %, speed slider (0–10×)
 
 ### Inspector tabs (`inspectPanelTab`)
 
-- **Stats** (default) — need bars + genome grid (`#inspect-tab-stats`); header shows sex (♀/♂)
+- **Stats** (default) — generation + need bars + genome grid (`#inspect-tab-stats`); header shows species name plus sex badge (large ♂/♀ icon + Male/Female label)
 - **Life Story** — scrollable debounced decision + milestone timeline (`#i-story`, newest first); clickable creature links when target still alive
 - Tab bar mirrors stats panel `.btn.active` pattern; resets to Stats on new selection
 
@@ -549,6 +565,7 @@ CSS for `#toolbar` exists; DOM toolbar was removed or not yet added. Re-add `<di
 | `creatures.js` | `CreatureSystem` | `makeCreature`, `stepCreature`, `stepNeeds`, genetics, spatial hash, display smoothing, `killAllBySpecies` |
 | `behavior/` | `BehaviorTree` | JSON-driven BT loader, evaluator, executor |
 | `life-story.js` | `LifeStory` | debounced decision log, milestone events, `serializeCreature` / `serializeAll` |
+| `species-stats.js` | — | `initSpeciesStats`, `recordSpeciesBirth`/`Death`, `getSpeciesStats`, death-cause display |
 | `snapshot.js` | — | `captureSnapshot`, `restoreSnapshot`, `reconcileSelectionAfterRestore` |
 | `time-scrub.js` | `TimeScrubController` | seek, present, fork+truncate, scrub meta persistence |
 | `simulation.js` | `Simulation` | `tick`, day/night, heartbeat capture, optional migrant pulse |

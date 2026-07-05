@@ -126,6 +126,11 @@ export function sexSymbol(sex)
   return sex === 'male' ? '♂' : '♀';
 }
 
+export function sexLabel(sex)
+{
+  return sex === 'male' ? 'Male' : 'Female';
+}
+
 function speciesMask(speciesList)
 {
   let mask = 0;

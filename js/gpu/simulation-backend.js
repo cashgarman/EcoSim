@@ -724,7 +724,6 @@ fn planNavStep(@builtin(global_invocation_id) gid: vec3<u32>)
   let wp = planNavWaypoint(pv.x, pv.y, goalX, goalY, w, h, canSwim, navR);
   tv.x = wp.x;
   tv.y = wp.y;
-  svOut.z = svOut.z + 1.0;
   creatures[b + 3u] = tv;
   creatures[b + 6u] = svOut;
 }
@@ -896,7 +895,6 @@ fn resolveIntegrate(@builtin(global_invocation_id) gid: vec3<u32>)
   {
     nx = pv.x;
     ny = pv.y;
-    sv.z = sv.z + 2.0;
   }
   pv.z = (nx - pv.x) / max(0.0005, dt);
   pv.w = (ny - pv.y) / max(0.0005, dt);
@@ -1675,6 +1673,7 @@ export class GpuSimulationBackend
       const aliveFlag = floatData[base + 19] > 0.5;
       let c = slotMap.get(i);
       const isNewGpuCreature = !c;
+      const wasDead = !!c?.dead;
       const cpuRepro = (c && state.simBackend === 'gpu' && state.gpuSimEnabled && !state.scrubActive)
         ? {
           pregnant: c.pregnant || 0,
@@ -1721,7 +1720,11 @@ export class GpuSimulationBackend
       c.dir = floatData[base + 28] >= 0 ? 1 : -1;
       c.sex = floatData[base + 29] > 0.5 ? 'male' : 'female';
       c.litterQ = floatData[base + 31] || floatData[base + 30] || 0;
-      c.gen = Math.max(1, Math.round(floatData[base + 26]) || c.gen || 1);
+      const gpuGen = Math.max(1, Math.round(floatData[base + 26]) || 1);
+      if (isNewGpuCreature || (wasDead && aliveFlag) || c.gen == null || c.gen < 1)
+      {
+        c.gen = gpuGen;
+      }
       if (cpuRepro)
       {
         c.pregnant = cpuRepro.pregnant;

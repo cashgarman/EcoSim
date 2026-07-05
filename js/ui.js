@@ -2,7 +2,7 @@ import { clamp, dayPhaseFromTimeOfDay, formatTimeOfDay12, lerp } from './utils.j
 import { effectiveScrubTickRefreshMs } from './perf-policy.js';
 import { TimelineViewport, simTimeToDay, timeOfDayAtSimT } from './timeline-viewport.js';
 import { buildVisibleTickTimes, buildVisibleDayMarkers, formatDayMarkerLabel, renderTimelineDayNight, resolveDayLabelMode } from './timeline-renderer.js';
-import { SPECIES, SP_KEYS, GENE_KEYS, GENE_LABEL, BIOME_INFO, sexSymbol } from './data.js';
+import { SPECIES, SP_KEYS, GENE_KEYS, GENE_LABEL, BIOME_INFO, sexSymbol, sexLabel } from './data.js';
 import { state, idx, inB } from './state.js';
 import { $, bindEl } from './dom.js';
 import { creatures } from './creatures.js';
@@ -23,6 +23,8 @@ import {
   hasActiveOverrides,
   saveBalanceToStorage,
 } from './batch/balance-config.js';
+import { getSpeciesStats } from './species-stats.js';
+import { applyPanelLayout, persistPanelPosition } from './panel-layout.js';
 
 function getGameUiScale()
 {
@@ -452,6 +454,13 @@ export class UI
       const panel = $('timelinedb');
       this.setPanelCollapsed(panel, !panel.classList.contains('collapsed'));
     });
+    bindEl('speciestats-collapse-btn', 'click', e =>
+    {
+      e.stopPropagation();
+      const panel = $('speciestats');
+      this.setPanelCollapsed(panel, !panel.classList.contains('collapsed'));
+    });
+    this.setPanelCollapsed($('speciestats'), false);
   }
 
   syncGraphCanvas()
@@ -527,6 +536,7 @@ export class UI
       {
         state.lockedSpeciesFromPanel = lockedSpecies;
         this.drawGraph();
+        this.syncSpeciesStatsPanel();
       }
     };
 
@@ -603,6 +613,19 @@ export class UI
     state.lockedSpeciesFromPanel = null;
     state.hoveredGraphSpecies = null;
     this.drawGraph();
+    this.syncSpeciesStatsPanel();
+  }
+
+  setNeedBar(labelId, barId, value, unit)
+  {
+    if (value == null || Number.isNaN(value))
+    {
+      $(labelId).textContent = '—';
+      $(barId).style.width = '0%';
+      return;
+    }
+    $(labelId).textContent = Math.round(value) + (unit || '%');
+    $(barId).style.width = clamp(value, 0, 100) + '%';
   }
 
   applyInspectTab(tab)
@@ -642,7 +665,20 @@ export class UI
     const c = state.selected;
     if (!c) { this.deselect(); return; }
     const S = SPECIES[c.sp];
-    $('i-name').textContent = `${S.emoji} ${S.label} ${sexSymbol(c.sex)} · gen ${c.gen}${c.dead ? ' †' : ''}`;
+    $('i-name').textContent = `${S.emoji} ${S.label}${c.dead ? ' †' : ''}`;
+    const sexBadge = $('i-sex-badge');
+    if (c.sex)
+    {
+      sexBadge.classList.remove('hidden');
+      sexBadge.classList.toggle('male', c.sex === 'male');
+      sexBadge.classList.toggle('female', c.sex !== 'male');
+      $('i-sex-icon').textContent = sexSymbol(c.sex);
+      $('i-sex-label').textContent = sexLabel(c.sex);
+    }
+    else
+    {
+      sexBadge.classList.add('hidden');
+    }
     const stg = !creatures.isAdult(c) ? 'juvenile' : c.age > c.genome.lifespan * 0.75 ? 'elder' : 'adult';
     const stateName = this.creatureStateLabel(c.state, c);
     $('i-state').textContent = c.dead ? ('Died: ' + c.cause) : `${stateName} · ${stg} · age ${c.age.toFixed(1)}${c.pregnant > 0 ? ' · 🤰' : ''}`;
@@ -652,15 +688,11 @@ export class UI
 
   drawInspectorStats(c)
   {
-    const set = (id, bid, v, unit) =>
-    {
-      $(id).textContent = Math.round(v) + (unit || '%');
-      $(bid).style.width = clamp(v, 0, 100) + '%';
-    };
-    set('i-hp', 'b-hp', c.hp);
-    set('i-hun', 'b-hun', c.hunger);
-    set('i-thi', 'b-thi', c.thirst);
-    set('i-ene', 'b-ene', c.energy);
+    $('i-gen').textContent = String(c.gen);
+    this.setNeedBar('i-hp', 'b-hp', c.hp);
+    this.setNeedBar('i-hun', 'b-hun', c.hunger);
+    this.setNeedBar('i-thi', 'b-thi', c.thirst);
+    this.setNeedBar('i-ene', 'b-ene', c.energy);
     let gh = '';
     for (const k of GENE_KEYS)
     {
@@ -751,6 +783,22 @@ export class UI
     box.innerHTML = html;
   }
 
+  drawPopGraphLine(g, arr, w, h, mx, col, lineWidth)
+  {
+    if (arr.length < 2) return;
+    g.strokeStyle = col;
+    g.lineWidth = lineWidth;
+    g.beginPath();
+    for (let i = 0; i < arr.length; i++)
+    {
+      const x = (i / Math.max(1, arr.length - 1)) * (w - 1);
+      const y = h - 2 - (arr[i] / mx) * (h - 4);
+      if (i === 0) g.moveTo(x, y);
+      else g.lineTo(x, y);
+    }
+    g.stroke();
+  }
+
   drawGraph()
   {
     const canvas = $('popgraph');
@@ -771,26 +819,18 @@ export class UI
       const col = SPECIES[k].col;
       const focused = focusSpecies === k;
       const dimmed = !!focusSpecies && !focused;
+      let stroke;
       if (focused && state.hoveredGraphSpecies === k)
       {
-        g.strokeStyle = 'rgba(87,184,232,0.98)';
+        stroke = 'rgba(87,184,232,0.98)';
       }
       else
       {
-        g.strokeStyle = dimmed
+        stroke = dimmed
           ? `rgba(${col[0]},${col[1]},${col[2]},0.25)`
           : `rgba(${col[0]},${col[1]},${col[2]},${focused ? 1 : 0.95})`;
       }
-      g.lineWidth = focused ? 2.4 : 1;
-      g.beginPath();
-      for (let i = 0; i < arr.length; i++)
-      {
-        const x = (i / Math.max(1, arr.length - 1)) * (w - 1);
-        const y = h - 2 - (arr[i] / mx) * (h - 4);
-        if (i === 0) g.moveTo(x, y);
-        else g.lineTo(x, y);
-      }
-      g.stroke();
+      this.drawPopGraphLine(g, arr, w, h, mx, stroke, focused ? 2.4 : 1);
     }
     if (state.statsPanelMode === 'max' && state.graphHoverIndex >= 0)
     {
@@ -808,6 +848,95 @@ export class UI
       }
     }
     this.updateGraphTooltip();
+  }
+
+  drawSpeciesStatsGraph(sp)
+  {
+    const canvas = $('speciestats-graph');
+    if (!canvas) return;
+    const g = canvas.getContext('2d'), w = canvas.width, h = canvas.height;
+    g.clearRect(0, 0, w, h);
+    g.fillStyle = '#20261c';
+    g.fillRect(0, 0, w, h);
+    const arr = state.popHistory[sp] || [];
+    if (arr.length < 2) return;
+    let mx = 1;
+    for (const v of arr) if (v > mx) mx = v;
+    const col = SPECIES[sp].col;
+    const stroke = `rgba(${col[0]},${col[1]},${col[2]},0.98)`;
+    this.drawPopGraphLine(g, arr, w, h, mx, stroke, 2.2);
+  }
+
+  drawSpeciesStatsNeeds(sp)
+  {
+    const alive = state.creatures.filter(c => !c.dead && c.sp === sp);
+    if (!alive.length)
+    {
+      this.setNeedBar('ss-hp', 'b-ss-hp', null);
+      this.setNeedBar('ss-hun', 'b-ss-hun', null);
+      this.setNeedBar('ss-thi', 'b-ss-thi', null);
+      this.setNeedBar('ss-ene', 'b-ss-ene', null);
+      return;
+    }
+    let hp = 0, hun = 0, thi = 0, ene = 0;
+    for (const c of alive)
+    {
+      hp += c.hp;
+      hun += c.hunger;
+      thi += c.thirst;
+      ene += c.energy;
+    }
+    const n = alive.length;
+    this.setNeedBar('ss-hp', 'b-ss-hp', hp / n);
+    this.setNeedBar('ss-hun', 'b-ss-hun', hun / n);
+    this.setNeedBar('ss-thi', 'b-ss-thi', thi / n);
+    this.setNeedBar('ss-ene', 'b-ss-ene', ene / n);
+  }
+
+  updateSpeciesStatsContent(sp)
+  {
+    const stats = getSpeciesStats(sp);
+    const alive = state.creatures.filter(c => !c.dead && c.sp === sp).length;
+    const summary = $('speciestats-summary');
+    summary.innerHTML =
+      `<div class="spstats-row"><span>Current</span><b>${alive}</b></div>`
+      + `<div class="spstats-row"><span>Deaths</span><b>${stats.totalDied}</b></div>`
+      + `<div class="spstats-row"><span>Total ever lived</span><b>${stats.totalBorn}</b></div>`
+      + `<div class="spstats-row"><span>Birthrate</span><b>${stats.birthRate} / day</b></div>`;
+    const deathsBox = $('speciestats-deaths');
+    if (!stats.deathRows.length)
+    {
+      deathsBox.innerHTML = '<div class="spstats-deaths-title">Causes of death</div>'
+        + '<div class="spstats-row"><span>None recorded</span></div>';
+      return;
+    }
+    let html = '<div class="spstats-deaths-title">Causes of death</div>';
+    for (const row of stats.deathRows)
+    {
+      html += `<div class="spstats-death-row">`
+        + `<span class="spstats-death-icon">${row.icon}</span>`
+        + `<span class="spstats-death-label">${row.label}</span>`
+        + `<span class="spstats-death-count">${row.count}</span>`
+        + `</div>`;
+    }
+    deathsBox.innerHTML = html;
+  }
+
+  syncSpeciesStatsPanel()
+  {
+    const panel = $('speciestats');
+    const sp = state.lockedSpeciesFromPanel;
+    if (!sp || !SPECIES[sp])
+    {
+      panel.classList.add('hidden');
+      return;
+    }
+    panel.classList.remove('hidden');
+    const S = SPECIES[sp];
+    $('speciestats-title').textContent = `${S.emoji} ${S.label}`;
+    this.drawSpeciesStatsGraph(sp);
+    this.drawSpeciesStatsNeeds(sp);
+    this.updateSpeciesStatsContent(sp);
   }
 
   updateDayClock(timeOfDay = state.timeOfDay)
@@ -897,12 +1026,11 @@ export class UI
     }
     $('s-veg').textContent = vc ? Math.round(vs / vc * 100) + '%' : '0%';
 
-    const counts = {}, gens = {};
-    for (const k of SP_KEYS) { counts[k] = 0; gens[k] = 1; }
+    const counts = {};
+    for (const k of SP_KEYS) counts[k] = 0;
     for (const c of alive)
     {
       counts[c.sp]++;
-      if (c.gen > gens[c.sp]) gens[c.sp] = c.gen;
     }
 
     const box = $('splist');
@@ -916,7 +1044,7 @@ export class UI
       const flash = this._speciesPopFlash[k];
       if (flash && flash.until <= now) delete this._speciesPopFlash[k];
       html += `<div class="sprow${cls}${this.speciesPopFlashClass(k)}" data-sp="${k}"><div class="dot" style="background:rgb(${col[0]},${col[1]},${col[2]})"></div>`
-        + `<div class="nm">${S.emoji} ${S.label}<div class="gn">gen ${gens[k]}</div></div>`
+        + `<div class="nm">${S.emoji} ${S.label}</div>`
         + `<div class="ct-wrap">${this.speciesPopDeltaHtml(k)}<div class="ct">${counts[k]}</div></div></div>`;
     }
     box.innerHTML = html;
@@ -932,6 +1060,7 @@ export class UI
           if (state.popHistory[k].length > state.graphCapacity) state.popHistory[k].shift();
         }
         this.drawGraph();
+        if (state.lockedSpeciesFromPanel) this.drawSpeciesStatsGraph(state.lockedSpeciesFromPanel);
       }
     }
     else
@@ -941,6 +1070,7 @@ export class UI
 
     if (state.selected) this.drawInspector();
 
+    this.syncSpeciesStatsPanel();
     this.syncScrubUI();
   }
 
@@ -1135,7 +1265,8 @@ export class UI
 
   initDraggablePanels()
   {
-    for (const id of ['genpanel', 'stats', 'inspect', 'worldstory', 'timelinedb'])
+    applyPanelLayout();
+    for (const id of ['genpanel', 'stats', 'speciestats', 'inspect', 'worldstory', 'timelinedb'])
     {
       const panel = $(id);
       const head = panel.querySelector('.panel-head');
@@ -1163,6 +1294,7 @@ export class UI
         const onUp = () =>
         {
           panel.classList.remove('dragging');
+          persistPanelPosition(panel);
           head.releasePointerCapture(e.pointerId);
           head.removeEventListener('pointermove', onMove);
           head.removeEventListener('pointerup', onUp);
