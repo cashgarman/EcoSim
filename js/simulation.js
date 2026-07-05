@@ -1,4 +1,4 @@
-import { clamp, rng, ri } from './utils.js';
+import { lightLevelFromTimeOfDay, rng, ri } from './utils.js';
 import { SPECIES, SP_KEYS } from './data.js';
 import { state, MAX_POP, simulationMode } from './state.js';
 import { world } from './world.js';
@@ -104,8 +104,7 @@ export class Simulation
 
   updateDayNight()
   {
-    const sun = Math.sin((state.timeOfDay - 0.25) * Math.PI * 2);
-    state.lightLevel = clamp(Math.pow(sun * 0.5 + 0.5, 0.9), 0.08, 1);
+    state.lightLevel = lightLevelFromTimeOfDay(state.timeOfDay);
     state.isNight = state.lightLevel < 0.28;
   }
 

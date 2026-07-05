@@ -1,4 +1,4 @@
-import { clamp, lerp } from './utils.js';
+import { clamp, dayPhaseFromTimeOfDay, formatTimeOfDay12, lerp } from './utils.js';
 import { SPECIES, SP_KEYS, GENE_KEYS, GENE_LABEL, BIOME_INFO, sexSymbol } from './data.js';
 import { state, idx, inB } from './state.js';
 import { $, bindEl } from './dom.js';
@@ -798,12 +798,30 @@ export class UI
     this.updateGraphTooltip();
   }
 
+  updateDayClock(timeOfDay = state.timeOfDay)
+  {
+    const phase = dayPhaseFromTimeOfDay(timeOfDay);
+    const clock = formatTimeOfDay12(timeOfDay);
+    const iconEl = $('s-day-icon');
+    const clockEl = $('s-day-clock');
+    const dayEl = $('s-day-num');
+    if (iconEl)
+    {
+      iconEl.textContent = phase.icon;
+      iconEl.title = phase.label;
+    }
+    if (clockEl) clockEl.textContent = clock;
+    if (dayEl) dayEl.textContent = 'Day ' + state.day;
+    const wrap = document.querySelector('.day-clock-stat');
+    if (wrap) wrap.title = `${phase.label} · ${clock} · Day ${state.day}`;
+  }
+
   updateUI()
   {
     const alive = state.creatures.filter(c => !c.dead);
     $('s-pop').textContent = alive.length;
     $('s-gen').textContent = 'Gen ' + state.generationMax;
-    $('s-day').textContent = (state.isNight ? '🌙 Night ' : state.lightLevel < 0.55 ? '🌅 Dusk/Dawn ' : '☀️ Day ') + state.day;
+    this.updateDayClock();
 
     let vs = 0, vc = 0;
     for (let i = 0; i < state.veg.length; i += 17)
@@ -1282,7 +1300,6 @@ export class UI
   updateScrubLabels(previewViewT = null)
   {
     const topSlider = $('top-scrub-slider');
-    const topStatusEl = $('top-scrub-status');
     const head = timeScrub.getCurrentHeadT();
     const wasScrubbing = this._wasScrubActive;
     const isScrubbing = timeScrub.active || timeScrub.isViewingPast() || this._scrubDragging;
@@ -1294,20 +1311,6 @@ export class UI
       : (timeScrub.active ? timeScrub.viewT : head);
     const min = earliest == null ? head : Math.max(0, earliest);
     const disablePast = earliest == null || earliest >= head - 0.01;
-
-    const historyMsg = earliest == null ? ' (gathering history...)' : '';
-    if (topStatusEl)
-    {
-      const headDay = Math.floor(head / 40);
-      if (disablePast)
-      {
-        topStatusEl.textContent = `Day ${headDay} · t ${head.toFixed(1)}`;
-      }
-      else
-      {
-        topStatusEl.textContent = `Viewing Day ${Math.floor(view / 40)} · t ${view.toFixed(1)} · head t ${head.toFixed(1)}${historyMsg}`;
-      }
-    }
 
     const updateSlider = slider =>
     {

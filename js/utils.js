@@ -50,6 +50,42 @@ export function lerp(a, b, t)
   return a + (b - a) * t;
 }
 
+/** Light intensity 0..1 from normalized time-of-day (matches simulation.updateDayNight). */
+export function lightLevelFromTimeOfDay(timeOfDay)
+{
+  const sun = Math.sin((timeOfDay - 0.25) * Math.PI * 2);
+  return clamp(Math.pow(sun * 0.5 + 0.5, 0.9), 0.08, 1);
+}
+
+/** Dawn / day / dusk / night phase from time-of-day (matches day-night cycle). */
+export function dayPhaseFromTimeOfDay(timeOfDay)
+{
+  const frac = ((timeOfDay % 1) + 1) % 1;
+  const light = lightLevelFromTimeOfDay(frac);
+  if (light < 0.28) return { phase: 'night', icon: '🌙', label: 'Night' };
+  if (light < 0.55)
+  {
+    return frac < 0.5
+      ? { phase: 'dawn', icon: '🌅', label: 'Dawn' }
+      : { phase: 'dusk', icon: '🌇', label: 'Dusk' };
+  }
+  return { phase: 'day', icon: '☀️', label: 'Day' };
+}
+
+/** 12-hour clock string (e.g. "6:30 AM") from normalized time-of-day. */
+export function formatTimeOfDay12(timeOfDay)
+{
+  const frac = ((timeOfDay % 1) + 1) % 1;
+  const totalMinutes = Math.round(frac * 24 * 60) % (24 * 60);
+  const hours24 = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  const ampm = hours24 >= 12 ? 'PM' : 'AM';
+  let hours12 = hours24 % 12;
+  if (hours12 === 0) hours12 = 12;
+  const minStr = minutes < 10 ? '0' + minutes : String(minutes);
+  return `${hours12}:${minStr} ${ampm}`;
+}
+
 export function expSmoothT(rate, dt)
 {
   return 1 - Math.exp(-rate * dt);

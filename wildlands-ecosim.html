@@ -44,6 +44,9 @@
   .topbar-row-2{flex:none;width:100%;}
   #topbar .stat{display:flex;gap:5px;align-items:center;color:var(--gold);}
   #topbar .stat span{color:var(--text);}
+  .day-clock-stat #s-day-icon{font-size:14px;line-height:1;}
+  .day-clock-stat #s-day-clock{min-width:72px;}
+  .day-clock-stat .day-clock-day{color:var(--dim);margin-left:2px;}
   #topbar .div{width:2px;height:15px;background:var(--edge);}
   .speedctl{display:flex;align-items:center;gap:6px;padding:0 2px;}
   #speed-slider{width:130px;height:12px;}
@@ -303,7 +306,11 @@
 
 <div id="topbar" class="stone">
   <div class="topbar-row topbar-row-1">
-    <div class="stat">🌍 <span id="s-day">Day 0</span></div><div class="div"></div>
+    <div class="stat day-clock-stat" title="Simulation time of day">
+      <span id="s-day-icon" aria-hidden="true">🌅</span>
+      <span id="s-day-clock">6:00 AM</span>
+      <span id="s-day-num" class="day-clock-day">Day 0</span>
+    </div><div class="div"></div>
     <div class="stat">🐾 <span id="s-pop">0</span></div><div class="div"></div>
     <div class="stat">🧬 <span id="s-gen">Gen 1</span></div><div class="div"></div>
     <div class="stat">🌱 <span id="s-veg">0%</span></div><div class="div"></div>
@@ -323,7 +330,6 @@
         <div class="scrub-indicator" id="top-scrub-indicator"></div>
         <div class="scrub-play-icon" id="scrub-play-indicator" title="Spacebar toggles pause">❚❚</div>
       </div>
-      <span id="top-scrub-status" style="color:var(--dim);min-width:86px;text-align:center;display:inline-block;">t 0.0</span>
       <button class="btn" id="top-scrub-present" type="button" title="Go to present">Present</button>
     </div>
     <datalist id="top-scrub-ticks"></datalist>

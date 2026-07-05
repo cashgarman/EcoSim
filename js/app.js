@@ -87,7 +87,11 @@ export class GameApp
     ui.initPanelCollapse();
     ui.initTimelineDbViewer();
     ui.initTimeScrubber();
-    timeScrub.setAfterRestoreCallback(p => ui.reconcileSelectionAfterScrub(p));
+    timeScrub.setAfterRestoreCallback(p =>
+    {
+      simulation.updateDayNight();
+      ui.reconcileSelectionAfterScrub(p);
+    });
     simulation.updateDayNight();
     ui.syncGraphCanvas();
     ui.applyStatsPanelMode('normal');
