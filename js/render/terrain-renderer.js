@@ -34,6 +34,7 @@ export class TerrainRenderer
   {
     this.ctx = null;
     this.canvas = null;
+    this._scrubVegBakeAt = 0;
   }
 
   init(canvas)
@@ -326,8 +327,14 @@ export class TerrainRenderer
     {
       if (state.vegDirty && state.vegRedrawOK && state.vegBakeCd <= 0)
       {
-        this.bakeVegetation();
-        state.vegBakeCd = state.vegBakeInterval;
+        const scrubBlocked = state.scrubActive
+          && (performance.now() - this._scrubVegBakeAt) < 320;
+        if (!scrubBlocked)
+        {
+          this.bakeVegetation();
+          state.vegBakeCd = state.vegBakeInterval;
+          if (state.scrubActive) this._scrubVegBakeAt = performance.now();
+        }
       }
       ctx.drawImage(state.vegC, ox, oy, W * cam.z, H * cam.z);
     }

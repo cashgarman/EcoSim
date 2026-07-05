@@ -3,6 +3,11 @@ import { SPECIES, SP_KEYS } from '../data.js';
 import { state } from '../state.js';
 import { creatures } from '../creatures.js';
 
+function creatureDrawPos(c)
+{
+  return [creatures.displayX(c), creatures.displayY(c)];
+}
+
 function hslToRgb(h, s, l)
 {
   let r, gg, b;
@@ -158,7 +163,8 @@ export class CreatureRenderer
 
   drawCreature(camera, c, detailTier)
   {
-    const sx = camera.w2sX(c.x), sy = camera.w2sY(c.y);
+    const [wx, wy] = creatureDrawPos(c);
+    const sx = camera.w2sX(wx), sy = camera.w2sY(wy);
     const s = Math.max(2.5, state.cam.z * 0.9 * creatures.eSize(c));
     if (sx < -30 || sy < -30 || sx > this.canvas.width + 30 || sy > this.canvas.height + 30) return;
 
@@ -264,7 +270,8 @@ export class CreatureRenderer
     const ctx = this.ctx;
     for (const c of vis)
     {
-      const sx = camera.w2sX(c.x), sy = camera.w2sY(c.y);
+      const [wx, wy] = creatureDrawPos(c);
+      const sx = camera.w2sX(wx), sy = camera.w2sY(wy);
       const s = Math.max(2.5, state.cam.z * 0.9 * creatures.eSize(c));
       if (sx < -30 || sy < -30 || sx > this.canvas.width + 30 || sy > this.canvas.height + 30) continue;
       if (highlightTier === 1)
@@ -314,7 +321,8 @@ export class CreatureRenderer
         this.ctx.fillStyle = `rgb(${col[0]},${col[1]},${col[2]})`;
         for (const c of arr)
         {
-          const sx = camera.w2sX(c.x), sy = camera.w2sY(c.y);
+          const [wx, wy] = creatureDrawPos(c);
+          const sx = camera.w2sX(wx), sy = camera.w2sY(wy);
           const s = Math.max(2, state.cam.z * 0.45 * creatures.eSize(c));
           this.ctx.fillRect(sx - s * 0.5, sy - s * 0.5, s, s);
         }
@@ -370,15 +378,16 @@ export class CreatureRenderer
       const target = creatures.getById(focus.target);
       if (target && !target.dead)
       {
-        wx = target.x;
-        wy = target.y;
+        wx = creatures.displayX(target);
+        wy = creatures.displayY(target);
       }
     }
 
-    if (Math.hypot(wx - focus.x, wy - focus.y) < 0.15) return;
+    const [fx, fy] = creatureDrawPos(focus);
+    if (Math.hypot(wx - fx, wy - fy) < 0.15) return;
 
     const ctx = this.ctx;
-    const sx1 = camera.w2sX(focus.x), sy1 = camera.w2sY(focus.y);
+    const sx1 = camera.w2sX(fx), sy1 = camera.w2sY(fy);
     const sx2 = camera.w2sX(wx), sy2 = camera.w2sY(wy);
     const rgb = this.targetLineColorForState(focus.state);
 
@@ -397,17 +406,20 @@ export class CreatureRenderer
   drawFollowPedigreeLines(camera, focus)
   {
     if (!focus || focus.dead) return;
+    const [fx, fy] = creatureDrawPos(focus);
     for (const parentId of focus.parentIds)
     {
       const parent = creatures.getById(parentId);
       if (!parent) continue;
-      this.drawAnimatedPedigreeLine(camera, focus.x, focus.y, parent.x, parent.y, '255,220,60', focus.id * 17 + parentId * 3);
+      const [px, py] = creatureDrawPos(parent);
+      this.drawAnimatedPedigreeLine(camera, fx, fy, px, py, '255,220,60', focus.id * 17 + parentId * 3);
     }
     for (const childId of focus.offspringIds)
     {
       const child = creatures.getById(childId);
       if (!child) continue;
-      this.drawAnimatedPedigreeLine(camera, focus.x, focus.y, child.x, child.y, '87,184,232', focus.id * 23 + childId * 5);
+      const [cx, cy] = creatureDrawPos(child);
+      this.drawAnimatedPedigreeLine(camera, fx, fy, cx, cy, '87,184,232', focus.id * 23 + childId * 5);
     }
   }
 }

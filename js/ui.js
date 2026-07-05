@@ -16,6 +16,31 @@ import {
   eventFocusIds,
 } from './creature-notify.js';
 
+function getGameUiScale()
+{
+  const root = document.getElementById('game-ui-root');
+  if (!root) return 1;
+  const style = getComputedStyle(root);
+  const z = style.zoom;
+  if (z && z !== 'normal')
+  {
+    const n = parseFloat(z);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  if (style.transform && style.transform !== 'none')
+  {
+    const match = style.transform.match(/matrix\(([^)]+)\)/);
+    if (match)
+    {
+      const sx = parseFloat(match[1].split(',')[0]);
+      if (Number.isFinite(sx) && sx > 0) return sx;
+    }
+  }
+  const varScale = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--ui-scale'));
+  if (Number.isFinite(varScale) && varScale > 0) return varScale;
+  return 1;
+}
+
 export class UI
 {
   constructor()
@@ -26,12 +51,13 @@ export class UI
     this._dbTab = 'world';
     this._dbCursor = { worldBeforeId: null, creatureBeforeT: null, heartbeatBeforeT: null };
     this._dbLoading = false;
-    this._scrubLoading = false;
-    this._scrubSliderDebounce = null;
     this._scrubDragging = false;
     this._scrubEarliestLoading = false;
     this._scrubTicksLoading = false;
     this._scrubTicksLastAt = 0;
+    this._wasScrubActive = false;
+    this._scrubPendingT = null;
+    this._scrubSeekFrame = 0;
     this._speciesMenuSp = null;
   }
 
@@ -473,6 +499,39 @@ export class UI
     }
   }
 
+  reconcileSelectionAfterScrub(preserve)
+  {
+    if (!preserve) return;
+    const { selectedId, wasFollowing } = preserve;
+    if (selectedId == null)
+    {
+      if (wasFollowing) this.deselect();
+      return;
+    }
+
+    const c = creatures.getById(selectedId);
+    if (!c)
+    {
+      this.deselect();
+      return;
+    }
+
+    if (c.dead)
+    {
+      if (wasFollowing) this.deselect();
+      else this.inspectDeadCreature(c);
+      return;
+    }
+
+    state.selected = c;
+    state.lockedSelectionFromPanel = false;
+    state.inspectPanelTab = state.inspectPanelTab || 'stats';
+    this.applyInspectTab(state.inspectPanelTab);
+    $('inspect').style.display = 'block';
+    this.setFollowMode(wasFollowing);
+    this.drawInspector();
+  }
+
   inspectDeadCreature(creature)
   {
     if (!creature) return;
@@ -877,10 +936,10 @@ export class UI
       label.textContent = this.creatureStateLabel(target.state, target);
     }
 
-    const sx = camera.w2sX(target.x);
-    const sy = camera.w2sY(target.y);
+    const sx = camera.w2sX(creatures.displayX(target));
+    const sy = camera.w2sY(creatures.displayY(target));
     const s = Math.max(2.5, state.cam.z * 0.9 * creatures.eSize(target));
-    const lift = Math.round(Math.max(18, s * 1.15 + 12));
+    const lift = Math.round(Math.max(8, s * 0.75 + 5));
     tip.style.setProperty('--creature-tip-lift', `${lift}px`);
     tip.style.left = `${Math.round(sx)}px`;
     tip.style.top = `${Math.round(sy)}px`;
@@ -942,12 +1001,16 @@ export class UI
         state.panelZ += 1;
         panel.style.zIndex = state.panelZ;
         panel.classList.add('dragging');
+        const scale = getGameUiScale();
+        const root = document.getElementById('game-ui-root');
+        const rootRect = root ? root.getBoundingClientRect() : { left: 0, top: 0 };
         const rect = panel.getBoundingClientRect();
-        const offX = e.clientX - rect.left, offY = e.clientY - rect.top;
+        const offX = (e.clientX - rect.left) / scale;
+        const offY = (e.clientY - rect.top) / scale;
         const onMove = ev =>
         {
-          panel.style.left = (ev.clientX - offX) + 'px';
-          panel.style.top = (ev.clientY - offY) + 'px';
+          panel.style.left = ((ev.clientX - rootRect.left) / scale - offX) + 'px';
+          panel.style.top = ((ev.clientY - rootRect.top) / scale - offY) + 'px';
           panel.style.right = 'auto';
           panel.style.bottom = 'auto';
         };
@@ -1009,11 +1072,16 @@ export class UI
     title.textContent = `${S.emoji} ${S.label} GOD`;
     menu.classList.remove('hidden');
     menu.setAttribute('aria-hidden', 'false');
+    const scale = getGameUiScale();
+    const root = document.getElementById('game-ui-root');
+    const rootRect = root ? root.getBoundingClientRect() : { left: 0, top: 0 };
+    const layoutW = root ? root.clientWidth : window.innerWidth / scale;
+    const layoutH = root ? root.clientHeight : window.innerHeight / scale;
     const pad = 6;
-    const maxLeft = Math.max(pad, window.innerWidth - menu.offsetWidth - pad);
-    const maxTop = Math.max(pad, window.innerHeight - menu.offsetHeight - pad);
-    const left = clamp(clientX, pad, maxLeft);
-    const top = clamp(clientY, pad, maxTop);
+    const maxLeft = Math.max(pad, layoutW - menu.offsetWidth - pad);
+    const maxTop = Math.max(pad, layoutH - menu.offsetHeight - pad);
+    const left = clamp((clientX - rootRect.left) / scale, pad, maxLeft);
+    const top = clamp((clientY - rootRect.top) / scale, pad, maxTop);
     menu.style.left = `${left}px`;
     menu.style.top = `${top}px`;
   }
@@ -1072,47 +1140,71 @@ export class UI
     const topPresentBtn = $('top-scrub-present');
     if (!topSlider) return;
 
-    const updateFromSlider = async (immediate) =>
+    const runScrubSeek = async (immediate) =>
     {
-      if (this._scrubLoading && !immediate) return;
-      const v = Number(topSlider.value || 0);
-      const doSeek = async () =>
+      const v = this._scrubPendingT;
+      if (v == null) return;
+      this._scrubPendingT = null;
+      const dragging = this._scrubDragging;
+      try
       {
-        this._scrubLoading = true;
-        try
-        {
-          await timeScrub.seekTo(v);
-          this.updateScrubLabels();
-        }
-        finally
-        {
-          this._scrubLoading = false;
-        }
-      };
-      if (immediate)
-      {
-        await doSeek();
+        await timeScrub.seekTo(v, { flush: immediate || !dragging, light: dragging });
+        this.updateScrubLabels(dragging ? v : null);
       }
-      else
+      finally
       {
-        if (this._scrubSliderDebounce) clearTimeout(this._scrubSliderDebounce);
-        this._scrubSliderDebounce = setTimeout(doSeek, 120);
+        if (this._scrubPendingT != null)
+        {
+          this._scrubSeekFrame = requestAnimationFrame(() =>
+          {
+            this._scrubSeekFrame = 0;
+            runScrubSeek(false);
+          });
+        }
       }
     };
 
-    topSlider.addEventListener('input', () => updateFromSlider(true));
-    topSlider.addEventListener('change', () => updateFromSlider(true));
+    const scheduleScrubSeek = (immediate) =>
+    {
+      this._scrubPendingT = Number(topSlider.value || 0);
+      if (immediate)
+      {
+        if (this._scrubSeekFrame)
+        {
+          cancelAnimationFrame(this._scrubSeekFrame);
+          this._scrubSeekFrame = 0;
+        }
+        return runScrubSeek(true);
+      }
+      if (!this._scrubSeekFrame)
+      {
+        this._scrubSeekFrame = requestAnimationFrame(() =>
+        {
+          this._scrubSeekFrame = 0;
+          runScrubSeek(false);
+        });
+      }
+      if (this._scrubDragging) this.updateScrubLabels(this._scrubPendingT);
+    };
+
+    topSlider.addEventListener('input', () => scheduleScrubSeek(false));
+    topSlider.addEventListener('change', () => scheduleScrubSeek(true));
     topSlider.addEventListener('pointerdown', () =>
     {
       this._scrubDragging = true;
+      timeScrub.setDragging(true);
     });
     topSlider.addEventListener('pointerup', () =>
     {
       this._scrubDragging = false;
+      timeScrub.setDragging(false);
+      scheduleScrubSeek(true);
     });
     topSlider.addEventListener('pointercancel', () =>
     {
       this._scrubDragging = false;
+      timeScrub.setDragging(false);
+      scheduleScrubSeek(true);
     });
 
     const wirePresent = btn =>
@@ -1130,13 +1222,19 @@ export class UI
     this.updateScrubLabels();
   }
 
-  updateScrubLabels()
+  updateScrubLabels(previewViewT = null)
   {
     const topSlider = $('top-scrub-slider');
     const topStatusEl = $('top-scrub-status');
     const head = timeScrub.getCurrentHeadT();
+    const wasScrubbing = this._wasScrubActive;
+    const isScrubbing = timeScrub.active || timeScrub.isViewingPast() || this._scrubDragging;
+    this._wasScrubActive = isScrubbing;
+    if (wasScrubbing && !isScrubbing) this.refreshScrubTicks(true);
     const earliest = timeScrub.getEarliestT();
-    const view = timeScrub.active ? timeScrub.viewT : head;
+    const view = previewViewT != null
+      ? previewViewT
+      : (timeScrub.active ? timeScrub.viewT : head);
     const min = earliest == null ? head : Math.max(0, earliest);
     const disablePast = earliest == null || earliest >= head - 0.01;
 
@@ -1254,6 +1352,10 @@ export class UI
       {
         const step = Math.max(1, Math.round(sampled.length / MAX_NOTCHES));
         for (let i = 0; i < sampled.length; i += step) budgeted.push(sampled[i]);
+      }
+      if (hi > lo + 0.01 && (!budgeted.length || budgeted[budgeted.length - 1] < hi - 0.01))
+      {
+        budgeted.push(hi);
       }
       const applyToScroll = (layerId) =>
       {

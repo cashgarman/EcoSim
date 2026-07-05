@@ -50,6 +50,11 @@ export function lerp(a, b, t)
   return a + (b - a) * t;
 }
 
+export function expSmoothT(rate, dt)
+{
+  return 1 - Math.exp(-rate * dt);
+}
+
 export function hashN(x, y, seed)
 {
   let h = (x * 374761393 + y * 668265263 + seed * 40499) >>> 0;
@@ -88,4 +93,27 @@ export function fbm(x, y, seed, octaves, frequency, persistence)
   }
 
   return sum / norm;
+}
+
+export async function fetchJsonWithRetry(url, attempts = 4, delayMs = 120)
+{
+  let lastErr = null;
+  for (let i = 0; i < attempts; i++)
+  {
+    try
+    {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
+    }
+    catch (err)
+    {
+      lastErr = err;
+      if (i < attempts - 1)
+      {
+        await new Promise(r => setTimeout(r, delayMs * (i + 1)));
+      }
+    }
+  }
+  throw new Error(`Failed to fetch ${url}: ${lastErr?.message || lastErr}`);
 }

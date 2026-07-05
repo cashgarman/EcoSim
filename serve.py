@@ -10,13 +10,21 @@ import threading
 
 REPORTS_DIR = 'reports'
 SAFE_ID = re.compile(r'^[A-Za-z0-9._-]+$')
-_STATIC_SEM = threading.Semaphore(6)
+_STATIC_SEM = threading.Semaphore(12)
+
+
+class ThreadingEcoSimServer(ThreadingHTTPServer):
+    daemon_threads = True
+    allow_reuse_address = True
 
 
 class EcoSimHandler(SimpleHTTPRequestHandler):
+    protocol_version = 'HTTP/1.1'
+
     def end_headers(self):
         self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate')
         self.send_header('Pragma', 'no-cache')
+        self.send_header('Connection', 'close')
         super().end_headers()
 
     def do_GET(self):
@@ -53,19 +61,31 @@ class EcoSimHandler(SimpleHTTPRequestHandler):
             data = file_obj.read()
 
         self.send_response(200)
-        if self.path.endswith('.js') or self.path.endswith('.mjs'):
+        path_only = self.path.split('?', 1)[0]
+        if path_only.endswith('.js') or path_only.endswith('.mjs'):
             ctype = 'text/javascript; charset=utf-8'
+        elif path_only.endswith('.json'):
+            ctype = 'application/json; charset=utf-8'
         else:
             ctype = self.guess_type(path)
         self.send_header('Content-type', ctype)
         self.send_header('Content-Length', str(len(data)))
         self.send_header('Last-Modified', self.date_time_string(os.path.getmtime(path)))
         self.end_headers()
-        self.wfile.write(data)
+        try:
+            self.wfile.write(data)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
     def do_POST(self):
         if self.path == '/api/batch-reports':
             self.handle_batch_reports_post()
+            return
+        self.send_error(404, 'Not found')
+
+    def do_DELETE(self):
+        if self.path.startswith('/api/batch-reports/'):
+            self.handle_batch_reports_delete()
             return
         self.send_error(404, 'Not found')
 
@@ -136,6 +156,22 @@ class EcoSimHandler(SimpleHTTPRequestHandler):
         except OSError as err:
             self.send_error(500, str(err))
 
+    def handle_batch_reports_delete(self):
+        path = self.path.split('?', 1)[0].rstrip('/')
+        run_id = path.rsplit('/', 1)[-1]
+        if not SAFE_ID.match(run_id):
+            self.send_error(400, 'Invalid run id')
+            return
+        file_path = os.path.join(REPORTS_DIR, f'{run_id}.json')
+        if not os.path.isfile(file_path):
+            self.send_json(200, {'ok': True, 'deleted': False, 'runId': run_id})
+            return
+        try:
+            os.remove(file_path)
+            self.send_json(200, {'ok': True, 'deleted': True, 'runId': run_id})
+        except OSError as err:
+            self.send_error(500, str(err))
+
     def send_json(self, code, payload):
         raw = json.dumps(payload).encode('utf-8')
         self.send_response(code)
@@ -154,7 +190,7 @@ def main():
     root = os.path.dirname(os.path.abspath(__file__))
     os.chdir(root)
     os.makedirs(os.path.join(root, REPORTS_DIR), exist_ok=True)
-    server_cls = HTTPServer if batch_mode else ThreadingHTTPServer
+    server_cls = HTTPServer if batch_mode else ThreadingEcoSimServer
     server = server_cls(('127.0.0.1', port), EcoSimHandler)
     mode = 'batch (sequential)' if batch_mode else 'threaded'
     print(f'EcoSim dev server ({mode}): http://127.0.0.1:{port}/wildlands-ecosim.html')

@@ -1,4 +1,4 @@
-import { rf } from './utils.js';
+import { rf, fetchJsonWithRetry } from './utils.js';
 
 export const B = {
   DEEP: 0,
@@ -173,9 +173,7 @@ export function buildGpuSpeciesTables()
 
 export async function loadSpeciesData(url = './data/species.json')
 {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Failed to load species config (${res.status})`);
-  const data = await res.json();
+  const data = await fetchJsonWithRetry(url);
   SPECIES = data.species;
   baseSpeciesData = JSON.parse(JSON.stringify(data.species));
   SP_KEYS = Object.keys(SPECIES);

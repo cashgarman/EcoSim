@@ -85,6 +85,7 @@ export const state = {
   gpuSimReadbackBuffer: null,
   gpuSimReadbackPending: false,
   gpuSimLastReadbackAt: 0,
+  gpuPosSyncAt: 0,
   gpuSimDirtyFromCpu: false,
   gpuSimInitReason: '',
   gpuSimMirror: [],

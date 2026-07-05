@@ -100,15 +100,28 @@ export function deserializeCreature(p)
     offspringIds: p.offspringIds ? [...p.offspringIds] : [],
     gpuSlot: -1,
     gpuNeedsUpload: true,
+    rx: p.x,
+    ry: p.y,
   };
   lifeStory.initCreature(c);
   return c;
 }
 
-export function restoreSnapshot(snapOrRow)
+export function restoreSnapshot(snapOrRow, options = {})
 {
+  const { clearSelection = true, preserveDisplay = false } = options;
   const snap = (snapOrRow && snapOrRow.snapshot) ? snapOrRow.snapshot : snapOrRow;
   if (!snap) return false;
+
+  const prevDisplay = preserveDisplay ? new Map() : null;
+  if (prevDisplay)
+  {
+    for (const c of state.creatures)
+    {
+      if (!c || c.dead || typeof c.rx !== 'number') continue;
+      prevDisplay.set(c.id, { rx: c.rx, ry: c.ry });
+    }
+  }
 
   // scalars
   if (typeof snap.t === 'number') state.tGlobal = snap.t;
@@ -141,7 +154,14 @@ export function restoreSnapshot(snapOrRow)
     for (const p of snap.creatures)
     {
       const c = deserializeCreature(p);
-      if (c) state.creatures.push(c);
+      if (!c) continue;
+      const prev = prevDisplay?.get(c.id);
+      if (prev)
+      {
+        c.rx = prev.rx;
+        c.ry = prev.ry;
+      }
+      state.creatures.push(c);
     }
   }
 
@@ -149,11 +169,44 @@ export function restoreSnapshot(snapOrRow)
   state.vegDirty = true;
   state.gpuSimDirtyFromCpu = true;
 
-  // transient UI state: drop selection for safety; caller may restore
-  state.selected = null;
-  state.followSelected = false;
+  if (clearSelection)
+  {
+    state.selected = null;
+    state.followSelected = false;
+  }
 
   return true;
+}
+
+export function reconcileSelectionAfterRestore(preserve)
+{
+  if (!preserve) return { rebound: false, reason: 'no-preserve' };
+  const { selectedId, wasFollowing } = preserve;
+  if (selectedId == null) return { rebound: false, reason: 'no-id' };
+
+  for (const c of state.creatures)
+  {
+    if (c.id !== selectedId) continue;
+    if (!c.dead)
+    {
+      state.selected = c;
+      state.followSelected = !!wasFollowing;
+      return { rebound: true, alive: true };
+    }
+    if (wasFollowing)
+    {
+      state.selected = null;
+      state.followSelected = false;
+      return { rebound: false, reason: 'dead-following' };
+    }
+    state.selected = c;
+    state.followSelected = false;
+    return { rebound: true, alive: false };
+  }
+
+  state.selected = null;
+  state.followSelected = false;
+  return { rebound: false, reason: 'missing' };
 }
 
 export function nearestSnapshotForT(snaps, t)

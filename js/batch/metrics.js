@@ -141,10 +141,7 @@ export class BatchMetricsCollector
   stabilityScore(outcome)
   {
     const { totalAlive } = this.aliveCounts();
-    if (outcome === 'stable' && totalAlive >= this.initialPop * 0.3) return 1.0;
-    if (outcome === 'partial_collapse') return 0.5;
-    if (outcome === 'timeout' && totalAlive > 0) return 0.35;
-    return 0.0;
+    return scoreFromOutcome(outcome, totalAlive, this.initialPop);
   }
 
   buildSummary(outcome)
@@ -173,6 +170,8 @@ export class BatchMetricsCollector
 
     return {
       finalDay: state.day,
+      initialPop: this.initialPop,
+      targetDays: this.targetDays,
       peakPop: this.peakPop,
       minPop: this.minPop === Infinity ? 0 : this.minPop,
       finalPop: totalAlive,
@@ -201,4 +200,72 @@ export class BatchMetricsCollector
       samples: this.samples,
     };
   }
+}
+
+export function scoreFromOutcome(outcome, finalPop, initialPop = 0)
+{
+  if (outcome === 'stable' && finalPop >= initialPop * 0.3) return 1.0;
+  if (outcome === 'partial_collapse') return 0.5;
+  if (outcome === 'timeout' && finalPop > 0) return 0.35;
+  return 0.0;
+}
+
+export function explainStabilityScore(row = {})
+{
+  const outcome = row.outcome || '';
+  const finalPop = row.finalPop ?? row.summary?.finalPop ?? 0;
+  const initialPop = row.initialPop ?? row.summary?.initialPop ?? 0;
+  const targetDays = row.targetDays ?? row.config?.targetDays ?? null;
+  const finalDay = row.finalDay ?? row.summary?.finalDay ?? null;
+  const score = row.score ?? scoreFromOutcome(outcome, finalPop, initialPop);
+  const popFloor = initialPop > 0 ? initialPop * 0.3 : null;
+  const reachedTarget = targetDays != null && finalDay != null && finalDay >= targetDays - 0.001;
+
+  let tier = '0.0 — failure';
+  let reason = `Outcome "${outcome}" maps to score 0.0.`;
+
+  if (outcome === 'stable' && finalPop >= (popFloor ?? 0))
+  {
+    tier = '1.0 — stable ecosystem';
+    reason = `All species survived through day ${targetDays ?? '?'}. Final pop ${finalPop}`
+      + (initialPop ? ` (≥30% of initial ${initialPop}, floor ${Math.ceil(popFloor)})` : '') + '.';
+  }
+  else if (outcome === 'partial_collapse')
+  {
+    tier = '0.5 — partial collapse';
+    const extinct = row.extinctSpecies?.length
+      ? row.extinctSpecies.join(', ')
+      : Object.keys(row.extinctAtDay || row.summary?.extinctAtDay || {}).join(', ') || 'unknown';
+    reason = `Reached target window but species went extinct: ${extinct}. Final pop ${finalPop}.`;
+  }
+  else if (outcome === 'timeout' && finalPop > 0)
+  {
+    tier = '0.35 — timeout with survivors';
+    reason = `Simulation stopped before day ${targetDays ?? '?'} (ended day ${finalDay ?? '?'}). ${finalPop} creatures remain.`;
+  }
+  else if (outcome === 'total_extinction')
+  {
+    reason = 'All creatures died before the run finished.';
+  }
+  else if (outcome === 'stable' && popFloor != null && finalPop < popFloor)
+  {
+    reason = `Outcome stable but final pop ${finalPop} is below the 30% retention floor (${Math.ceil(popFloor)}).`;
+  }
+
+  return {
+    score,
+    tier,
+    reason,
+    popFloor,
+    reachedTarget,
+    initialPop,
+    finalPop,
+    targetDays,
+    finalDay,
+    peakPop: row.peakPop ?? row.summary?.peakPop,
+    minPop: row.minPop ?? row.summary?.minPop,
+    collapseDay: row.collapseDay ?? row.summary?.collapseDay,
+    dominantSpecies: row.dominantSpecies ?? row.summary?.dominantSpecies,
+    wallMs: row.wallMs,
+  };
 }

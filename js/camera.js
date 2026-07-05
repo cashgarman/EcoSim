@@ -1,5 +1,6 @@
-import { clamp } from './utils.js';
+import { clamp, lerp, expSmoothT } from './utils.js';
 import { state } from './state.js';
+import { creatures } from './creatures.js';
 
 export class Camera
 {
@@ -104,20 +105,31 @@ export class Camera
     return state.cam.y + sy / state.cam.z;
   }
 
-  followSelected()
+  followSelected(dt = 1 / 60)
   {
     if (!state.followSelected) return;
     if (state.selected && !state.selected.dead)
     {
-      this.focusCreature(state.selected);
+      this.focusCreature(state.selected, dt);
     }
   }
 
-  focusCreature(c)
+  focusCreature(c, dt = null)
   {
     if (!c || !this.canvas) return;
-    state.cam.x = c.x - this.canvas.width / (2 * state.cam.z);
-    state.cam.y = c.y - this.canvas.height / (2 * state.cam.z);
+    const targetX = creatures.displayX(c) - this.canvas.width / (2 * state.cam.z);
+    const targetY = creatures.displayY(c) - this.canvas.height / (2 * state.cam.z);
+    if (dt == null || !state.followSelected)
+    {
+      state.cam.x = targetX;
+      state.cam.y = targetY;
+    }
+    else
+    {
+      const t = expSmoothT(12, dt);
+      state.cam.x = lerp(state.cam.x, targetX, t);
+      state.cam.y = lerp(state.cam.y, targetY, t);
+    }
     this.clampCam();
   }
 }

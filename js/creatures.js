@@ -1,4 +1,4 @@
-import { rng, ri, rf, gauss, clamp, lerp } from './utils.js';
+import { rng, ri, rf, gauss, clamp, lerp, expSmoothT } from './utils.js';
 import { B, SPECIES, SP_KEYS, GENE_KEYS, GENE_RANGE, isWater } from './data.js';
 import { state, MAX_POP, idx, inB, gkey, CELL } from './state.js';
 import {
@@ -133,6 +133,8 @@ export class CreatureSystem
       offspringIds: [],
       gpuSlot: this.allocateGpuSlot(),
       gpuNeedsUpload: true,
+      rx: x,
+      ry: y,
     };
     lifeStory.initCreature(c);
     state.creatures.push(c);
@@ -149,6 +151,68 @@ export class CreatureSystem
       if (c.id === id) return c;
     }
     return null;
+  }
+
+  displayX(c)
+  {
+    return typeof c.rx === 'number' ? c.rx : c.x;
+  }
+
+  displayY(c)
+  {
+    return typeof c.ry === 'number' ? c.ry : c.y;
+  }
+
+  snapDisplayPosition(c)
+  {
+    if (!c) return;
+    c.rx = c.x;
+    c.ry = c.y;
+  }
+
+  snapAllDisplayPositions()
+  {
+    for (const c of state.creatures)
+    {
+      if (!c || c.dead) continue;
+      this.snapDisplayPosition(c);
+    }
+  }
+
+  advanceDisplayPositions(dt)
+  {
+    if (!dt || dt <= 0) return;
+    const scrubbing = state.scrubActive;
+    const t = expSmoothT(scrubbing ? 10 : 16, dt);
+    const onGpu = state.simBackend === 'gpu' && state.gpuSimEnabled && !scrubbing;
+    const sinceReadback = state.gpuPosSyncAt
+      ? (performance.now() - state.gpuPosSyncAt) / 1000
+      : 0;
+
+    for (const c of state.creatures)
+    {
+      if (!c || c.dead) continue;
+      if (typeof c.rx !== 'number')
+      {
+        c.rx = c.x;
+        c.ry = c.y;
+      }
+
+      let tx = c.x;
+      let ty = c.y;
+      if (onGpu)
+      {
+        tx = c.x + c.vx * sinceReadback;
+        ty = c.y + c.vy * sinceReadback;
+      }
+
+      c.rx += (tx - c.rx) * t;
+      c.ry += (ty - c.ry) * t;
+      if (scrubbing && typeof c.walk === 'number')
+      {
+        c.walk += dt * 7;
+      }
+    }
   }
 
   addOffspring(parent, childId)
@@ -445,6 +509,7 @@ export class CreatureSystem
     }
     this.log(`🐾 Seeded a new food web with ${state.creatures.filter(c => !c.dead).length} animals.`);
     state.gpuSimDirtyFromCpu = true;
+    this.snapAllDisplayPositions();
   }
 
   pruneDead()

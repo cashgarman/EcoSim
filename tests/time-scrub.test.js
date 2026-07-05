@@ -1,5 +1,5 @@
 import { state } from '../js/state.js';
-import { captureSnapshot, restoreSnapshot, serializeCreature, deserializeCreature, nearestSnapshotForT } from '../js/snapshot.js';
+import { captureSnapshot, restoreSnapshot, serializeCreature, deserializeCreature, nearestSnapshotForT, reconcileSelectionAfterRestore } from '../js/snapshot.js';
 import { timeScrub } from '../js/time-scrub.js';
 
 function approx(a, b, eps = 1e-6)
@@ -165,6 +165,55 @@ export async function runTimeScrubTests()
     record('fork sets new head near fork point', approx(timeScrub.headT, 80.5) && !timeScrub.active);
   }
   catch (e) { record('fork promotion', false, e.message); }
+
+  // 9. restoreSnapshot clearSelection flag
+  try
+  {
+    resetMinimalState();
+    const c = deserializeCreature({ id: 50, sp: 'deer', x: 1, y: 2, genome: { lifespan: 10, size: 1 }, age: 1, hp: 90, hunger: 50, thirst: 50, energy: 80, state: 'wander', tx: 1, ty: 2, dead: false, parentIds: [], offspringIds: [] });
+    state.creatures.push(c);
+    state.selected = c;
+    state.followSelected = true;
+    const snap = captureSnapshot();
+    state.selected = null;
+    state.followSelected = false;
+    restoreSnapshot(snap);
+    record('clearSelection default clears', state.selected === null && !state.followSelected);
+    state.selected = null;
+    state.followSelected = false;
+    restoreSnapshot(snap, { clearSelection: false });
+    record('clearSelection false preserves caller state', state.selected === null && !state.followSelected);
+  }
+  catch (e) { record('clearSelection flag', false, e.message); }
+
+  // 10. selection re-bind after restore
+  try
+  {
+    resetMinimalState();
+    const c = deserializeCreature({ id: 77, sp: 'rabbit', x: 5, y: 6, genome: { lifespan: 8, size: 1 }, age: 2, hp: 80, hunger: 40, thirst: 40, energy: 70, state: 'wander', tx: 5, ty: 6, dead: false, parentIds: [], offspringIds: [] });
+    state.creatures.push(c);
+    state.selected = c;
+    state.followSelected = true;
+    const snap = captureSnapshot();
+    state.creatures = [];
+    state.selected = c;
+    restoreSnapshot(snap, { clearSelection: false });
+    const result = reconcileSelectionAfterRestore({ selectedId: 77, wasFollowing: true });
+    record('reconcile binds by id', result.rebound && state.selected && state.selected.id === 77 && state.selected !== c);
+    record('reconcile preserves follow', state.followSelected === true);
+    record('reconcile alive flag', result.alive === true);
+  }
+  catch (e) { record('selection re-bind', false, e.message); }
+
+  // 11. missing creature clears follow
+  try
+  {
+    resetMinimalState();
+    restoreSnapshot(captureSnapshot(), { clearSelection: false });
+    const result = reconcileSelectionAfterRestore({ selectedId: 9999, wasFollowing: true });
+    record('missing creature clears follow', !result.rebound && state.selected === null && !state.followSelected);
+  }
+  catch (e) { record('missing creature follow', false, e.message); }
 
   const summary = { total: passed + failed, passed, failed, results };
   console.log('TimeScrub test summary:', summary);

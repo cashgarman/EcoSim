@@ -1,4 +1,5 @@
 import { SPECIES, SP_KEYS } from '../data.js';
+import { fetchJsonWithRetry } from '../utils.js';
 
 let behaviorLibrary = null;
 let baseBehaviorLibrary = null;
@@ -121,9 +122,8 @@ function compileBehaviorFile(behaviorKey, fileData, library)
 async function fetchBehaviorFile(stem)
 {
   if (behaviorFileCache.has(stem)) return behaviorFileCache.get(stem);
-  const res = await fetch(`./data/behaviors/${stem}.json`);
-  if (!res.ok) throw new Error(`Failed to load behavior config (${stem}): ${res.status}`);
-  const data = await res.json();
+  const url = `./data/behaviors/${stem}.json`;
+  const data = await fetchJsonWithRetry(url);
   behaviorFileCache.set(stem, data);
   baseBehaviorFileCache.set(stem, JSON.parse(JSON.stringify(data)));
   return data;
@@ -202,9 +202,7 @@ export function getBehaviorActionKeys()
 
 export async function loadBehaviorLibrary(url = './data/behaviors/library.json')
 {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Failed to load behavior library (${res.status})`);
-  behaviorLibrary = await res.json();
+  behaviorLibrary = await fetchJsonWithRetry(url);
   baseBehaviorLibrary = JSON.parse(JSON.stringify(behaviorLibrary));
   behaviorOverrides = { library: {}, species: {} };
   behaviorFileCache.clear();

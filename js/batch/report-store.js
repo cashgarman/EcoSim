@@ -1,5 +1,5 @@
 const DB_NAME = 'ecosim_batch_reports';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE = 'reports';
 const CAMPAIGN_STORE = 'campaigns';
 
@@ -18,7 +18,7 @@ export class BatchReportStore
     this._opening = new Promise((resolve, reject) =>
     {
       const req = indexedDB.open(DB_NAME, DB_VERSION);
-      req.onupgradeneeded = () =>
+      req.onupgradeneeded = (event) =>
       {
         const db = req.result;
         if (!db.objectStoreNames.contains(STORE))
@@ -26,11 +26,20 @@ export class BatchReportStore
           const store = db.createObjectStore(STORE, { keyPath: 'runId' });
           store.createIndex('startedAt', 'startedAt');
           store.createIndex('outcome', 'outcome');
+          store.createIndex('archived', 'archived');
         }
         if (!db.objectStoreNames.contains(CAMPAIGN_STORE))
         {
           const store = db.createObjectStore(CAMPAIGN_STORE, { keyPath: 'campaignId' });
           store.createIndex('startedAt', 'startedAt');
+        }
+        if (event.oldVersion < 2 && db.objectStoreNames.contains(STORE))
+        {
+          const store = req.transaction.objectStore(STORE);
+          if (!store.indexNames.contains('archived'))
+          {
+            store.createIndex('archived', 'archived');
+          }
         }
       };
       req.onsuccess = () =>
@@ -70,8 +79,9 @@ export class BatchReportStore
     });
   }
 
-  async listReports(limit = 50)
+  async listReports(limit = 50, options = {})
   {
+    const includeArchived = !!options.includeArchived;
     await this._open();
     return new Promise((resolve, reject) =>
     {
@@ -86,11 +96,69 @@ export class BatchReportStore
           resolve(out);
           return;
         }
-        out.push(cursor.value);
+        const report = cursor.value;
+        if (!includeArchived && report.archived)
+        {
+          cursor.continue();
+          return;
+        }
+        out.push(report);
         cursor.continue();
       };
       req.onerror = () => reject(req.error);
     });
+  }
+
+  async archiveReports(runIds = [])
+  {
+    const ids = [...new Set(runIds.filter(Boolean))];
+    if (!ids.length) return 0;
+    await this._open();
+    let count = 0;
+    const archivedAt = new Date().toISOString();
+    for (const runId of ids)
+    {
+      const report = await this.getReport(runId);
+      if (!report || report.archived) continue;
+      report.archived = true;
+      report.archivedAt = archivedAt;
+      await this.saveReport(report);
+      count++;
+    }
+    return count;
+  }
+
+  async deleteReports(runIds = [])
+  {
+    const ids = [...new Set(runIds.filter(Boolean))];
+    if (!ids.length) return;
+    await this._open();
+    await new Promise((resolve, reject) =>
+    {
+      const tx = this._db.transaction([STORE], 'readwrite');
+      const store = tx.objectStore(STORE);
+      for (const runId of ids) store.delete(runId);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    for (const runId of ids)
+    {
+      await this.deleteFromServer(runId);
+    }
+  }
+
+  async deleteFromServer(runId)
+  {
+    if (!runId) return false;
+    try
+    {
+      const res = await fetch(`/api/batch-reports/${encodeURIComponent(runId)}`, { method: 'DELETE' });
+      return res.ok || res.status === 404;
+    }
+    catch (e)
+    {
+      return false;
+    }
   }
 
   async listCampaigns(limit = 20)

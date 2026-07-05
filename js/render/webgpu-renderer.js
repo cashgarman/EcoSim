@@ -206,8 +206,8 @@ export class WebGpuRenderer
       const baseSize = Math.max(0.7, creatures.eSize(c) * markerScale);
       const col = creatureRenderer.creatureColor(c);
       const bright = creatureRenderer.creatureDrawBrightness(c);
-      data[i * stride + 0] = c.x;
-      data[i * stride + 1] = c.y;
+      data[i * stride + 0] = creatures.displayX(c);
+      data[i * stride + 1] = creatures.displayY(c);
       data[i * stride + 2] = baseSize;
       data[i * stride + 3] = 0;
       data[i * stride + 4] = col[0] / 255 * bright;
@@ -221,8 +221,8 @@ export class WebGpuRenderer
       const isHighlighted = state.selected === c || isLockedSpecies || isHoveredSpecies;
       if (highlightTier <= 0 || !isHighlighted || i >= maxInstances) continue;
       const rgb = state.selected === c || isLockedSpecies ? [242, 181, 62] : [87, 184, 232];
-      data[i * stride + 0] = c.x;
-      data[i * stride + 1] = c.y;
+      data[i * stride + 0] = creatures.displayX(c);
+      data[i * stride + 1] = creatures.displayY(c);
       data[i * stride + 2] = baseSize * 1.35;
       data[i * stride + 3] = 1;
       data[i * stride + 4] = rgb[0] / 255;

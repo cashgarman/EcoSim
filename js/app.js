@@ -69,6 +69,7 @@ export class GameApp
     ui.initPanelCollapse();
     ui.initTimelineDbViewer();
     ui.initTimeScrubber();
+    timeScrub.setAfterRestoreCallback(p => ui.reconcileSelectionAfterScrub(p));
     simulation.updateDayNight();
     ui.syncGraphCanvas();
     ui.applyStatsPanelMode('normal');
@@ -298,7 +299,9 @@ export class GameApp
           try
           {
             const snap = captureSnapshot();
-            timelineDb.appendSnapshot({ t: snap.t, day: snap.day, snapshot: snap });
+            const row = { t: snap.t, day: snap.day, snapshot: snap };
+            timelineDb.appendSnapshot(row);
+            timeScrub.cacheSnapshotRow(row);
           }
           catch (e)
           {
@@ -307,9 +310,14 @@ export class GameApp
         }
       }
 
+      if (state.ready)
+      {
+        creatures.advanceDisplayPositions(dt);
+      }
+
       if (state.followSelected)
       {
-        if (state.selected && !state.selected.dead) camera.followSelected();
+        if (state.selected && !state.selected.dead) camera.followSelected(dt);
         else ui.deselect();
       }
       else if (state.selected && state.selected.dead)
@@ -322,10 +330,12 @@ export class GameApp
       let shouldRender = false;
       if (state.ready)
       {
-        const skipDecimationForWebGpu = state.rendererBackend === 'webgpu';
-        shouldRender = skipDecimationForWebGpu
+        const skipDecimationForWebGpu = state.rendererBackend === 'webgpu' && !state.scrubActive;
+        shouldRender = state.scrubActive
           ? true
-          : (quality.frameCounter % quality.renderDecimation) === 0;
+          : skipDecimationForWebGpu
+            ? true
+            : (quality.frameCounter % quality.renderDecimation) === 0;
         if (shouldRender) renderPipeline.render();
       }
       const frameMs = performance.now() - frameStart;

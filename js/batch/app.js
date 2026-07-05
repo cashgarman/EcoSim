@@ -3,12 +3,16 @@ import { loadBehaviorLibrary } from '../behavior/loader.js';
 import { BatchRunner, parseBatchParams, overridesFromUi } from './runner.js';
 import { BalanceUi } from './balance-ui.js';
 import { batchReportStore } from './report-store.js';
+import { mergeStoredParams, saveStoredFormConfig } from './form-storage.js';
+import { buildHistoryDetailElement } from './history-detail.js';
+import { buildCampaignDetailElement } from './campaign-detail.js';
+import { initPanelResize } from './panel-resize.js';
 
 class BatchTestApp
 {
   constructor()
   {
-    this.params = parseBatchParams();
+    this.params = mergeStoredParams(parseBatchParams());
     this.runner = new BatchRunner({
       onProgress: prog => this.updateProgress(prog),
       onReport: report => this.addHistoryRow(report),
@@ -16,6 +20,15 @@ class BatchTestApp
       onComplete: report => this.onRunComplete(report),
     });
     this.balanceUi = null;
+    this.historySortKey = 'time';
+    this.historySortDir = 'desc';
+    this._historyReports = [];
+    this._historyExpanded = new Set();
+    this._historySelected = new Set();
+    this._campaign = null;
+    this._campaignExpanded = new Set();
+    this.campaignSortKey = 'score';
+    this.campaignSortDir = 'desc';
   }
 
   async init()
@@ -34,6 +47,7 @@ class BatchTestApp
     }
 
     this.bindForm();
+    initPanelResize();
     await this.refreshHistory();
 
     if (this.params.autostart)
@@ -61,16 +75,321 @@ class BatchTestApp
     fuzz.fuzzScope.value = this.params.fuzzScope;
     fuzz.fuzzProfile.value = this.params.fuzzProfile;
 
+    const persistForm = () => saveStoredFormConfig(this.readParamsFromForm());
+    sim.addEventListener('change', persistForm);
+    sim.addEventListener('input', persistForm);
+    fuzz.addEventListener('change', persistForm);
+    fuzz.addEventListener('input', persistForm);
+
     document.getElementById('run-btn').addEventListener('click', () => this.startRun());
     document.getElementById('abort-btn').addEventListener('click', () => this.runner.abort());
     document.getElementById('export-csv-btn').addEventListener('click', () => this.exportCsv());
+    document.getElementById('history-archive-btn').addEventListener('click', () => this.archiveSelectedHistory());
+    document.getElementById('history-delete-btn').addEventListener('click', () => this.deleteSelectedHistory());
+    document.getElementById('history-select-all').addEventListener('change', (e) =>
+    {
+      this.setAllHistorySelected(e.target.checked);
+    });
+    document.querySelectorAll('#history-table .sort-header').forEach(btn =>
+    {
+      btn.addEventListener('click', () => this.setHistorySort(btn.dataset.sort));
+    });
+  }
+
+  reportTimeMs(report)
+  {
+    if (report?.startedAt)
+    {
+      const ms = Date.parse(report.startedAt);
+      if (Number.isFinite(ms)) return ms;
+    }
+    const m = /^batch-(\d+)-/.exec(report?.runId || '');
+    return m ? Number(m[1]) : 0;
+  }
+
+  formatReportTime(report)
+  {
+    const ms = this.reportTimeMs(report);
+    if (!ms) return '—';
+    return new Date(ms).toLocaleString();
+  }
+
+  setHistorySort(key)
+  {
+    if (this.historySortKey === key)
+    {
+      this.historySortDir = this.historySortDir === 'desc' ? 'asc' : 'desc';
+    }
+    else
+    {
+      this.historySortKey = key;
+      this.historySortDir = 'desc';
+    }
+    this.renderHistoryTable();
+  }
+
+  historySortValue(report, key)
+  {
+    switch (key)
+    {
+      case 'runId': return report.runId || '';
+      case 'time': return this.reportTimeMs(report);
+      case 'outcome': return report.outcome || '';
+      case 'pop': return report.summary?.finalPop ?? 0;
+      case 'gen': return report.summary?.generationMax ?? 0;
+      case 'sim': return report.config?.simBackend || 'cpu';
+      case 'wall': return report.wallMs ?? 0;
+      default: return '';
+    }
+  }
+
+  compareHistoryValues(a, b)
+  {
+    const na = typeof a === 'number' && Number.isFinite(a);
+    const nb = typeof b === 'number' && Number.isFinite(b);
+    if (na && nb) return a - b;
+    return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' });
+  }
+
+  upsertHistoryReport(report)
+  {
+    const i = this._historyReports.findIndex(r => r.runId === report.runId);
+    if (i >= 0) this._historyReports[i] = report;
+    else this._historyReports.push(report);
+    this.renderHistoryTable();
+  }
+
+  sortHistoryReports(reports)
+  {
+    const dir = this.historySortDir === 'asc' ? 1 : -1;
+    const key = this.historySortKey;
+    return [...reports].sort((a, b) =>
+    {
+      const cmp = this.compareHistoryValues(
+        this.historySortValue(a, key),
+        this.historySortValue(b, key),
+      );
+      if (cmp !== 0) return cmp * dir;
+      return this.compareHistoryValues(this.reportTimeMs(a), this.reportTimeMs(b)) * -1;
+    });
+  }
+
+  updateHistorySortHeaders()
+  {
+    document.querySelectorAll('#history-table .sort-header').forEach(btn =>
+    {
+      const active = btn.dataset.sort === this.historySortKey;
+      btn.classList.toggle('active', active);
+      const ind = btn.querySelector('.sort-indicator');
+      if (ind) ind.textContent = active ? (this.historySortDir === 'asc' ? '↑' : '↓') : '';
+    });
+  }
+
+  toggleHistoryExpand(runId)
+  {
+    if (this._historyExpanded.has(runId)) this._historyExpanded.delete(runId);
+    else this._historyExpanded.add(runId);
+    this.renderHistoryTable();
+  }
+
+  toggleHistorySelect(runId, selected)
+  {
+    if (selected) this._historySelected.add(runId);
+    else this._historySelected.delete(runId);
+    this.updateHistoryBulkUi();
+  }
+
+  setAllHistorySelected(selected)
+  {
+    this._historySelected.clear();
+    if (selected)
+    {
+      for (const report of this._historyReports)
+      {
+        this._historySelected.add(report.runId);
+      }
+    }
+    this.renderHistoryTable();
+  }
+
+  getSelectedHistoryIds()
+  {
+    return [...this._historySelected];
+  }
+
+  updateHistoryBulkUi()
+  {
+    const count = this._historySelected.size;
+    const archiveBtn = document.getElementById('history-archive-btn');
+    const deleteBtn = document.getElementById('history-delete-btn');
+    const countEl = document.getElementById('history-selection-count');
+    const selectAll = document.getElementById('history-select-all');
+    if (archiveBtn) archiveBtn.disabled = count === 0;
+    if (deleteBtn) deleteBtn.disabled = count === 0;
+    if (countEl) countEl.textContent = `${count} selected`;
+    if (selectAll)
+    {
+      const visible = this._historyReports.length;
+      selectAll.checked = visible > 0 && count === visible;
+      selectAll.indeterminate = count > 0 && count < visible;
+    }
+  }
+
+  async archiveSelectedHistory()
+  {
+    const runIds = this.getSelectedHistoryIds();
+    if (!runIds.length) return;
+    const archived = await batchReportStore.archiveReports(runIds);
+    for (const runId of runIds)
+    {
+      this._historySelected.delete(runId);
+      this._historyExpanded.delete(runId);
+    }
+    await this.refreshHistory();
+    this.setStatus(`Archived ${archived} run${archived === 1 ? '' : 's'}.`, true);
+  }
+
+  async deleteSelectedHistory()
+  {
+    const runIds = this.getSelectedHistoryIds();
+    if (!runIds.length) return;
+    const noun = runIds.length === 1 ? 'this run' : `${runIds.length} runs`;
+    if (!window.confirm(`Permanently delete ${noun} from history? This cannot be undone.`)) return;
+    await batchReportStore.deleteReports(runIds);
+    for (const runId of runIds)
+    {
+      this._historySelected.delete(runId);
+      this._historyExpanded.delete(runId);
+    }
+    await this.refreshHistory();
+    this.setStatus(`Deleted ${runIds.length} run${runIds.length === 1 ? '' : 's'}.`, true);
+  }
+
+  loadBalanceFromReport(report)
+  {
+    const balance = report.balanceConfig;
+    if (!balance) return;
+    this.balanceUi.setOverrides({
+      speciesOverrides: balance.speciesOverrides || {},
+      behaviorLibraryOverrides: balance.behaviorLibraryOverrides || {},
+      behaviorSpeciesOverrides: balance.behaviorSpeciesOverrides || {},
+    });
+  }
+
+  renderHistoryTable()
+  {
+    this.updateHistorySortHeaders();
+
+    const tbody = document.querySelector('#history-table tbody');
+    tbody.innerHTML = '';
+    const sorted = this.sortHistoryReports(this._historyReports);
+    for (const report of sorted)
+    {
+      const expanded = this._historyExpanded.has(report.runId);
+      const selected = this._historySelected.has(report.runId);
+      const tr = document.createElement('tr');
+      tr.className = 'history-row'
+        + (expanded ? ' expanded' : '')
+        + (selected ? ' selected' : '');
+
+      const checkTd = document.createElement('td');
+      checkTd.className = 'history-check-col';
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.className = 'history-check';
+      checkbox.checked = selected;
+      checkbox.setAttribute('aria-label', `Select ${report.runId}`);
+      checkbox.addEventListener('click', (e) => e.stopPropagation());
+      checkbox.addEventListener('change', (e) =>
+      {
+        e.stopPropagation();
+        this.toggleHistorySelect(report.runId, e.target.checked);
+        tr.classList.toggle('selected', e.target.checked);
+      });
+      checkTd.appendChild(checkbox);
+      tr.appendChild(checkTd);
+
+      const toggleTd = document.createElement('td');
+      const toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'expand-btn btn';
+      toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+      toggle.setAttribute('aria-label', expanded ? 'Collapse run details' : 'Expand run details');
+      toggle.textContent = expanded ? '▼' : '▶';
+      toggle.addEventListener('click', (e) =>
+      {
+        e.stopPropagation();
+        this.toggleHistoryExpand(report.runId);
+      });
+      toggleTd.appendChild(toggle);
+      tr.appendChild(toggleTd);
+
+      const cells = [
+        report.runId,
+        this.formatReportTime(report),
+        report.outcome,
+        report.summary?.finalPop ?? 0,
+        report.summary?.generationMax ?? 0,
+        report.config?.simBackend ?? 'cpu',
+        `${(report.wallMs / 1000).toFixed(1)}s`,
+      ];
+      for (const text of cells)
+      {
+        const td = document.createElement('td');
+        td.textContent = String(text);
+        tr.appendChild(td);
+      }
+
+      const actionsTd = document.createElement('td');
+      const dl = document.createElement('button');
+      dl.type = 'button';
+      dl.className = 'btn';
+      dl.textContent = 'JSON';
+      dl.addEventListener('click', (e) =>
+      {
+        e.stopPropagation();
+        const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `${report.runId}.json`;
+        a.click();
+      });
+      actionsTd.appendChild(dl);
+      tr.appendChild(actionsTd);
+
+      tr.addEventListener('click', (e) =>
+      {
+        if (e.target.closest('button, input, label, a')) return;
+        this.toggleHistoryExpand(report.runId);
+      });
+      tbody.appendChild(tr);
+
+      if (expanded)
+      {
+        const detailTr = document.createElement('tr');
+        detailTr.className = 'history-detail-row';
+        const detailTd = document.createElement('td');
+        detailTd.colSpan = 10;
+        detailTd.appendChild(buildHistoryDetailElement(report, {
+          onLoadBalance: (r) => this.loadBalanceFromReport(r),
+        }));
+        detailTr.appendChild(detailTd);
+        tbody.appendChild(detailTr);
+      }
+    }
+    this.updateHistoryBulkUi();
+  }
+
+  addHistoryRow(report)
+  {
+    this.upsertHistoryReport(report);
   }
 
   readParamsFromForm()
   {
     const sim = document.getElementById('sim-config');
     const fuzz = document.getElementById('fuzz-config');
-    return {
+    const params = {
       ...this.params,
       seed: Number(sim.seed.value) || this.params.seed,
       size: sim.size.value,
@@ -89,6 +408,8 @@ class BatchTestApp
       fuzzScope: fuzz.fuzzScope.value || 'all',
       fuzzProfile: fuzz.fuzzProfile.value || 'fast',
     };
+    saveStoredFormConfig(params);
+    return params;
   }
 
   setStatus(text, done = false)
@@ -183,34 +504,156 @@ class BatchTestApp
 
   onCampaignComplete(campaign)
   {
+    this._campaign = campaign;
     const top = campaign.ranked[0];
     this.setStatus(
       `Fuzz done — ${campaign.histogram.stable} stable / ${campaign.fuzzTrials} trials` +
       (top ? ` · best pop ${top.finalPop}` : ''),
       true,
     );
-    this.renderCampaign(campaign);
+    this.renderCampaign();
   }
 
-  renderCampaign(campaign)
+  campaignSortValue(row, key)
+  {
+    switch (key)
+    {
+      case 'score': return row.score ?? 0;
+      case 'outcome': return row.outcome || '';
+      case 'pop': return row.finalPop ?? 0;
+      case 'gen': return row.generationMax ?? 0;
+      default: return '';
+    }
+  }
+
+  sortCampaignRows(rows)
+  {
+    const dir = this.campaignSortDir === 'asc' ? 1 : -1;
+    const key = this.campaignSortKey;
+    return [...rows].sort((a, b) =>
+    {
+      const cmp = this.compareHistoryValues(
+        this.campaignSortValue(a, key),
+        this.campaignSortValue(b, key),
+      );
+      if (cmp !== 0) return cmp * dir;
+      return this.compareHistoryValues(a.score ?? 0, b.score ?? 0) * -1;
+    });
+  }
+
+  setCampaignSort(key)
+  {
+    if (this.campaignSortKey === key)
+    {
+      this.campaignSortDir = this.campaignSortDir === 'desc' ? 'asc' : 'desc';
+    }
+    else
+    {
+      this.campaignSortKey = key;
+      this.campaignSortDir = 'desc';
+    }
+    this.renderCampaign();
+  }
+
+  toggleCampaignExpand(runId)
+  {
+    if (this._campaignExpanded.has(runId)) this._campaignExpanded.delete(runId);
+    else this._campaignExpanded.add(runId);
+    this.renderCampaign();
+  }
+
+  updateCampaignSortHeaders()
+  {
+    document.querySelectorAll('#campaign-table .sort-header').forEach(btn =>
+    {
+      const active = btn.dataset.sort === this.campaignSortKey;
+      btn.classList.toggle('active', active);
+      const ind = btn.querySelector('.sort-indicator');
+      if (ind) ind.textContent = active ? (this.campaignSortDir === 'asc' ? '↑' : '↓') : '';
+    });
+  }
+
+  renderCampaign()
   {
     const el = document.getElementById('campaign-results');
     el.innerHTML = '';
+    const campaign = this._campaign;
+    if (!campaign?.ranked?.length)
+    {
+      el.innerHTML = '<p class="empty">Fuzz campaign rankings appear here.</p>';
+      return;
+    }
+
     const h = document.createElement('h3');
     h.textContent = `Campaign ${campaign.campaignId} (${campaign.trialsPerMinute?.toFixed(1)} trials/min)`;
     el.appendChild(h);
+
+    const hist = campaign.histogram || {};
+    const histLine = document.createElement('p');
+    histLine.className = 'campaign-histogram';
+    histLine.textContent = `stable ${hist.stable ?? 0} · partial ${hist.partial_collapse ?? 0} · extinct ${hist.total_extinction ?? 0} · timeout ${hist.timeout ?? 0}`;
+    el.appendChild(histLine);
+
+    const wrap = document.createElement('div');
+    wrap.className = 'batch-table-wrap campaign-table-wrap';
     const table = document.createElement('table');
-    table.innerHTML = '<thead><tr><th>Score</th><th>Outcome</th><th>Pop</th><th>Gen</th><th></th></tr></thead>';
-    const tbody = document.createElement('tbody');
-    for (const row of campaign.ranked.slice(0, 10))
+    table.id = 'campaign-table';
+    table.innerHTML = `<thead><tr>
+      <th aria-label="Expand"></th>
+      <th><button type="button" class="sort-header" data-sort="score">Score <span class="sort-indicator"></span></button></th>
+      <th><button type="button" class="sort-header" data-sort="outcome">Outcome <span class="sort-indicator"></span></button></th>
+      <th><button type="button" class="sort-header" data-sort="pop">Pop <span class="sort-indicator"></span></button></th>
+      <th><button type="button" class="sort-header" data-sort="gen">Gen <span class="sort-indicator"></span></button></th>
+      <th></th>
+    </tr></thead>`;
+    table.querySelectorAll('.sort-header').forEach(btn =>
     {
+      btn.addEventListener('click', () => this.setCampaignSort(btn.dataset.sort));
+    });
+
+    const tbody = document.createElement('tbody');
+    const sorted = this.sortCampaignRows(campaign.ranked);
+    for (const row of sorted)
+    {
+      const expanded = this._campaignExpanded.has(row.runId);
       const tr = document.createElement('tr');
-      tr.innerHTML = `<td>${row.score?.toFixed(2)}</td><td>${row.outcome}</td><td>${row.finalPop}</td><td>${row.generationMax}</td><td></td>`;
+      tr.className = 'campaign-row' + (expanded ? ' expanded' : '');
+
+      const toggleTd = document.createElement('td');
+      const toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'expand-btn btn';
+      toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+      toggle.textContent = expanded ? '▼' : '▶';
+      toggle.addEventListener('click', (e) =>
+      {
+        e.stopPropagation();
+        this.toggleCampaignExpand(row.runId);
+      });
+      toggleTd.appendChild(toggle);
+      tr.appendChild(toggleTd);
+
+      const cells = [
+        row.score?.toFixed(2) ?? '0.00',
+        row.outcome,
+        row.finalPop,
+        row.generationMax,
+      ];
+      for (const text of cells)
+      {
+        const td = document.createElement('td');
+        td.textContent = String(text);
+        tr.appendChild(td);
+      }
+
+      const actionsTd = document.createElement('td');
       const btn = document.createElement('button');
       btn.type = 'button';
+      btn.className = 'btn';
       btn.textContent = 'Load config';
-      btn.addEventListener('click', () =>
+      btn.addEventListener('click', (e) =>
       {
+        e.stopPropagation();
         if (row.balanceConfig)
         {
           this.balanceUi.setOverrides({
@@ -220,54 +663,56 @@ class BatchTestApp
           });
         }
       });
-      tr.lastElementChild.appendChild(btn);
-      tbody.appendChild(tr);
-    }
-    table.appendChild(tbody);
-    el.appendChild(table);
-  }
+      actionsTd.appendChild(btn);
+      tr.appendChild(actionsTd);
 
-  addHistoryRow(report)
-  {
-    const tbody = document.querySelector('#history-table tbody');
-    const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${report.runId}</td><td>${report.outcome}</td><td>${report.summary?.finalPop ?? 0}</td><td>${report.summary?.generationMax ?? 0}</td><td>${report.config?.simBackend ?? 'cpu'}</td><td>${(report.wallMs / 1000).toFixed(1)}s</td><td></td>`;
-    const dl = document.createElement('button');
-    dl.type = 'button';
-    dl.textContent = 'JSON';
-    dl.addEventListener('click', () =>
-    {
-      const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = `${report.runId}.json`;
-      a.click();
-    });
-    tr.lastElementChild.appendChild(dl);
-    tbody.prepend(tr);
+      tr.addEventListener('click', (e) =>
+      {
+        if (e.target.closest('button')) return;
+        this.toggleCampaignExpand(row.runId);
+      });
+      tbody.appendChild(tr);
+
+      if (expanded)
+      {
+        const detailTr = document.createElement('tr');
+        detailTr.className = 'campaign-detail-row';
+        const detailTd = document.createElement('td');
+        detailTd.colSpan = 6;
+        detailTd.appendChild(buildCampaignDetailElement(row));
+        detailTr.appendChild(detailTd);
+        tbody.appendChild(detailTr);
+      }
+    }
+
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+    el.appendChild(wrap);
+    this.updateCampaignSortHeaders();
   }
 
   async refreshHistory()
   {
-    const reports = await batchReportStore.listReports(30);
-    const tbody = document.querySelector('#history-table tbody');
-    tbody.innerHTML = '';
-    for (const report of reports)
+    this._historyReports = await batchReportStore.listReports(30);
+    const visible = new Set(this._historyReports.map(r => r.runId));
+    for (const runId of this._historySelected)
     {
-      this.addHistoryRow(report);
+      if (!visible.has(runId)) this._historySelected.delete(runId);
     }
+    this.renderHistoryTable();
   }
 
   async exportCsv()
   {
     const reports = await batchReportStore.listReports(200);
-    const lines = ['runId,outcome,score,finalPop,generationMax,seed,hungerGraze,rabbitLifespan'];
+    const lines = ['runId,startedAt,outcome,score,finalPop,generationMax,seed,hungerGraze,rabbitLifespan'];
     for (const r of reports)
     {
       const hg = r.balanceConfig?.effective?.behavior?.rabbit?.thresholds?.hungerGraze ?? '';
       const life = r.balanceConfig?.effective?.species?.rabbit?.base?.lifespan ?? '';
       lines.push([
         r.runId,
+        r.startedAt || '',
         r.outcome,
         r.score ?? '',
         r.summary?.finalPop ?? '',

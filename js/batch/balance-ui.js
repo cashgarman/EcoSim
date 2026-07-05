@@ -74,10 +74,9 @@ export class BalanceUi
     this.root.innerHTML = '';
 
     const globalSec = document.createElement('details');
-    globalSec.open = true;
     globalSec.innerHTML = '<summary>Global Behavior Thresholds</summary>';
     const globalBody = document.createElement('div');
-    globalBody.className = 'balance-grid';
+    globalBody.className = 'balance-grid balance-grid-dense';
     const lib = this.defaults.library;
     if (lib?.thresholds)
     {
@@ -108,7 +107,7 @@ export class BalanceUi
     const actionsSec = document.createElement('details');
     actionsSec.innerHTML = '<summary>Global Action speedMult</summary>';
     const actionsBody = document.createElement('div');
-    actionsBody.className = 'balance-grid';
+    actionsBody.className = 'balance-grid balance-grid-dense';
     for (const key of getBehaviorActionKeys())
     {
       const baseVal = lib?.actions?.[key]?.speedMult ?? 1;
@@ -140,7 +139,7 @@ export class BalanceUi
       const S = SPECIES[sp];
       det.innerHTML = `<summary>${S.emoji} ${S.label}</summary>`;
       const body = document.createElement('div');
-      body.className = 'balance-grid';
+      body.className = 'balance-grid balance-grid-species';
       for (const gene of GENE_KEYS)
       {
         if (gene === 'hue') continue;
@@ -191,7 +190,7 @@ export class BalanceUi
       const det = document.createElement('details');
       det.innerHTML = `<summary>${SPECIES[sp].label} behavior</summary>`;
       const body = document.createElement('div');
-      body.className = 'balance-grid';
+      body.className = 'balance-grid balance-grid-species';
       for (const key of getBehaviorThresholdKeys())
       {
         const resolved = SPECIES[sp]?.behaviorConfig?.thresholds?.[key];
@@ -243,6 +242,7 @@ export class BalanceUi
     tools.className = 'balance-tools';
     const copyBtn = document.createElement('button');
     copyBtn.type = 'button';
+    copyBtn.className = 'btn';
     copyBtn.textContent = 'Copy overrides JSON';
     copyBtn.addEventListener('click', () =>
     {
@@ -250,6 +250,7 @@ export class BalanceUi
     });
     const resetBtn = document.createElement('button');
     resetBtn.type = 'button';
+    resetBtn.className = 'btn';
     resetBtn.textContent = 'Reset to defaults';
     resetBtn.addEventListener('click', () => this.resetDefaults());
     tools.appendChild(copyBtn);
@@ -259,11 +260,13 @@ export class BalanceUi
 
   _numberRow(id, label, value, defaultVal, min, max, onInput)
   {
-    const row = document.createElement('label');
-    row.className = 'balance-row';
-    if (Math.abs(value - defaultVal) > 0.001) row.classList.add('changed');
-    row.htmlFor = id;
-    row.innerHTML = `<span>${label}</span>`;
+    const cell = document.createElement('div');
+    cell.className = 'balance-cell';
+    if (Math.abs(value - defaultVal) > 0.001) cell.classList.add('changed');
+    const lab = document.createElement('span');
+    lab.className = 'balance-cell-label';
+    lab.textContent = label;
+    lab.title = label;
     const input = document.createElement('input');
     input.type = 'number';
     input.id = id;
@@ -276,16 +279,25 @@ export class BalanceUi
       onInput(Number(input.value));
       this.render();
     });
-    row.appendChild(input);
-    return row;
+    cell.appendChild(lab);
+    cell.appendChild(input);
+    return cell;
   }
 
   _rangeRow(id, label, sp, field, baseRange, min, max)
   {
-    const row = document.createElement('div');
-    row.className = 'balance-row range-row';
+    const cell = document.createElement('div');
+    cell.className = 'balance-cell balance-range-cell';
     const cur = this.overrides.speciesOverrides?.[sp]?.[field] ?? baseRange;
-    row.innerHTML = `<span>${label}</span>`;
+    if (Math.abs(cur[0] - baseRange[0]) > 0.001 || Math.abs(cur[1] - baseRange[1]) > 0.001)
+    {
+      cell.classList.add('changed');
+    }
+    const lab = document.createElement('span');
+    lab.className = 'balance-cell-label';
+    lab.textContent = label;
+    const inputs = document.createElement('div');
+    inputs.className = 'balance-range-inputs';
     const minIn = document.createElement('input');
     minIn.type = 'number';
     minIn.step = 'any';
@@ -303,9 +315,11 @@ export class BalanceUi
     };
     minIn.addEventListener('change', apply);
     maxIn.addEventListener('change', apply);
-    row.appendChild(minIn);
-    row.appendChild(maxIn);
-    return row;
+    inputs.appendChild(minIn);
+    inputs.appendChild(maxIn);
+    cell.appendChild(lab);
+    cell.appendChild(inputs);
+    return cell;
   }
 }
 

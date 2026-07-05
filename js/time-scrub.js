@@ -14,8 +14,12 @@ export class TimeScrubController
     this.baselineSnapshot = null;
     this.earliestSnapshotT = null;
     this.seeking = false;
+    this.dragging = false;
     this._seekSeq = 0;
     this._baselinePromise = null;
+    this._afterRestoreCallback = null;
+    this._snapshotRowCache = new Map();
+    this._snapshotCacheWarmed = false;
   }
 
   resetForNewRun()
@@ -26,13 +30,29 @@ export class TimeScrubController
     this.baselineSnapshot = null;
     this.earliestSnapshotT = null;
     this.seeking = false;
+    this.dragging = false;
     this._seekSeq = 0;
     this._baselinePromise = null;
+    this._snapshotRowCache.clear();
+    this._snapshotCacheWarmed = false;
+  }
+
+  setAfterRestoreCallback(fn)
+  {
+    this._afterRestoreCallback = fn;
+  }
+
+  setDragging(active)
+  {
+    this.dragging = !!active;
+    this.syncScrubFlags();
   }
 
   isViewingPast()
   {
-    return this.seeking || (this.active && (this.viewT < this.headT - 0.01));
+    return this.seeking
+      || this.dragging
+      || (this.active && (this.viewT < this.headT - 0.01));
   }
 
   syncScrubFlags()
@@ -48,6 +68,14 @@ export class TimeScrubController
   getEarliestT()
   {
     return this.earliestSnapshotT;
+  }
+
+  _captureSelectionPreserve()
+  {
+    return {
+      selectedId: state.selected?.id ?? null,
+      wasFollowing: state.followSelected,
+    };
   }
 
   async refreshEarliestSnapshotT()
@@ -98,6 +126,55 @@ export class TimeScrubController
     }
   }
 
+  cacheSnapshotRow(row)
+  {
+    if (row && typeof row.t === 'number') this._snapshotRowCache.set(row.t, row);
+  }
+
+  async warmSnapshotCache()
+  {
+    if (this._snapshotCacheWarmed) return;
+    this._snapshotCacheWarmed = true;
+    try
+    {
+      const head = this.headT || state.tGlobal;
+      const rows = await timelineDb.listSnapshots({ limit: 240, beforeT: head });
+      for (const row of rows)
+      {
+        if (row && typeof row.t === 'number') this._snapshotRowCache.set(row.t, row);
+      }
+    }
+    catch (e)
+    {
+      // ignore cache warm failures
+    }
+  }
+
+  _cachedSnapshotAtOrBefore(clamped)
+  {
+    let best = null;
+    let bestT = -Infinity;
+    for (const [t, row] of this._snapshotRowCache)
+    {
+      if (t <= clamped && t > bestT)
+      {
+        bestT = t;
+        best = row;
+      }
+    }
+    return best;
+  }
+
+  async _resolveSnapshotAtOrBefore(clamped, seq)
+  {
+    const cached = this._cachedSnapshotAtOrBefore(clamped);
+    if (cached) return cached;
+    const row = await timelineDb.getNearestSnapshotAtOrBefore(null, clamped);
+    if (seq !== this._seekSeq) return null;
+    if (row && typeof row.t === 'number') this._snapshotRowCache.set(row.t, row);
+    return row;
+  }
+
   noteLiveAdvance()
   {
     if (!this.active)
@@ -106,8 +183,10 @@ export class TimeScrubController
     }
   }
 
-  async seekTo(targetT)
+  async seekTo(targetT, options = {})
   {
+    const { flush = true, light = false } = options;
+    const preserve = this._captureSelectionPreserve();
     const seq = ++this._seekSeq;
     this.seeking = true;
     this.syncScrubFlags();
@@ -121,22 +200,24 @@ export class TimeScrubController
 
       const minT = earliest == null ? head : earliest;
       const clamped = Math.max(minT, Math.min(target, head));
-      await timelineDb.flushNow();
+      if (flush) await timelineDb.flushNow();
       await this.captureBaselineIfNeeded();
       if (seq !== this._seekSeq) return false;
+      if (!this._snapshotCacheWarmed) await this.warmSnapshotCache();
+      if (seq !== this._seekSeq) return false;
 
-      const row = await timelineDb.getNearestSnapshotAtOrBefore(null, clamped);
+      const row = await this._resolveSnapshotAtOrBefore(clamped, seq);
       if (row && row.snapshot)
       {
         if (seq !== this._seekSeq) return false;
-        const ok = restoreSnapshot(row);
+        const ok = restoreSnapshot(row, { clearSelection: false, preserveDisplay: true });
         if (ok)
         {
           if (seq !== this._seekSeq) return false;
           this.viewT = state.tGlobal;
           this.active = this.viewT < this.headT - 0.01;
-          this._afterRestoreSideEffects();
-          this._persistScrubState();
+          this._afterRestoreSideEffects(preserve, { light });
+          if (!light) this._persistScrubState();
           return true;
         }
       }
@@ -144,14 +225,14 @@ export class TimeScrubController
       {
         // Allow seeking to the present even when no stored snapshots exist yet.
         if (seq !== this._seekSeq) return false;
-        const ok = restoreSnapshot(this.baselineSnapshot);
+        const ok = restoreSnapshot(this.baselineSnapshot, { clearSelection: false });
         if (ok)
         {
           if (seq !== this._seekSeq) return false;
           this.viewT = state.tGlobal;
           this.active = false;
-          this._afterRestoreSideEffects();
-          this._persistScrubState();
+          this._afterRestoreSideEffects(preserve, { light });
+          if (!light) this._persistScrubState();
           return true;
         }
       }
@@ -170,29 +251,35 @@ export class TimeScrubController
 
   async goToPresent()
   {
+    const preserve = this._captureSelectionPreserve();
     if (this.baselineSnapshot)
     {
-      restoreSnapshot(this.baselineSnapshot);
+      restoreSnapshot(this.baselineSnapshot, { clearSelection: false });
     }
     else
     {
       const latest = await timelineDb.getNearestSnapshotAtOrBefore(null, Number.MAX_SAFE_INTEGER);
-      if (latest) restoreSnapshot(latest);
+      if (latest) restoreSnapshot(latest, { clearSelection: false });
     }
     this.active = false;
     this.viewT = state.tGlobal;
     this.headT = state.tGlobal;
     this.seeking = false;
     this.syncScrubFlags();
-    this._afterRestoreSideEffects();
+    this._afterRestoreSideEffects(preserve);
     this._persistScrubState();
   }
 
-  _afterRestoreSideEffects()
+  _afterRestoreSideEffects(preserve, options = {})
   {
+    const { light = false } = options;
     try
     {
-      creatures.rebuildGrid();
+      if (!light) creatures.rebuildGrid();
+      if (!this.isViewingPast())
+      {
+        creatures.snapAllDisplayPositions();
+      }
     }
     catch (e)
     {
@@ -201,7 +288,7 @@ export class TimeScrubController
     state.vegDirty = true;
     state.gpuSimDirtyFromCpu = true;
     state.gpuSimReadbackPending = false;
-    if (state.gpuSimEnabled && gpuSimulationBackend)
+    if (state.gpuSimEnabled && gpuSimulationBackend && !this.isViewingPast())
     {
       if (typeof gpuSimulationBackend.uploadWorld === 'function')
       {
@@ -212,10 +299,16 @@ export class TimeScrubController
         try { gpuSimulationBackend.uploadCreaturesFromCpu(); } catch (e) {}
       }
     }
-    // drop live selection to avoid dangling refs to past objects
-    state.selected = null;
-    state.followSelected = false;
-    this._persistScrubState();
+    if (this._afterRestoreCallback)
+    {
+      this._afterRestoreCallback(preserve);
+    }
+    else
+    {
+      state.selected = null;
+      state.followSelected = false;
+    }
+    if (!light) this._persistScrubState();
   }
 
   async onMutatingAction()

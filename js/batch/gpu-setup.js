@@ -30,11 +30,7 @@ export async function initBatchGpu(canvas = null)
 
     try
     {
-      let adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
-      if (!adapter)
-      {
-        adapter = await navigator.gpu.requestAdapter();
-      }
+      let adapter = await navigator.gpu.requestAdapter();
       if (!adapter)
       {
         return { ok: false, reason: 'no-adapter' };

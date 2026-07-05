@@ -144,7 +144,7 @@ export class RenderPipeline
     let gpuOk = false;
     if (authority === 'gpu_buffer')
     {
-      gpuOk = webGpuRenderer.renderGpuBuffer(this.canvas, state.gpuRenderCreatureCount, lodPlan.gpuSizeScale);
+      gpuOk = webGpuRenderer.renderCreatures(camera, this.canvas, vis, lodPlan.circleDetail, 0);
     }
     else
     {
@@ -176,9 +176,23 @@ export class RenderPipeline
     const vis = creatures.collectVisible(camera);
     creatureRenderer.clearHighlightOverlay();
 
-    if (shouldUseGpu)
+    if (shouldUseGpu && !state.scrubActive)
     {
       renderBranch = this.renderWebGpuByLod(camera, vis, lodPlan, highlightTier, authority);
+    }
+    else if (shouldUseGpu && state.scrubActive)
+    {
+      if (lodPlan.mode === 'sprites')
+      {
+        this.gpuCanvas.classList.add('hidden');
+        webGpuRenderer.clearOverlay();
+        renderBranch = 'scrub-canvas-sprites';
+        this.renderCanvasByLod(camera, vis, lodPlan, highlightTier);
+      }
+      else
+      {
+        renderBranch = this.renderWebGpuByLod(camera, vis, lodPlan, highlightTier, authority);
+      }
     }
     else
     {

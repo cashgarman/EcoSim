@@ -138,7 +138,6 @@ fn losClear(fx: i32, fy: i32, gx: i32, gy: i32, w: i32, h: i32, canSwim: bool) -
     if (e2 > -dy) { err = err - dy; x = x + sx; }
     if (e2 < dx) { err = err + dx; y = y + sy; }
   }
-  return false;
 }
 
 fn navCellIndex(cx: i32, cy: i32, side: i32) -> u32
@@ -1139,6 +1138,7 @@ export class GpuSimulationBackend
     this.worldReadbackPending = false;
     this.worldReadbackEveryTicks = 120;
     this.cpuCreatureIndexById = new Map();
+    this._readbackLock = null;
     this._decisionQuad = new Float32Array(4);
     this._paramsScratch = new Float32Array(PARAM_FLOATS);
   }
@@ -1417,6 +1417,7 @@ export class GpuSimulationBackend
     this.uploadWorld();
     this.uploadCreaturesFromCpu();
     state.gpuSimEnabled = true;
+    state.gpuPosSyncAt = performance.now();
     state.simBackend = 'gpu';
     return true;
   }
@@ -1476,67 +1477,123 @@ export class GpuSimulationBackend
     pass.end();
 
     const now = performance.now();
-    const readbackEveryMs = effectiveReadbackEveryMs(this.readbackEveryMs);
-    const countersRb = state.gpuSimBuffers.countersReadback;
-    const countersReady = (now - this.countersReadbackAt) > this.countersReadbackEveryMs;
-    if (!this.countersReadbackPending && countersRb && countersRb.mapState === 'unmapped')
+    if (!state.batchMode)
     {
-      if (countersReady)
+      const readbackEveryMs = effectiveReadbackEveryMs(this.readbackEveryMs);
+      const countersRb = state.gpuSimBuffers.countersReadback;
+      const countersReady = (now - this.countersReadbackAt) > this.countersReadbackEveryMs;
+      if (!this.countersReadbackPending && countersRb && countersRb.mapState === 'unmapped')
       {
-        encoder.copyBufferToBuffer(state.gpuSimBuffers.simAtomics, 0, countersRb, 0, 64);
-        this.countersReadbackPending = true;
-        this.countersReadbackAt = now;
+        if (countersReady)
+        {
+          encoder.copyBufferToBuffer(state.gpuSimBuffers.simAtomics, 0, countersRb, 0, 64);
+          this.countersReadbackPending = true;
+          this.countersReadbackAt = now;
+        }
       }
-    }
-    const renderRb = state.gpuSimBuffers.renderReadback;
-    if (
-      !state.scrubActive
-      && !state.gpuSimReadbackPending
-      && renderRb
-      && renderRb.mapState === 'unmapped'
-      && now - state.gpuSimLastReadbackAt > readbackEveryMs
-    )
-    {
-      const bytes = state.gpuRenderCreatureCount * CREATURE_STRIDE_FLOATS * 4;
-      const copyBytes = roundUp(bytes, 256);
-      encoder.copyBufferToBuffer(state.gpuSimBuffers.creatures, 0, renderRb, 0, copyBytes);
-      state.gpuSimReadbackPending = true;
-      state.gpuSimLastReadbackAt = now;
-    }
-    const selectedRb = state.gpuSimBuffers.selectedReadback;
-    const selectedSlot = state.selected?.gpuSlot;
-    const selectedReadbackEligible = (now - state.gpuSimLastReadbackAt) > (readbackEveryMs * 0.65);
-    if (
-      !state.scrubActive
-      && state.selected
-      && typeof selectedSlot === 'number'
-      && selectedSlot >= 0
-      && selectedSlot < state.gpuRenderCreatureCount
-      && selectedReadbackEligible
-      && !this.selectedReadbackPending
-      && selectedRb
-      && selectedRb.mapState === 'unmapped'
-      && now - this.selectedReadbackAt > this.selectedReadbackEveryMs
-    )
-    {
-      encoder.copyBufferToBuffer(
-        state.gpuSimBuffers.creatures,
-        selectedSlot * CREATURE_STRIDE_FLOATS * 4,
-        selectedRb,
-        0,
-        CREATURE_STRIDE_FLOATS * 4,
-      );
-      this.selectedReadbackPending = true;
-      this.selectedReadbackAt = now;
+      const renderRb = state.gpuSimBuffers.renderReadback;
+      if (
+        !state.scrubActive
+        && !state.gpuSimReadbackPending
+        && renderRb
+        && renderRb.mapState === 'unmapped'
+        && now - state.gpuSimLastReadbackAt > readbackEveryMs
+      )
+      {
+        const bytes = state.gpuRenderCreatureCount * CREATURE_STRIDE_FLOATS * 4;
+        const copyBytes = roundUp(bytes, 256);
+        encoder.copyBufferToBuffer(state.gpuSimBuffers.creatures, 0, renderRb, 0, copyBytes);
+        state.gpuSimReadbackPending = true;
+        state.gpuSimLastReadbackAt = now;
+      }
+      const selectedRb = state.gpuSimBuffers.selectedReadback;
+      const selectedSlot = state.selected?.gpuSlot;
+      const selectedReadbackEligible = (now - state.gpuSimLastReadbackAt) > (readbackEveryMs * 0.65);
+      if (
+        !state.scrubActive
+        && state.selected
+        && typeof selectedSlot === 'number'
+        && selectedSlot >= 0
+        && selectedSlot < state.gpuRenderCreatureCount
+        && selectedReadbackEligible
+        && !this.selectedReadbackPending
+        && selectedRb
+        && selectedRb.mapState === 'unmapped'
+        && now - this.selectedReadbackAt > this.selectedReadbackEveryMs
+      )
+      {
+        encoder.copyBufferToBuffer(
+          state.gpuSimBuffers.creatures,
+          selectedSlot * CREATURE_STRIDE_FLOATS * 4,
+          selectedRb,
+          0,
+          CREATURE_STRIDE_FLOATS * 4,
+        );
+        this.selectedReadbackPending = true;
+        this.selectedReadbackAt = now;
+      }
     }
     const cmd = encoder.finish();
     dev.queue.submit([cmd]);
 
-    if (this.countersReadbackPending) this.consumeCountersReadback();
-    if (state.gpuSimReadbackPending && !state.scrubActive) this.consumeCreatureReadback();
-    if (this.selectedReadbackPending && !state.scrubActive) this.consumeSelectedReadback();
+    if (!state.batchMode)
+    {
+      if (this.countersReadbackPending) this.consumeCountersReadback();
+      if (state.gpuSimReadbackPending && !state.scrubActive) this.consumeCreatureReadback();
+      if (this.selectedReadbackPending && !state.scrubActive) this.consumeSelectedReadback();
+    }
 
-    if (!state.scrubActive && (this.tickCounter % this.worldReadbackIntervalTicks()) === 0) this.syncWorldBackToCpu();
+    if (!state.batchMode && !state.scrubActive && (this.tickCounter % this.worldReadbackIntervalTicks()) === 0)
+    {
+      this.syncWorldBackToCpu();
+    }
+    return true;
+  }
+
+  async waitForBufferUnmapped(rb)
+  {
+    if (!rb) return;
+    const dev = state.gpuDevice;
+    for (let i = 0; i < 200; i++)
+    {
+      if (rb.mapState === 'unmapped') return;
+      if (rb.mapState === 'mapped') rb.unmap();
+      await dev?.queue?.onSubmittedWorkDone?.();
+    }
+    throw new Error('GPU readback buffer did not become unmapped');
+  }
+
+  async forceCreatureReadback()
+  {
+    if (!state.gpuSimEnabled || !state.gpuDevice || !state.gpuSimBuffers) return false;
+    const run = () => this._forceCreatureReadbackInner();
+    this._readbackLock = (this._readbackLock || Promise.resolve()).then(run, run);
+    return this._readbackLock;
+  }
+
+  async _forceCreatureReadbackInner()
+  {
+    const rb = state.gpuSimBuffers.renderReadback;
+    if (!rb) return false;
+
+    state.gpuSimReadbackPending = false;
+    this.countersReadbackPending = false;
+    this.selectedReadbackPending = false;
+
+    const dev = state.gpuDevice;
+    await this.waitForBufferUnmapped(rb);
+
+    const bytes = state.gpuRenderCreatureCount * CREATURE_STRIDE_FLOATS * 4;
+    const copyBytes = roundUp(bytes, 256);
+    const encoder = dev.createCommandEncoder();
+    encoder.copyBufferToBuffer(state.gpuSimBuffers.creatures, 0, rb, 0, copyBytes);
+    dev.queue.submit([encoder.finish()]);
+    await dev.queue.onSubmittedWorkDone?.();
+
+    await rb.mapAsync(GPUMapMode.READ);
+    const floatData = new Float32Array(rb.getMappedRange());
+    this.applyCreatureReadbackFromBuffer(floatData);
+    rb.unmap();
     return true;
   }
 
@@ -1720,29 +1777,7 @@ export class GpuSimulationBackend
     state.gpuSimMirror = alive;
     state.gpuTelemetry.poolSize = state.gpuRenderCreatureCount;
     state.gpuTelemetry.creatureArraySize = state.creatures.length;
-  }
-
-  async forceCreatureReadback()
-  {
-    if (!state.gpuSimEnabled || !state.gpuDevice || !state.gpuSimBuffers) return false;
-    const rb = state.gpuSimBuffers.renderReadback;
-    if (!rb) return false;
-
-    const dev = state.gpuDevice;
-    const bytes = state.gpuRenderCreatureCount * CREATURE_STRIDE_FLOATS * 4;
-    const copyBytes = roundUp(bytes, 256);
-    const encoder = dev.createCommandEncoder();
-    encoder.copyBufferToBuffer(state.gpuSimBuffers.creatures, 0, rb, 0, copyBytes);
-    dev.queue.submit([encoder.finish()]);
-    await dev.queue.onSubmittedWorkDone?.();
-
-    if (rb.mapState === 'mapped') rb.unmap();
-    await rb.mapAsync(GPUMapMode.READ);
-    const floatData = new Float32Array(rb.getMappedRange());
-    this.applyCreatureReadbackFromBuffer(floatData);
-    rb.unmap();
-    state.gpuSimReadbackPending = false;
-    return true;
+    state.gpuPosSyncAt = performance.now();
   }
 
   consumeSelectedReadback()
@@ -1829,6 +1864,7 @@ export class GpuSimulationBackend
         }
       }
       lifeStory.observeFromSnapshot(c, false);
+      state.gpuPosSyncAt = performance.now();
       rb.unmap();
       this.selectedReadbackPending = false;
     }).catch(() =>
