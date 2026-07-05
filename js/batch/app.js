@@ -7,6 +7,7 @@ import { mergeStoredParams, saveStoredFormConfig } from './form-storage.js';
 import { buildHistoryDetailElement } from './history-detail.js';
 import { buildCampaignDetailElement, buildCampaignRecommendationsElement } from './campaign-detail.js';
 import { initPanelResize } from './panel-resize.js';
+import { initFormFieldHelp, initGlobalFieldHelpDismiss } from './field-help.js';
 
 class BatchTestApp
 {
@@ -74,6 +75,10 @@ class BatchTestApp
     fuzz.fuzzIntensity.value = this.params.fuzzIntensity;
     fuzz.fuzzScope.value = this.params.fuzzScope;
     fuzz.fuzzProfile.value = this.params.fuzzProfile;
+
+    initFormFieldHelp(sim);
+    initFormFieldHelp(fuzz);
+    initGlobalFieldHelpDismiss();
 
     const persistForm = () => saveStoredFormConfig(this.readParamsFromForm());
     sim.addEventListener('change', persistForm);

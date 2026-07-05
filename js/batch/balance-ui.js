@@ -18,6 +18,13 @@ import {
   encodeBalanceParam,
   hasActiveOverrides,
 } from './balance-config.js';
+import {
+  createFieldHelpElement,
+  getBalanceGeneTooltip,
+  getBalanceSpeciesFieldTooltip,
+  getBalanceThresholdTooltip,
+  getBalanceActionTooltip,
+} from './field-help.js';
 
 export class BalanceUi
 {
@@ -150,6 +157,7 @@ export class BalanceUi
             this.emitChange();
           },
           this.isChanged('libThreshold', null, key) || this._valueChanged(cur, baseVal),
+          getBalanceThresholdTooltip(key),
         ));
       }
     }
@@ -179,6 +187,7 @@ export class BalanceUi
           this.emitChange();
         },
         this.isChanged('libAction', null, key) || this._valueChanged(cur, baseVal),
+        getBalanceActionTooltip(key),
       ));
     }
     actionsSec.appendChild(actionsBody);
@@ -216,6 +225,7 @@ export class BalanceUi
             this.emitChange();
           },
           this.isChanged('speciesGene', sp, gene) || this._valueChanged(cur, baseVal),
+          getBalanceGeneTooltip(gene),
         ));
       }
       body.appendChild(this._rangeRow(`${sp}-gest`, 'gestationSec', sp, 'gestationSec', defSp.gestationSec, 1, 12));
@@ -235,6 +245,7 @@ export class BalanceUi
         },
         this.isChanged('speciesField', sp, 'stockWeight') ||
           this._valueChanged(this.overrides.speciesOverrides?.[sp]?.stockWeight ?? defSp.stockWeight, defSp.stockWeight),
+        getBalanceSpeciesFieldTooltip('stockWeight'),
       ));
       det.appendChild(body);
       speciesSec.appendChild(det);
@@ -270,6 +281,7 @@ export class BalanceUi
             this.emitChange();
           },
           this.isChanged('speciesBehThreshold', sp, key) || this._valueChanged(display, resolved),
+          getBalanceThresholdTooltip(key),
         ));
       }
       for (const key of getBehaviorActionKeys())
@@ -293,6 +305,7 @@ export class BalanceUi
             this.emitChange();
           },
           this.isChanged('speciesBehAction', sp, key) || this._valueChanged(display, resolved),
+          getBalanceActionTooltip(key),
         ));
       }
       det.appendChild(body);
@@ -320,15 +333,25 @@ export class BalanceUi
     this.root.appendChild(tools);
   }
 
-  _numberRow(id, label, value, defaultVal, min, max, onInput, changed = null)
+  _appendCellHelp(labelRow, tipText)
+  {
+    if (!tipText) return;
+    labelRow.appendChild(createFieldHelpElement(tipText));
+  }
+
+  _numberRow(id, label, value, defaultVal, min, max, onInput, changed = null, tipText = null)
   {
     const cell = document.createElement('div');
     cell.className = 'balance-cell';
     if (changed == null ? this._valueChanged(value, defaultVal) : changed) cell.classList.add('changed');
+    const labelRow = document.createElement('div');
+    labelRow.className = 'balance-cell-label-row';
     const lab = document.createElement('span');
     lab.className = 'balance-cell-label';
     lab.textContent = label;
     lab.title = label;
+    labelRow.appendChild(lab);
+    this._appendCellHelp(labelRow, tipText);
     const input = document.createElement('input');
     input.type = 'number';
     input.id = id;
@@ -341,7 +364,7 @@ export class BalanceUi
       onInput(Number(input.value));
       this.render();
     });
-    cell.appendChild(lab);
+    cell.appendChild(labelRow);
     cell.appendChild(input);
     return cell;
   }
@@ -355,9 +378,13 @@ export class BalanceUi
     {
       cell.classList.add('changed');
     }
+    const labelRow = document.createElement('div');
+    labelRow.className = 'balance-cell-label-row';
     const lab = document.createElement('span');
     lab.className = 'balance-cell-label';
     lab.textContent = label;
+    labelRow.appendChild(lab);
+    this._appendCellHelp(labelRow, getBalanceSpeciesFieldTooltip(field));
     const inputs = document.createElement('div');
     inputs.className = 'balance-range-inputs';
     const minIn = document.createElement('input');
@@ -379,7 +406,7 @@ export class BalanceUi
     maxIn.addEventListener('change', apply);
     inputs.appendChild(minIn);
     inputs.appendChild(maxIn);
-    cell.appendChild(lab);
+    cell.appendChild(labelRow);
     cell.appendChild(inputs);
     return cell;
   }

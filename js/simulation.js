@@ -160,6 +160,7 @@ export class Simulation
         }
         gpuSimulationBackend.uploadBehaviorDecisions();
       }
+      creatures.stepReproduction(dt);
 
       const simStart = performance.now();
       gpuSimulationBackend.step(dt);

@@ -8,6 +8,7 @@ export function buildBehaviorContext(creature, creatureSystem)
   const g = creature.genome;
   const senseR = g.sense;
   const neigh = creatureSystem.nearby(creature, senseR);
+  const pos = creatureSystem.simPos(creature);
 
   let threat = null;
   let tdist = 1e9;
@@ -18,7 +19,8 @@ export function buildBehaviorContext(creature, creatureSystem)
 
   for (const o of neigh)
   {
-    const d = Math.hypot(o.x - creature.x, o.y - creature.y);
+    const op = creatureSystem.simPos(o);
+    const d = Math.hypot(op.x - pos.x, op.y - pos.y);
     if (S.preyOf && S.preyOf.includes(o.sp) && creatureSystem.eSize(o) > creatureSystem.eSize(creature) * 0.7)
     {
       if (d < tdist) { tdist = d; threat = o; }

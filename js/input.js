@@ -328,6 +328,13 @@ export class InputManager
         this.toggleSpacePause();
         return;
       }
+      if (e.key >= '0' && e.key <= '9')
+      {
+        e.preventDefault();
+        const speed = e.key === '0' ? 10 : Number(e.key);
+        this.setSimulationSpeed(speed);
+        return;
+      }
       if (e.key === 'f' || e.key === 'F')
       {
         e.preventDefault();

@@ -1,4 +1,11 @@
 import { TimelineViewport, timeOfDayAtSimT, simTimeToDay, DAY_SEC } from '../js/timeline-viewport.js';
+import {
+  buildVisibleDayMarkers,
+  resolveDayLabelMode,
+  formatDayMarkerLabel,
+  DAY_LABEL_FULL_MIN_PX,
+  DAY_LABEL_NUMBER_MIN_PX,
+} from '../js/timeline-renderer.js';
 
 function approx(a, b, eps = 1e-6)
 {
@@ -58,6 +65,37 @@ export async function runTimelineViewportTests()
     record('ensureHeadVisible follows head', approx(vp.endT, 60));
   }
   catch (e) { record('ensureHeadVisible', false, e.message); }
+
+  try
+  {
+    const vp = new TimelineViewport();
+    vp.reset(0, 200);
+    vp.startT = 0;
+    vp.endT = 160;
+    const markers = buildVisibleDayMarkers(vp);
+    record('buildVisibleDayMarkers count', markers.length === 5);
+    record('buildVisibleDayMarkers first', markers[0].day === 0 && approx(markers[0].t, 0));
+    record('buildVisibleDayMarkers last day', markers[4].day === 4);
+  }
+  catch (e) { record('buildVisibleDayMarkers', false, e.message); }
+
+  try
+  {
+    const vp = new TimelineViewport();
+    vp.reset(0, 400);
+    vp.startT = 0;
+    vp.endT = 160;
+    const widePx = 400;
+    const narrowPx = 80;
+    record('resolveDayLabelMode full', resolveDayLabelMode(vp, widePx) === 'full');
+    record('resolveDayLabelMode number', resolveDayLabelMode(vp, narrowPx) === 'number');
+    record('resolveDayLabelMode none', resolveDayLabelMode(vp, 20) === 'none');
+    record('formatDayMarkerLabel full', formatDayMarkerLabel(3, 'full') === 'Day 3');
+    record('formatDayMarkerLabel number', formatDayMarkerLabel(3, 'number') === '3');
+    record('formatDayMarkerLabel none', formatDayMarkerLabel(3, 'none') === '');
+    record('label thresholds ordered', DAY_LABEL_FULL_MIN_PX > DAY_LABEL_NUMBER_MIN_PX);
+  }
+  catch (e) { record('day label helpers', false, e.message); }
 
   const summary = { total: passed + failed, passed, failed, results };
   console.log('TimelineViewport test summary:', summary);

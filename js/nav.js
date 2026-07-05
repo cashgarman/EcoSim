@@ -171,6 +171,13 @@ export function snapWalkableGoal(gx, gy, canSwim, radius = 8)
   return best;
 }
 
+export const WATER_SEEK_RADIUS_MIN = 48;
+
+export function waterSeekRadius(senseR)
+{
+  return Math.max(senseR + 6, WATER_SEEK_RADIUS_MIN);
+}
+
 export function nearestWaterEdgeTarget(x, y, r)
 {
   let best = null, bd = r * r;

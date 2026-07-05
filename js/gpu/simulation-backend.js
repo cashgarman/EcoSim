@@ -1097,7 +1097,7 @@ function writeCreatureToArray(data, base, c)
   data[base + 8] = c.age;
   data[base + 9] = c.genome.lifespan;
   data[base + 10] = c.mateCd;
-  data[base + 11] = c.pregnant;
+  data[base + 11] = (state.simBackend === 'gpu' && state.gpuSimEnabled) ? 0 : c.pregnant;
   data[base + 12] = c.tx;
   data[base + 13] = c.ty;
   data[base + 14] = typeof c.gpuTargetSlot === 'number' ? c.gpuTargetSlot : -1;
@@ -1118,7 +1118,8 @@ function writeCreatureToArray(data, base, c)
   data[base + 27] = c.walk || 0;
   data[base + 28] = g.dir;
   data[base + 29] = c.sex === 'male' ? 1 : 0;
-  data[base + 30] = c.litterQ || 0;
+  data[base + 30] = 0;
+  data[base + 31] = c.litterQ || 0;
 }
 
 export class GpuSimulationBackend
@@ -1674,6 +1675,13 @@ export class GpuSimulationBackend
       const aliveFlag = floatData[base + 19] > 0.5;
       let c = slotMap.get(i);
       const isNewGpuCreature = !c;
+      const cpuRepro = (c && state.simBackend === 'gpu' && state.gpuSimEnabled && !state.scrubActive)
+        ? {
+          pregnant: c.pregnant || 0,
+          mateCd: c.mateCd || 0,
+          litterQ: c.litterQ || 0,
+        }
+        : null;
       if (!c)
       {
         if (!aliveFlag) continue;
@@ -1712,8 +1720,14 @@ export class GpuSimulationBackend
       c.walk = floatData[base + 27];
       c.dir = floatData[base + 28] >= 0 ? 1 : -1;
       c.sex = floatData[base + 29] > 0.5 ? 'male' : 'female';
-      c.litterQ = floatData[base + 30] || 0;
+      c.litterQ = floatData[base + 31] || floatData[base + 30] || 0;
       c.gen = Math.max(1, Math.round(floatData[base + 26]) || c.gen || 1);
+      if (cpuRepro)
+      {
+        c.pregnant = cpuRepro.pregnant;
+        c.mateCd = cpuRepro.mateCd;
+        if (cpuRepro.litterQ > 0) c.litterQ = cpuRepro.litterQ;
+      }
       if (!skipLifeStory && !c.lifeStory) lifeStory.initCreature(c);
       pending.push({ c, isNewGpuCreature, aliveFlag, base });
     }

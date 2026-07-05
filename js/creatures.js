@@ -243,13 +243,28 @@ export class CreatureSystem
     return c.age >= c.genome.lifespan * 0.25;
   }
 
+  simPos(c)
+  {
+    if (!c) return { x: 0, y: 0 };
+    let x = c.x;
+    let y = c.y;
+    if (state.simBackend === 'gpu' && state.gpuSimEnabled && !state.scrubActive && state.gpuPosSyncAt)
+    {
+      const since = (performance.now() - state.gpuPosSyncAt) / 1000;
+      x += (c.vx || 0) * since;
+      y += (c.vy || 0) * since;
+    }
+    return { x, y };
+  }
+
   rebuildGrid()
   {
     state.grid.clear();
     for (const c of state.creatures)
     {
       if (c.dead) continue;
-      const k = gkey(Math.floor(c.x / CELL), Math.floor(c.y / CELL));
+      const p = this.simPos(c);
+      const k = gkey(Math.floor(p.x / CELL), Math.floor(p.y / CELL));
       let a = state.grid.get(k);
       if (!a) { a = []; state.grid.set(k, a); }
       a.push(c);
@@ -259,7 +274,9 @@ export class CreatureSystem
   nearby(c, r)
   {
     const out = [];
-    const cx = Math.floor(c.x / CELL), cy = Math.floor(c.y / CELL);
+    const pos = this.simPos(c);
+    const cx = Math.floor(pos.x / CELL);
+    const cy = Math.floor(pos.y / CELL);
     const rr = Math.ceil(r / CELL);
     for (let dy = -rr; dy <= rr; dy++)
     {
@@ -271,7 +288,9 @@ export class CreatureSystem
         {
           if (o !== c && !o.dead)
           {
-            const ddx = o.x - c.x, ddy = o.y - c.y;
+            const op = this.simPos(o);
+            const ddx = op.x - pos.x;
+            const ddy = op.y - pos.y;
             if (ddx * ddx + ddy * ddy < r * r) out.push(o);
           }
         }
@@ -374,6 +393,27 @@ export class CreatureSystem
     }
     c.matePartnerId = null;
     if (born > 0) lifeStory.recordGaveBirth(c, born);
+    return born;
+  }
+
+  stepReproduction(dt)
+  {
+    if (!dt || dt <= 0) return 0;
+    let births = 0;
+    for (const c of state.creatures)
+    {
+      if (!c || c.dead) continue;
+      if (c.mateCd > 0) c.mateCd -= dt;
+      if (c.pregnant > 0)
+      {
+        c.pregnant -= dt;
+        if (c.pregnant <= 0)
+        {
+          births += this.giveBirth(c);
+        }
+      }
+    }
+    return births;
   }
 
   die(c, cause)

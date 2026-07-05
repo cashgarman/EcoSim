@@ -1,7 +1,7 @@
 import { clamp, dayPhaseFromTimeOfDay, formatTimeOfDay12, lerp } from './utils.js';
 import { effectiveScrubTickRefreshMs } from './perf-policy.js';
 import { TimelineViewport, simTimeToDay, timeOfDayAtSimT } from './timeline-viewport.js';
-import { buildVisibleTickTimes, renderTimelineDayNight } from './timeline-renderer.js';
+import { buildVisibleTickTimes, buildVisibleDayMarkers, formatDayMarkerLabel, renderTimelineDayNight, resolveDayLabelMode } from './timeline-renderer.js';
 import { SPECIES, SP_KEYS, GENE_KEYS, GENE_LABEL, BIOME_INFO, sexSymbol } from './data.js';
 import { state, idx, inB } from './state.js';
 import { $, bindEl } from './dom.js';
@@ -70,6 +70,8 @@ export class UI
     this._timelinePanning = false;
     this._timelinePanLastX = 0;
     this._timelineResizeObs = null;
+    this._speciesPopFlash = {};
+    this._speciesFlashMs = 900;
   }
 
   async restoreScrubMeta(meta)
@@ -162,6 +164,7 @@ export class UI
   notifyCreatureLifeEvent(kind, c, partnerId = null)
   {
     if (!c) return;
+    if (kind === 'born' || kind === 'died') this.flashSpeciesPop(c.sp, kind);
     let html = '';
     if (kind === 'born') html = formatBornEvent(c);
     else if (kind === 'mated') html = formatMatedEvent(c, partnerId);
@@ -825,6 +828,61 @@ export class UI
     if (wrap) wrap.title = `${phase.label} · ${clock} · Day ${state.day}`;
   }
 
+  flashSpeciesPop(sp, kind)
+  {
+    if (!sp || !SPECIES[sp]) return;
+    const flashKind = kind === 'born' ? 'born' : 'died';
+    this._speciesPopFlash[sp] = {
+      kind: flashKind,
+      until: performance.now() + this._speciesFlashMs,
+    };
+    const row = document.querySelector(`#splist .sprow[data-sp="${sp}"]`);
+    if (row) this.decorateSpeciesRow(row, flashKind);
+  }
+
+  speciesPopFlashClass(sp)
+  {
+    const flash = this._speciesPopFlash[sp];
+    if (!flash || flash.until <= performance.now()) return '';
+    return flash.kind === 'born' ? ' flash-birth' : ' flash-death';
+  }
+
+  speciesPopDeltaHtml(sp)
+  {
+    const flash = this._speciesPopFlash[sp];
+    if (!flash || flash.until <= performance.now()) return '';
+    return flash.kind === 'born'
+      ? '<span class="pop-delta up" aria-hidden="true">▲</span>'
+      : '<span class="pop-delta down" aria-hidden="true">▼</span>';
+  }
+
+  decorateSpeciesRow(row, flashKind)
+  {
+    row.classList.remove('flash-birth', 'flash-death');
+    void row.offsetWidth;
+    row.classList.add(flashKind === 'born' ? 'flash-birth' : 'flash-death');
+    let wrap = row.querySelector('.ct-wrap');
+    const ct = row.querySelector('.ct');
+    if (!ct) return;
+    if (!wrap)
+    {
+      wrap = document.createElement('div');
+      wrap.className = 'ct-wrap';
+      ct.parentNode.insertBefore(wrap, ct);
+      wrap.appendChild(ct);
+    }
+    let delta = wrap.querySelector('.pop-delta');
+    if (!delta)
+    {
+      delta = document.createElement('span');
+      delta.className = 'pop-delta';
+      wrap.insertBefore(delta, wrap.firstChild);
+    }
+    delta.className = `pop-delta ${flashKind === 'born' ? 'up' : 'down'}`;
+    delta.textContent = flashKind === 'born' ? '▲' : '▼';
+    delta.setAttribute('aria-hidden', 'true');
+  }
+
   updateUI()
   {
     const alive = state.creatures.filter(c => !c.dead);
@@ -848,14 +906,18 @@ export class UI
     }
 
     const box = $('splist');
+    const now = performance.now();
     let html = '';
     for (const k of SP_KEYS)
     {
       const S = SPECIES[k], col = S.col;
       const cls = state.lockedSpeciesFromPanel === k ? ' active'
         : state.hoveredGraphSpecies === k ? ' hovered' : '';
-      html += `<div class="sprow${cls}" data-sp="${k}"><div class="dot" style="background:rgb(${col[0]},${col[1]},${col[2]})"></div>`
-        + `<div class="nm">${S.emoji} ${S.label}<div class="gn">gen ${gens[k]}</div></div><div class="ct">${counts[k]}</div></div>`;
+      const flash = this._speciesPopFlash[k];
+      if (flash && flash.until <= now) delete this._speciesPopFlash[k];
+      html += `<div class="sprow${cls}${this.speciesPopFlashClass(k)}" data-sp="${k}"><div class="dot" style="background:rgb(${col[0]},${col[1]},${col[2]})"></div>`
+        + `<div class="nm">${S.emoji} ${S.label}<div class="gn">gen ${gens[k]}</div></div>`
+        + `<div class="ct-wrap">${this.speciesPopDeltaHtml(k)}<div class="ct">${counts[k]}</div></div></div>`;
     }
     box.innerHTML = html;
 
@@ -1452,6 +1514,7 @@ export class UI
     if (!state.ready) return;
 
     renderTimelineDayNight(canvas, this.timelineViewport, this.getTimelineOriginTimeOfDay());
+    this.refreshDayMarkers();
     this.refreshScrubTicks(true);
     this._scrubTicksLastAt = now;
   }
@@ -1510,6 +1573,37 @@ export class UI
     const idx = Math.round(clamp(ratio, 0, 1) * (len - 1));
     state.graphHoverIndex = idx;
     this.drawGraph();
+  }
+
+  refreshDayMarkers()
+  {
+    const track = $('top-scrub-track');
+    const layer = $('top-scrub-days-layer');
+    if (!track || !layer) return;
+
+    const trackWidth = track.clientWidth;
+    const labelMode = resolveDayLabelMode(this.timelineViewport, trackWidth);
+    const markers = buildVisibleDayMarkers(this.timelineViewport);
+    layer.replaceChildren();
+    for (const { day, t } of markers)
+    {
+      const ratio = this.timelineViewport.tToRatio(t);
+      const wrap = document.createElement('div');
+      wrap.className = 'scrub-day-marker';
+      wrap.style.left = `calc(${(ratio * 100).toFixed(2)}% - 0.5px)`;
+      const line = document.createElement('div');
+      line.className = 'scrub-day-line';
+      wrap.appendChild(line);
+      const labelText = formatDayMarkerLabel(day, labelMode);
+      if (labelText)
+      {
+        const label = document.createElement('span');
+        label.className = 'scrub-day-label';
+        label.textContent = labelText;
+        wrap.appendChild(label);
+      }
+      layer.appendChild(wrap);
+    }
   }
 
   refreshScrubTicks(force)

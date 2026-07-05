@@ -31,6 +31,49 @@ export function captureSnapshot()
   return snap;
 }
 
+function serializeLifeStory(c)
+{
+  const story = c.lifeStory;
+  if (!story || !story.events?.length) return null;
+  return {
+    events: story.events.map(ev => ({ ...ev })),
+    committedState: story.committedState ?? null,
+    committedNodeId: story.committedNodeId ?? null,
+    committedSince: story.committedSince ?? 0,
+    pendingState: story.pendingState ?? null,
+    pendingNodeId: story.pendingNodeId ?? null,
+    pendingSince: story.pendingSince ?? 0,
+    stageFlags: { ...story.stageFlags },
+    actionMarks: { ...story.actionMarks },
+    snapshot: story.snapshot ? { ...story.snapshot } : {},
+    nextSeq: story.nextSeq ?? 1,
+    deathRecorded: !!story.deathRecorded,
+  };
+}
+
+function restoreLifeStory(c, data)
+{
+  if (!data)
+  {
+    lifeStory.initCreature(c);
+    return;
+  }
+  c.lifeStory = {
+    events: Array.isArray(data.events) ? data.events.map(ev => ({ ...ev })) : [],
+    committedState: data.committedState ?? null,
+    committedNodeId: data.committedNodeId ?? null,
+    committedSince: data.committedSince ?? 0,
+    pendingState: data.pendingState ?? null,
+    pendingNodeId: data.pendingNodeId ?? null,
+    pendingSince: data.pendingSince ?? 0,
+    stageFlags: { adult: false, elder: false, ...(data.stageFlags || {}) },
+    actionMarks: { ...(data.actionMarks || {}) },
+    snapshot: { ...(data.snapshot || {}) },
+    nextSeq: data.nextSeq ?? 1,
+    deathRecorded: !!data.deathRecorded,
+  };
+}
+
 export function serializeCreature(c)
 {
   if (!c) return null;
@@ -62,6 +105,7 @@ export function serializeCreature(c)
     parentIds: c.parentIds ? [...c.parentIds] : [],
     offspringIds: c.offspringIds ? [...c.offspringIds] : [],
     matePartnerId: c.matePartnerId != null ? c.matePartnerId : null,
+    lifeStory: serializeLifeStory(c),
   };
 }
 
@@ -103,7 +147,7 @@ export function deserializeCreature(p)
     rx: p.x,
     ry: p.y,
   };
-  lifeStory.initCreature(c);
+  restoreLifeStory(c, p.lifeStory);
   return c;
 }
 

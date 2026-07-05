@@ -332,6 +332,14 @@ export class LifeStory
     if (this._eventNotify) this._eventNotify('died', c);
   }
 
+  isGpuLifeStoryPrimary()
+  {
+    return state.simBackend === 'gpu'
+      && state.gpuSimEnabled
+      && !state.scrubActive
+      && !state.batchMode;
+  }
+
   observeFromSnapshot(c, isNewGpuCreature)
   {
     if (!c) return;
@@ -342,16 +350,17 @@ export class LifeStory
       pregnant: c.pregnant || 0,
       dead: !!c.dead,
     };
+    const gpuPrimary = this.isGpuLifeStoryPrimary();
 
-    if (isNewGpuCreature && story.events.length === 0)
+    if (story.events.length === 0)
     {
-      if ((c.age ?? 0) < 0.2)
+      if ((c.age ?? 0) < 0.2 && isNewGpuCreature)
       {
         this.recordBorn(c, null, null, c.sex);
       }
       else
       {
-        this.recordAppeared(c, 'gpu_spawn');
+        this.recordAppeared(c, isNewGpuCreature ? 'gpu_spawn' : 'spawned');
       }
     }
 
@@ -361,8 +370,11 @@ export class LifeStory
     }
     else if (!next.dead)
     {
-      this.observeDecision(c, c.state, c.target);
-      this.observeAge(c);
+      if (!gpuPrimary)
+      {
+        this.observeDecision(c, c.state, c.target);
+        this.observeAge(c);
+      }
       if (c.state === 'wander')
       {
         this.recordAction(c, 'wandered', null, 9);

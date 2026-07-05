@@ -61,6 +61,9 @@ export class QualityController
     $('perf-backend').textContent = state.rendererBackend || 'canvas';
     $('perf-frame').textContent = `${this.perfHudLastMs.toFixed(2)}ms`;
     $('perf-avg').textContent = `${this.frameMsAvg.toFixed(2)}ms`;
+    $('perf-fps').textContent = this.frameMsAvg > 0
+      ? String(Math.min(999, Math.round(1000 / this.frameMsAvg)))
+      : '—';
     $('perf-tier').textContent = tierName;
     $('perf-visible').textContent = String(visibleCount);
     const simEl = $('perf-sim');

@@ -5,6 +5,7 @@ import {
   atWaterEdge,
   nearestWaterEdgeTarget,
   snapWalkableGoal,
+  waterSeekRadius,
 } from '../nav.js';
 import { lifeStory } from '../life-story.js';
 import { stateToGpuCode } from './state-codes.js';
@@ -44,11 +45,19 @@ export function resolveGoals(action, ctx, creatureSystem)
 
     case 'nearestWater':
     {
-      const w = nearestWaterEdgeTarget(c.x, c.y, ctx.senseR + 6);
-      if (w) { goalX = w.x; goalY = w.y; }
-      else creatureSystem.wander(c);
-      goalX = c.tx;
-      goalY = c.ty;
+      const pos = creatureSystem.simPos(c);
+      const w = nearestWaterEdgeTarget(pos.x, pos.y, waterSeekRadius(ctx.senseR));
+      if (w)
+      {
+        goalX = w.x;
+        goalY = w.y;
+      }
+      else
+      {
+        creatureSystem.wander(c);
+        goalX = c.tx;
+        goalY = c.ty;
+      }
       break;
     }
 
@@ -91,7 +100,8 @@ export function resolveGoals(action, ctx, creatureSystem)
       {
         targetId = ctx.mate.id;
         targetSlot = ctx.mate.gpuSlot ?? -1;
-        applySnapped(ctx.mate.x, ctx.mate.y);
+        const mp = creatureSystem.simPos(ctx.mate);
+        applySnapped(mp.x, mp.y);
       }
       else
       {
@@ -116,70 +126,117 @@ export function resolveGoals(action, ctx, creatureSystem)
   return { goalX, goalY, targetId, targetSlot };
 }
 
+/**
+ * Applies the effects of an action for a given creature during the simulation.
+ *
+ * This function interprets the current state/action of the creature (derived from its behavior tree or planner node)
+ * and updates the creature's stats, position, and other environment/game state based on the meaning of that action.
+ *
+ * Side effects may also include changes to world state (e.g., consumed food) and action recording (for "life story" logging).
+ *
+ * @param {object} action - The action node (usually from behavior tree) containing the current state and parameters.
+ * @param {number} nodeId - The ID of the behavior tree node for this decision/action.
+ * @param {object} ctx - Context for the action, containing references to the acting creature, targets, and calculated distances.
+ * @param {object} creatureSystem - The system for controlling creature movement and higher-order creature operations.
+ * @param {number} dt - The simulation timestep (delta time).
+ * @param {number} speed - The base movement speed for the current species or behavior phase.
+ *
+ * @returns {object} An object with a single boolean property `.moved`, which is true if the creature advanced positionally this tick,
+ *                   or false if it "acted in place" (e.g., drank, grazed, or rested).
+ */
 export function applyActionEffects(action, nodeId, ctx, creatureSystem, dt, speed)
 {
+  // Expose creature and genome for easier reference
   const c = ctx.creature;
   const g = c.genome;
+
+  // Determine movement speed for this action (can be overridden by action)
   const speedMult = action.speedMult ?? 1;
   const moveSpeed = speed * speedMult;
 
+  // Main action handling branch
   switch (action.state)
   {
+    // -- Fleeing (from threat), but can optionally drink at water's edge if thirsty and eligible --
     case 'flee':
+      // If action requests drinking at shore AND at water edge AND thirsty enough
       if (action.drinkAtShore && atWaterEdge(c.x, c.y) && c.thirst < 55)
       {
+        // Drink: increase thirst meter, slow movement as if pausing to drink
         c.thirst = Math.min(100, c.thirst + 60 * dt);
         c.vx *= 0.7;
         c.vy *= 0.7;
         lifeStory.recordAction(c, 'drank', 'while fleeing', 5);
+        // Movement is paused for the drinking tick
         return { moved: false };
       }
+      // Otherwise, if not stopping to drink, and there's still a threat, keep fleeing (move)
       if (!action.drinkAtShore && ctx.threat)
       {
         creatureSystem.moveTo(c, moveSpeed, dt);
       }
+      // Fleeing action considers itself moving (unless just drank above)
       return { moved: true };
 
+    // -- Seeking to drink at water's edge (driven by thirst) --
     case 'thirst':
       if (atWaterEdge(c.x, c.y))
       {
+        // At water: Drink and do not move further
         c.thirst = Math.min(100, c.thirst + 60 * dt);
         lifeStory.recordAction(c, 'drank', 'at water edge', 5);
         return { moved: false };
       }
+      // Not at water yet: move toward it
       creatureSystem.moveTo(c, moveSpeed, dt);
       return { moved: true };
 
+    // -- Grazing action (eat vegetation if available) --
     case 'graze':
     {
+      // Calculate current tile index in world based on integer position
       const ti = idx(clamp(Math.round(c.x), 0, state.W - 1), clamp(Math.round(c.y), 0, state.H - 1));
+
+      // Is there enough vegetation to take a bite from?
       if (state.veg[ti] > 0.04)
       {
+        // Amount of vegetation consumed is capped by bite size and available vegetation
         const bite = Math.min(state.veg[ti], 3.5 * dt);
         state.veg[ti] -= bite;
+        // Eating provides hunger satisfaction
         c.hunger = Math.min(100, c.hunger + bite * 26);
+        // Mark vegetation as changed for rendering or simulation update
         state.vegDirty = true;
         lifeStory.recordAction(c, 'grazed', `bite ${bite.toFixed(2)}`, 4);
-        return { moved: false };
+        return { moved: false }; // Grazing is stationary
       }
+      // Not enough food: continue moving (searching for more to graze)
       creatureSystem.moveTo(c, moveSpeed, dt);
       return { moved: true };
     }
 
+    // -- Searching for prey but has not spotted target yet (usually just moves) --
     case 'huntSearch':
       creatureSystem.moveTo(c, moveSpeed, dt);
       return { moved: true };
 
+    // -- Actual hunting of a known prey target --
     case 'hunt':
       if (ctx.prey)
       {
+        // Move toward prey
         creatureSystem.moveTo(c, moveSpeed, dt);
+
+        // If in striking distance (pdist < effective size threshold)
         if (ctx.pdist < creatureSystem.eSize(c) * 0.6 + 0.5)
         {
+          // Random chance of landing a hit depends on aggression stat
           if (rng() < (0.10 + g.agg * 0.10))
           {
+            // Inflict damage to prey, attribute it to predation
             ctx.prey.hp -= 30 + g.size * 15;
             ctx.prey.cause = 'predation';
+            // If prey dies, hunter is rewarded
             if (ctx.prey.hp <= 0)
             {
               c.hunger = Math.min(100, c.hunger + 50);
@@ -191,57 +248,77 @@ export function applyActionEffects(action, nodeId, ctx, creatureSystem, dt, spee
       }
       else
       {
+        // No current prey; keep moving/searching
         creatureSystem.moveTo(c, moveSpeed, dt);
       }
       return { moved: true };
 
+    // -- Energy recovery action: resting --
     case 'rest':
+      // Recover energy at a fairly rapid rate
       c.energy = Math.min(100, c.energy + 9 * dt);
+      // Slightly slow down if moving (simulate lying low)
       c.vx *= 0.8;
       c.vy *= 0.8;
       lifeStory.recordAction(c, 'rested', 'recovered energy', 6);
+      // Resting does not move the creature
       return { moved: false };
 
+    // -- Mating action: Move to mate and potentially initiate mating if close enough --
     case 'mate':
       if (ctx.mate)
       {
+        // Move toward mate
         creatureSystem.moveTo(c, moveSpeed, dt);
-        if (ctx.mdist < 1.0)
-        {
-          const female = c.sex === 'female' ? c : ctx.mate;
-          const male = c.sex === 'male' ? c : ctx.mate;
-          if (female.sex === 'female' && male.sex === 'male'
-            && female.pregnant <= 0 && female.mateCd <= 0 && male.mateCd <= 0)
-          {
-            female.pregnant = sampleGestation(c.sp);
-            female.matePartner = male.genome;
-            female.matePartnerId = male.id;
-            female.litterQ = Math.max(1, Math.round(female.genome.litter * rf(0.7, 1.15)));
-            const cd = sampleMateCooldown(c.sp);
-            female.mateCd = cd;
-            male.mateCd = cd * 0.6;
-            female.energy -= 20;
-            male.energy -= 12;
-            lifeStory.recordMated(female, male.id, male.sp, female.sex, male.sex);
-            lifeStory.recordMated(male, female.id, female.sp, male.sex, female.sex);
-          }
-        }
+
+        tryConsummateMate(c, ctx, creatureSystem);
       }
       else
       {
+        // No mate target: wander instead
         creatureSystem.wander(c);
       }
+      // Mating by default considered "moving" for AI/control
       return { moved: true };
 
+    // -- General random movement or wall-following (roaming) --
     case 'wander':
       creatureSystem.moveTo(c, moveSpeed, dt);
       lifeStory.recordAction(c, 'wandered', null, 8);
       return { moved: true };
 
+    // -- FALLTHROUGH: Default for unknown or passive actions is to move on decision path --
     default:
       creatureSystem.moveTo(c, moveSpeed, dt);
       return { moved: true };
   }
+}
+
+export function tryConsummateMate(creature, ctx, creatureSystem)
+{
+  if (!ctx?.mate) return false;
+  const pos = creatureSystem.simPos(creature);
+  const mpos = creatureSystem.simPos(ctx.mate);
+  const dist = Math.hypot(mpos.x - pos.x, mpos.y - pos.y);
+  if (dist >= 1.0) return false;
+
+  const female = creature.sex === 'female' ? creature : ctx.mate;
+  const male = creature.sex === 'male' ? creature : ctx.mate;
+  if (female.sex !== 'female' || male.sex !== 'male') return false;
+  if (female.pregnant > 0 || female.mateCd > 0 || male.mateCd > 0) return false;
+
+  female.pregnant = sampleGestation(creature.sp);
+  female.matePartner = male.genome;
+  female.matePartnerId = male.id;
+  female.litterQ = Math.max(1, Math.round(female.genome.litter * rf(0.7, 1.15)));
+  const cd = sampleMateCooldown(creature.sp);
+  female.mateCd = cd;
+  male.mateCd = cd * 0.6;
+  female.energy -= 20;
+  male.energy -= 12;
+  lifeStory.recordMated(female, male.id, male.sp, female.sex, male.sex);
+  lifeStory.recordMated(male, female.id, female.sp, male.sex, female.sex);
+  return true;
 }
 
 export function applyDecisionWithContext(creature, decision, ctx, creatureSystem)
@@ -256,5 +333,8 @@ export function applyDecisionWithContext(creature, decision, ctx, creatureSystem
   creature.target = goals.targetId;
   creature.gpuTargetSlot = goals.targetSlot;
   creature.btSpeedMult = action.speedMult ?? 1;
-  creature.gpuNeedsUpload = true;
+  if (!(state.simBackend === 'gpu' && state.gpuSimEnabled))
+  {
+    creature.gpuNeedsUpload = true;
+  }
 }
