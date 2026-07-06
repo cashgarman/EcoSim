@@ -11,4 +11,10 @@
   <ItemGroup>
     <ProjectReference Include="EcoSim.Core\EcoSim.Core.csproj" />
   </ItemGroup>
+  <!-- Godot.NET.Sdk globs all *.cs; exclude nested library sources (reference only). -->
+  <ItemGroup>
+    <Compile Remove="EcoSim.Core\**\*.cs" />
+    <None Remove="EcoSim.Core\**\*.cs" />
+    <None Remove="EcoSim.Core\**\*.csproj" />
+  </ItemGroup>
 </Project>
