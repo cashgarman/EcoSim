@@ -48,11 +48,7 @@ export class BehaviorTree
         });
       }
 
-      if (!state.batchMode && (state.simBackend !== 'gpu' || options.logLifeStory))
-      {
-        lifeStory.observeDecision(creature, creature.state, creature.target, decision.nodeId);
-        lifeStory.observeAge(creature);
-      }
+      this._observeLifeStory(creature, decision, options);
 
       return decision;
     });
@@ -60,19 +56,29 @@ export class BehaviorTree
 
   tickDecisionOnly(creature, creatureSystem)
   {
-    const decision = this.decide(creature, creatureSystem);
-    if (!decision) return null;
-    applyDecisionWithContext(creature, decision, decision.ctx, creatureSystem);
-    if (state.simBackend === 'gpu' && state.gpuSimEnabled && decision.action?.state === 'mate')
+    return perfProfiler.scope('behavior.tick', () =>
     {
-      tryConsummateMate(creature, decision.ctx, creatureSystem);
-    }
-    if (!state.batchMode)
+      const decision = this.decide(creature, creatureSystem);
+      if (!decision) return null;
+      applyDecisionWithContext(creature, decision, decision.ctx, creatureSystem);
+      if (state.simBackend === 'gpu' && state.gpuSimEnabled && decision.action?.state === 'mate')
+      {
+        tryConsummateMate(creature, decision.ctx, creatureSystem);
+      }
+      this._observeLifeStory(creature, decision, { logLifeStory: true });
+      return decision;
+    });
+  }
+
+  _observeLifeStory(creature, decision, options = {})
+  {
+    if (state.batchMode) return;
+    if (state.simBackend === 'gpu' && !options.logLifeStory) return;
+    perfProfiler.scope('behavior.lifeStory', () =>
     {
       lifeStory.observeDecision(creature, creature.state, creature.target, decision.nodeId);
       lifeStory.observeAge(creature);
-    }
-    return decision;
+    });
   }
 }
 

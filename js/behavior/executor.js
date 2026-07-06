@@ -14,6 +14,12 @@ import { perfProfiler } from '../perf-profiler.js';
 
 export function resolveGoals(action, ctx, creatureSystem)
 {
+  return perfProfiler.scope('behavior.resolveGoals', () =>
+    _resolveGoals(action, ctx, creatureSystem));
+}
+
+function _resolveGoals(action, ctx, creatureSystem)
+{
   const c = ctx.creature;
   const goal = action.goal;
   let goalX = c.tx;
@@ -28,113 +34,135 @@ export function resolveGoals(action, ctx, creatureSystem)
     else { goalX = gx; goalY = gy; }
   };
 
+  const goalScope = (name, fn) => perfProfiler.scope(`behavior.resolveGoals.${name}`, fn);
+
   switch (goal)
   {
     case 'hold':
-      goalX = c.x;
-      goalY = c.y;
-      break;
-
-    case 'awayFromThreat':
-      if (ctx.threat)
-      {
-        targetId = ctx.threat.id;
-        targetSlot = ctx.threat.gpuSlot ?? -1;
-        const tp = creatureSystem.simPos(ctx.threat);
-        const a = Math.atan2(c.y - tp.y, c.x - tp.x);
-        const flee = unsnappedWalkableGoal(
-          c.x + Math.cos(a) * 6,
-          c.y + Math.sin(a) * 6,
-          ctx.canSwim,
-        );
-        goalX = flee.x;
-        goalY = flee.y;
-      }
-      break;
-
-    case 'nearestWater':
-    {
-      const pos = creatureSystem.simPos(c);
-      const w = nearestWaterEdgeTarget(pos.x, pos.y, waterSeekRadius(ctx.senseR));
-      if (w)
-      {
-        goalX = w.x;
-        goalY = w.y;
-      }
-      else
-      {
-        creatureSystem.wander(c);
-        goalX = c.tx;
-        goalY = c.ty;
-      }
-      break;
-    }
-
-    case 'bestFoodOrWander':
-    {
-      const ti = idx(clamp(Math.round(c.x), 0, state.W - 1), clamp(Math.round(c.y), 0, state.H - 1));
-      if (state.veg[ti] <= 0.04)
-      {
-        const t = creatureSystem.findFood(c, ctx.senseR);
-        if (t) applySnapped(t.x, t.y);
-        else creatureSystem.wander(c);
-        goalX = c.tx;
-        goalY = c.ty;
-      }
-      else
+      goalScope('hold', () =>
       {
         goalX = c.x;
         goalY = c.y;
-      }
+      });
       break;
-    }
+
+    case 'awayFromThreat':
+      goalScope('awayFromThreat', () =>
+      {
+        if (ctx.threat)
+        {
+          targetId = ctx.threat.id;
+          targetSlot = ctx.threat.gpuSlot ?? -1;
+          const tp = creatureSystem.simPos(ctx.threat);
+          const a = Math.atan2(c.y - tp.y, c.x - tp.x);
+          const flee = unsnappedWalkableGoal(
+            c.x + Math.cos(a) * 6,
+            c.y + Math.sin(a) * 6,
+            ctx.canSwim,
+          );
+          goalX = flee.x;
+          goalY = flee.y;
+        }
+      });
+      break;
+
+    case 'nearestWater':
+      goalScope('nearestWater', () =>
+      {
+        const pos = creatureSystem.simPos(c);
+        const w = nearestWaterEdgeTarget(pos.x, pos.y, waterSeekRadius(ctx.senseR));
+        if (w)
+        {
+          goalX = w.x;
+          goalY = w.y;
+        }
+        else
+        {
+          creatureSystem.wander(c);
+          goalX = c.tx;
+          goalY = c.ty;
+        }
+      });
+      break;
+
+    case 'bestFoodOrWander':
+      goalScope('bestFoodOrWander', () =>
+      {
+        const ti = idx(clamp(Math.round(c.x), 0, state.W - 1), clamp(Math.round(c.y), 0, state.H - 1));
+        if (state.veg[ti] <= 0.04)
+        {
+          const t = creatureSystem.findFood(c, ctx.senseR);
+          if (t) applySnapped(t.x, t.y);
+          else creatureSystem.wander(c);
+          goalX = c.tx;
+          goalY = c.ty;
+        }
+        else
+        {
+          goalX = c.x;
+          goalY = c.y;
+        }
+      });
+      break;
 
     case 'chasePrey':
-      if (ctx.prey)
+      goalScope('chasePrey', () =>
       {
-        targetId = ctx.prey.id;
-        targetSlot = ctx.prey.gpuSlot ?? -1;
-        const pp = creatureSystem.simPos(ctx.prey);
-        const g = unsnappedWalkableGoal(pp.x, pp.y, ctx.canSwim);
-        goalX = g.x;
-        goalY = g.y;
-      }
-      else
-      {
-        creatureSystem.wander(c);
-        goalX = c.tx;
-        goalY = c.ty;
-      }
+        if (ctx.prey)
+        {
+          targetId = ctx.prey.id;
+          targetSlot = ctx.prey.gpuSlot ?? -1;
+          const pp = creatureSystem.simPos(ctx.prey);
+          const g = unsnappedWalkableGoal(pp.x, pp.y, ctx.canSwim);
+          goalX = g.x;
+          goalY = g.y;
+        }
+        else
+        {
+          creatureSystem.wander(c);
+          goalX = c.tx;
+          goalY = c.ty;
+        }
+      });
       break;
 
     case 'approachMate':
-      if (ctx.mate)
+      goalScope('approachMate', () =>
       {
-        targetId = ctx.mate.id;
-        targetSlot = ctx.mate.gpuSlot ?? -1;
-        const mp = creatureSystem.simPos(ctx.mate);
-        const g = unsnappedWalkableGoal(mp.x, mp.y, ctx.canSwim);
-        goalX = g.x;
-        goalY = g.y;
-      }
-      else
-      {
-        creatureSystem.wander(c);
-        goalX = c.tx;
-        goalY = c.ty;
-      }
+        if (ctx.mate)
+        {
+          targetId = ctx.mate.id;
+          targetSlot = ctx.mate.gpuSlot ?? -1;
+          const mp = creatureSystem.simPos(ctx.mate);
+          const g = unsnappedWalkableGoal(mp.x, mp.y, ctx.canSwim);
+          goalX = g.x;
+          goalY = g.y;
+        }
+        else
+        {
+          creatureSystem.wander(c);
+          goalX = c.tx;
+          goalY = c.ty;
+        }
+      });
       break;
 
     case 'wander':
     case 'randomWalkable':
-      creatureSystem.wander(c);
-      goalX = c.tx;
-      goalY = c.ty;
+      goalScope('wander', () =>
+      {
+        creatureSystem.wander(c);
+        goalX = c.tx;
+        goalY = c.ty;
+      });
       break;
 
     default:
-      goalX = c.tx;
-      goalY = c.ty;
+      goalScope('default', () =>
+      {
+        goalX = c.tx;
+        goalY = c.ty;
+      });
   }
 
   return { goalX, goalY, targetId, targetSlot };
@@ -356,18 +384,21 @@ export function tryConsummateMate(creature, ctx, creatureSystem)
 
 export function applyDecisionWithContext(creature, decision, ctx, creatureSystem)
 {
-  const { action, nodeId } = decision;
-  creature.state = action.state;
-  creature.btNodeId = nodeId;
-  creature.gpuStateCode = stateToGpuCode(action.state);
-  const goals = resolveGoals(action, ctx, creatureSystem);
-  creature.tx = goals.goalX;
-  creature.ty = goals.goalY;
-  creature.target = goals.targetId;
-  creature.gpuTargetSlot = goals.targetSlot;
-  creature.btSpeedMult = action.speedMult ?? 1;
-  if (!(state.simBackend === 'gpu' && state.gpuSimEnabled))
+  perfProfiler.scope('behavior.applyDecision', () =>
   {
-    creature.gpuNeedsUpload = true;
-  }
+    const { action, nodeId } = decision;
+    creature.state = action.state;
+    creature.btNodeId = nodeId;
+    creature.gpuStateCode = stateToGpuCode(action.state);
+    const goals = resolveGoals(action, ctx, creatureSystem);
+    creature.tx = goals.goalX;
+    creature.ty = goals.goalY;
+    creature.target = goals.targetId;
+    creature.gpuTargetSlot = goals.targetSlot;
+    creature.btSpeedMult = action.speedMult ?? 1;
+    if (!(state.simBackend === 'gpu' && state.gpuSimEnabled))
+    {
+      creature.gpuNeedsUpload = true;
+    }
+  });
 }
