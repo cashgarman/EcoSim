@@ -83,6 +83,12 @@ public partial class WorldRenderer : Node2D
         UpdateDayNight();
     }
 
+    public void SetLockedSpecies(string? speciesKey)
+    {
+        _creatures.SetLockedSpecies(speciesKey);
+        _creatures.Refresh();
+    }
+
     public void RefreshVegIfDirty()
     {
         if (_session == null || !_session.State.VegDirty) return;

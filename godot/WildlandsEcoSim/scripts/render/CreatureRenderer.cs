@@ -10,6 +10,7 @@ public partial class CreatureRenderer : Node2D
     private SimSession? _session;
     private SpeciesCatalog? _catalog;
     private int _capacity;
+    private string? _lockedSpecies;
 
     public override void _Ready()
     {
@@ -30,6 +31,11 @@ public partial class CreatureRenderer : Node2D
         _catalog = catalog;
         _capacity = Math.Max(256, session.State.Creatures.Count + 64);
         _mesh.Multimesh.InstanceCount = _capacity;
+    }
+
+    public void SetLockedSpecies(string? speciesKey)
+    {
+        _lockedSpecies = speciesKey;
     }
 
     public void Refresh()
@@ -54,7 +60,7 @@ public partial class CreatureRenderer : Node2D
                 .Translated(new Vector2((float)c.X, (float)c.Y))
                 .Scaled(new Vector2(r, r));
             _mesh.Multimesh.SetInstanceTransform2D(alive, xform);
-            _mesh.Multimesh.SetInstanceColor(alive, SpeciesColor(def));
+            _mesh.Multimesh.SetInstanceColor(alive, SpeciesColor(def, c.Sp == _lockedSpecies));
             alive++;
         }
 
@@ -62,12 +68,17 @@ public partial class CreatureRenderer : Node2D
         _mesh.Multimesh.VisibleInstanceCount = alive;
     }
 
-    private static Color SpeciesColor(SpeciesDefinition def)
+    private static Color SpeciesColor(SpeciesDefinition def, bool locked)
     {
+        Color baseCol;
         if (def.Col.Length >= 3)
         {
-            return new Color(def.Col[0] / 255f, def.Col[1] / 255f, def.Col[2] / 255f);
+            baseCol = new Color(def.Col[0] / 255f, def.Col[1] / 255f, def.Col[2] / 255f);
         }
-        return Colors.White;
+        else
+        {
+            baseCol = Colors.White;
+        }
+        return locked ? baseCol.Lightened(0.45f) : baseCol;
     }
 }

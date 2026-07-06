@@ -23,7 +23,7 @@ public partial class EcoSimHost : Node
         GD.Print($"EcoSim loaded {Species!.SpeciesKeys.Count} species");
     }
 
-    private void BootstrapIfNeeded()
+    public void BootstrapIfNeeded()
     {
         if (_bootstrapped) return;
         string dataRoot = ResolveDataRoot();
@@ -41,12 +41,20 @@ public partial class EcoSimHost : Node
         return Session;
     }
 
-    public int GenerateWorld(string size = "s", uint seed = 1)
+    public int GenerateWorld(WorldGenConfig cfg, uint seed = 1)
     {
         var session = EnsureSession(seed);
         session.State.Seed = seed;
         GlobalRng.SetSeed(seed);
-        session.State.Cfg = new WorldGenConfig
+        session.State.Cfg = cfg;
+        int pop = session.GenerateWorld();
+        GD.Print($"World generated {session.State.W}x{session.State.H}, pop={pop}, seed={seed}");
+        return pop;
+    }
+
+    public int GenerateWorld(string size = "s", uint seed = 1)
+    {
+        return GenerateWorld(new WorldGenConfig
         {
             Size = size,
             Sea = 0.46,
@@ -54,10 +62,7 @@ public partial class EcoSimHost : Node
             Moist = 0.5,
             Relief = 0.6,
             Animals = 0.45,
-        };
-        int pop = session.GenerateWorld();
-        GD.Print($"World generated {session.State.W}x{session.State.H}, pop={pop}, seed={seed}");
-        return pop;
+        }, seed);
     }
 
     private static string ResolveDataRoot()

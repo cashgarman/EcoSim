@@ -1,8 +1,14 @@
-[gd_scene load_steps=5 format=3 uid="uid://main_scene"]
+[gd_scene load_steps=10 format=3 uid="uid://main_scene"]
 
 [ext_resource type="Script" path="res://scripts/Main.cs" id="1_main"]
 [ext_resource type="Script" path="res://scripts/render/WorldRenderer.cs" id="2_world"]
 [ext_resource type="Script" path="res://scripts/WorldCamera.cs" id="3_cam"]
+[ext_resource type="Script" path="res://scripts/ui/HudController.cs" id="4_hud"]
+[ext_resource type="Script" path="res://scripts/ui/GenPanel.cs" id="5_gen"]
+[ext_resource type="Script" path="res://scripts/ui/EcosystemPanel.cs" id="6_eco"]
+[ext_resource type="Script" path="res://scripts/ui/InspectorPanel.cs" id="7_inspect"]
+[ext_resource type="Script" path="res://scripts/ui/StoryPanel.cs" id="8_story"]
+[ext_resource type="Script" path="res://scripts/ui/WorldStoryTracker.cs" id="9_tracker"]
 
 [node name="Main" type="Control"]
 layout_mode = 3
@@ -13,79 +19,253 @@ grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("1_main")
 
-[node name="VBox" type="VBoxContainer" parent="."]
+[node name="WorldViewportContainer" type="SubViewportContainer" parent="."]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
+stretch = true
 
-[node name="TopBar" type="HBoxContainer" parent="VBox"]
+[node name="WorldViewport" type="SubViewport" parent="WorldViewportContainer"]
+unique_name_in_owner = true
+handle_input_locally = true
+size = Vector2i(1600, 900)
+render_target_update_mode = 4
+
+[node name="WorldRoot" type="Node2D" parent="WorldViewportContainer/WorldViewport"]
+script = ExtResource("2_world")
+
+[node name="Camera2D" type="Camera2D" parent="WorldViewportContainer/WorldViewport/WorldRoot"]
+current = true
+script = ExtResource("3_cam")
+
+[node name="Hud" type="CanvasLayer" parent="."]
+script = ExtResource("4_hud")
+
+[node name="TopBar" type="PanelContainer" parent="Hud"]
+offset_left = 8.0
+offset_top = 8.0
+offset_right = 900.0
+offset_bottom = 44.0
+
+[node name="HBox" type="HBoxContainer" parent="Hud/TopBar"]
 layout_mode = 2
 theme_override_constants/separation = 12
 
-[node name="DayLabel" type="Label" parent="VBox/TopBar"]
+[node name="DayLabel" type="Label" parent="Hud/TopBar/HBox"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "Day 0"
 
-[node name="PopLabel" type="Label" parent="VBox/TopBar"]
+[node name="PopLabel" type="Label" parent="Hud/TopBar/HBox"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "Pop 0"
 
-[node name="SpeedLabel" type="Label" parent="VBox/TopBar"]
+[node name="SpeedLabel" type="Label" parent="Hud/TopBar/HBox"]
 layout_mode = 2
 text = "Speed"
 
-[node name="SpeedSlider" type="HSlider" parent="VBox/TopBar"]
+[node name="SpeedSlider" type="HSlider" parent="Hud/TopBar/HBox"]
 unique_name_in_owner = true
+custom_minimum_size = Vector2(120, 0)
 layout_mode = 2
-size_flags_horizontal = 3
-min_value = 0.0
 max_value = 10.0
 step = 0.5
 value = 2.0
 
-[node name="SeedBox" type="SpinBox" parent="VBox/TopBar"]
+[node name="GenerateButton" type="Button" parent="Hud/TopBar/HBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Generate"
+
+[node name="GenPanel" type="PanelContainer" parent="Hud"]
+unique_name_in_owner = true
+offset_left = 8.0
+offset_top = 52.0
+offset_right = 248.0
+offset_bottom = 340.0
+script = ExtResource("5_gen")
+
+[node name="VBox" type="VBoxContainer" parent="Hud/GenPanel"]
+layout_mode = 2
+
+[node name="PanelHead" type="HBoxContainer" parent="Hud/GenPanel/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="Title" type="Label" parent="Hud/GenPanel/VBox/PanelHead"]
+layout_mode = 2
+text = "World Generator"
+
+[node name="SeedBox" type="SpinBox" parent="Hud/GenPanel/VBox"]
 unique_name_in_owner = true
 layout_mode = 2
 min_value = 1.0
 max_value = 999999.0
 value = 42.0
 
-[node name="SizeOption" type="OptionButton" parent="VBox/TopBar"]
+[node name="SizeOption" type="OptionButton" parent="Hud/GenPanel/VBox"]
 unique_name_in_owner = true
 layout_mode = 2
 
-[node name="GenerateButton" type="Button" parent="VBox/TopBar"]
+[node name="SeaSlider" type="HSlider" parent="Hud/GenPanel/VBox"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "Generate"
+max_value = 1.0
+step = 0.01
+value = 0.46
 
-[node name="WorldViewportContainer" type="SubViewportContainer" parent="VBox"]
+[node name="TempSlider" type="HSlider" parent="Hud/GenPanel/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+max_value = 1.0
+step = 0.01
+value = 0.5
+
+[node name="MoistSlider" type="HSlider" parent="Hud/GenPanel/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+max_value = 1.0
+step = 0.01
+value = 0.5
+
+[node name="ReliefSlider" type="HSlider" parent="Hud/GenPanel/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+max_value = 1.0
+step = 0.01
+value = 0.6
+
+[node name="AnimalsSlider" type="HSlider" parent="Hud/GenPanel/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+max_value = 1.0
+step = 0.01
+value = 0.45
+
+[node name="EcosystemPanel" type="PanelContainer" parent="Hud"]
+unique_name_in_owner = true
+offset_left = 1320.0
+offset_top = 52.0
+offset_right = 1592.0
+offset_bottom = 400.0
+script = ExtResource("6_eco")
+
+[node name="VBox" type="VBoxContainer" parent="Hud/EcosystemPanel"]
+layout_mode = 2
+
+[node name="PanelHead" type="HBoxContainer" parent="Hud/EcosystemPanel/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="Title" type="Label" parent="Hud/EcosystemPanel/VBox/PanelHead"]
+layout_mode = 2
+text = "Ecosystem"
+
+[node name="Scroll" type="ScrollContainer" parent="Hud/EcosystemPanel/VBox"]
 layout_mode = 2
 size_flags_vertical = 3
-stretch = true
 
-[node name="WorldViewport" type="SubViewport" parent="VBox/WorldViewportContainer"]
-unique_name_in_owner = true
-handle_input_locally = true
-size = Vector2i(1600, 800)
-render_target_update_mode = 4
-
-[node name="WorldRoot" type="Node2D" parent="VBox/WorldViewportContainer/WorldViewport"]
-script = ExtResource("2_world")
-
-[node name="Camera2D" type="Camera2D" parent="VBox/WorldViewportContainer/WorldViewport/WorldRoot"]
-current = true
-script = ExtResource("3_cam")
-
-[node name="InspectPanel" type="PanelContainer" parent="VBox"]
-layout_mode = 2
-
-[node name="InspectLabel" type="Label" parent="VBox/InspectPanel"]
+[node name="SpeciesRows" type="VBoxContainer" parent="Hud/EcosystemPanel/VBox/Scroll"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "Click a creature to inspect"
+size_flags_horizontal = 3
+
+[node name="InspectorPanel" type="PanelContainer" parent="Hud"]
+unique_name_in_owner = true
+offset_left = 8.0
+offset_top = 620.0
+offset_right = 320.0
+offset_bottom = 880.0
+script = ExtResource("7_inspect")
+
+[node name="VBox" type="VBoxContainer" parent="Hud/InspectorPanel"]
+layout_mode = 2
+
+[node name="PanelHead" type="HBoxContainer" parent="Hud/InspectorPanel/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="InspectHeader" type="Label" parent="Hud/InspectorPanel/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Inspector"
+
+[node name="HpBar" type="ProgressBar" parent="Hud/InspectorPanel/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+max_value = 100.0
+show_percentage = false
+
+[node name="HungerBar" type="ProgressBar" parent="Hud/InspectorPanel/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+max_value = 100.0
+show_percentage = false
+
+[node name="ThirstBar" type="ProgressBar" parent="Hud/InspectorPanel/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+max_value = 100.0
+show_percentage = false
+
+[node name="EnergyBar" type="ProgressBar" parent="Hud/InspectorPanel/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+max_value = 100.0
+show_percentage = false
+
+[node name="GeneGrid" type="GridContainer" parent="Hud/InspectorPanel/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+columns = 2
+
+[node name="StoryPanel" type="PanelContainer" parent="Hud"]
+unique_name_in_owner = true
+offset_left = 1080.0
+offset_top = 620.0
+offset_right = 1592.0
+offset_bottom = 880.0
+script = ExtResource("8_story")
+
+[node name="VBox" type="VBoxContainer" parent="Hud/StoryPanel"]
+layout_mode = 2
+
+[node name="PanelHead" type="HBoxContainer" parent="Hud/StoryPanel/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="Title" type="Label" parent="Hud/StoryPanel/VBox/PanelHead"]
+layout_mode = 2
+text = "World Story"
+
+[node name="WorldStory" type="Node" parent="Hud/StoryPanel/VBox"]
+unique_name_in_owner = true
+script = ExtResource("9_tracker")
+
+[node name="StoryText" type="RichTextLabel" parent="Hud/StoryPanel/VBox/WorldStory"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 200)
+layout_mode = 2
+size_flags_vertical = 3
+scroll_active = true
+fit_content = true
+
+[node name="TerrainTip" type="Label" parent="Hud"]
+unique_name_in_owner = true
+visible = false
+theme_override_colors/font_color = Color(0.9, 0.92, 0.85, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 2
+text = "terrain"
+
+[node name="CreatureTip" type="Label" parent="Hud"]
+unique_name_in_owner = true
+visible = false
+theme_override_colors/font_color = Color(1, 0.95, 0.7, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 2
+text = "creature"
