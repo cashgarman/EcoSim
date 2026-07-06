@@ -142,6 +142,7 @@ export class CreatureSystem
     };
     lifeStory.initCreature(c);
     state.creatures.push(c);
+    this.insertIntoGrid(c, this.gridKeyFor(c));
     if ((gen || 1) > state.generationMax) state.generationMax = gen || 1;
     state.gpuSimDirtyFromCpu = true;
     if (recordStory && !state.batchMode) lifeStory.recordAppeared(c, 'spawned');
@@ -290,12 +291,61 @@ export class CreatureSystem
     state.grid.clear();
     for (const c of state.creatures)
     {
-      if (c.dead) continue;
-      const p = this.simPos(c);
-      const k = gkey(Math.floor(p.x / CELL), Math.floor(p.y / CELL));
-      let a = state.grid.get(k);
-      if (!a) { a = []; state.grid.set(k, a); }
-      a.push(c);
+      if (c.dead)
+      {
+        c._gridKey = null;
+        continue;
+      }
+      this.insertIntoGrid(c, this.gridKeyFor(c));
+    }
+  }
+
+  gridKeyFor(c)
+  {
+    const p = this.simPosInto(this._posScratch, c);
+    return gkey(Math.floor(p.x / CELL), Math.floor(p.y / CELL));
+  }
+
+  insertIntoGrid(c, key)
+  {
+    let bucket = state.grid.get(key);
+    if (!bucket)
+    {
+      bucket = [];
+      state.grid.set(key, bucket);
+    }
+    bucket.push(c);
+    c._gridKey = key;
+  }
+
+  removeFromGrid(c)
+  {
+    if (c._gridKey == null) return;
+    const bucket = state.grid.get(c._gridKey);
+    if (bucket)
+    {
+      const i = bucket.indexOf(c);
+      if (i >= 0) bucket.splice(i, 1);
+      if (bucket.length === 0) state.grid.delete(c._gridKey);
+    }
+    c._gridKey = null;
+  }
+
+  syncGrid()
+  {
+    for (const c of state.creatures)
+    {
+      if (c.dead)
+      {
+        if (c._gridKey != null) this.removeFromGrid(c);
+        continue;
+      }
+      const key = this.gridKeyFor(c);
+      if (c._gridKey !== key)
+      {
+        if (c._gridKey != null) this.removeFromGrid(c);
+        this.insertIntoGrid(c, key);
+      }
     }
   }
 
@@ -474,6 +524,7 @@ export class CreatureSystem
     if (cause) c.cause = cause;
     lifeStory.recordDied(c, cause);
     c.dead = true;
+    this.removeFromGrid(c);
     c.gpuNeedsUpload = true;
     state.gpuSimDirtyFromCpu = true;
     const ti = idx(clamp(Math.round(c.x), 0, state.W - 1), clamp(Math.round(c.y), 0, state.H - 1));
@@ -494,7 +545,7 @@ export class CreatureSystem
     }
     if (killed > 0)
     {
-      this.rebuildGrid();
+      this.syncGrid();
       state.vegDirty = true;
     }
     return killed;
@@ -641,7 +692,9 @@ export class CreatureSystem
     const deadBloat = deadCount > Math.max(40, aliveCount * 0.08);
     if (!overCapacity && !deadBloat && rng() >= 0.05) return;
 
+    const before = state.creatures.length;
     state.creatures = state.creatures.filter(c => c && (!c.dead || c === state.selected));
+    if (state.creatures.length !== before) this.rebuildGrid();
     if (!onGpu) state.gpuSimDirtyFromCpu = true;
   }
 }

@@ -85,7 +85,12 @@ Each phase is implemented on its own branch. Before starting the next phase: com
 
 ## Phase 2 — Incremental spatial hash
 
-*(Pending)*
+**Branch:** `perf/phase-2-incremental-grid`
+
+**Changes:**
+- [`js/creatures.js`](js/creatures.js): `syncGrid()` moves creatures between buckets; `insertIntoGrid` / `removeFromGrid` on spawn/death; per-tick `syncGrid` replaces full rebuild.
+- [`js/simulation.js`](js/simulation.js): tick uses `syncGrid`.
+- [`js/snapshot.js`](js/snapshot.js): full `rebuildGrid` after snapshot restore.
 
 ---
 

@@ -162,7 +162,7 @@ export class Simulation
       if (runBehavior)
       {
         perfProfiler.begin('sim.behaviorTree');
-        creatures.rebuildGrid();
+        creatures.syncGrid();
         for (const c of state.creatures)
         {
           if (!c.dead)
@@ -199,7 +199,7 @@ export class Simulation
     }
 
     perfProfiler.begin('sim.rebuildGrid');
-    creatures.rebuildGrid();
+    creatures.syncGrid();
     perfProfiler.end('sim.rebuildGrid');
 
     perfProfiler.begin('sim.stepCreatures');

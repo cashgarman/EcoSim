@@ -245,6 +245,7 @@ export class GameApp
 
         $('loadmsg').textContent = 'Seeding life…';
         state.creatures = [];
+        state.grid.clear();
         state.generationMax = 1;
         state.nextId = 1;
         for (const k of SP_KEYS) state.popHistory[k] = [];

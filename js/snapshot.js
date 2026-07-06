@@ -1,6 +1,7 @@
 import { state } from './state.js';
 import { lifeStory } from './life-story.js';
 import { perfProfiler } from './perf-profiler.js';
+import { creatures } from './creatures.js';
 
 export function captureSnapshot()
 {
@@ -225,6 +226,7 @@ export function restoreSnapshot(snapOrRow, options = {})
     state.followSelected = false;
   }
 
+  creatures.rebuildGrid();
   return true;
 }
 
