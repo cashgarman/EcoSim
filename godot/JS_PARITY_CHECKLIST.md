@@ -24,7 +24,7 @@ Track parity between Godot port and legacy `wildlands-ecosim.html` / `batch-test
 - [x] Species row double-click → jump to nearest
 - [x] Hover creature tooltip
 - [x] Auto-migration toggle (gen panel)
-- [ ] Ecosystem maximize mode
+- [x] Ecosystem maximize mode
 - [ ] Balance tuning banner + reset
 
 ## Phase 3 — Timeline

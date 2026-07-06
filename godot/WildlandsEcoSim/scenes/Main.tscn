@@ -325,6 +325,7 @@ script = ExtResource("6_eco")
 
 [node name="VBox" type="VBoxContainer" parent="Hud/EcosystemPanel" unique_id=1830146139]
 layout_mode = 2
+size_flags_vertical = 3
 
 [node name="PanelHead" type="HBoxContainer" parent="Hud/EcosystemPanel/VBox" unique_id=720013475]
 layout_mode = 2

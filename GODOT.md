@@ -117,7 +117,7 @@ Loaded via `DataPaths` / `EcoSimBootstrap.LoadBaseData()`:
 | Panel | Script |
 |-------|--------|
 | World Generator | `GenPanel` — sliders, size km² buttons, Generate / Restock |
-| Ecosystem | `EcosystemPanel` + `PopGraph` |
+| Ecosystem | `EcosystemPanel` + `PopGraph` + shared `PopHistoryTracker` (~1 Hz sampling) |
 | Inspector | `InspectorPanel` — Stats + Life Story tabs |
 | Species Stats | `SpeciesStatsPanel` — on species row lock |
 | World Story | `WorldStoryTracker` |

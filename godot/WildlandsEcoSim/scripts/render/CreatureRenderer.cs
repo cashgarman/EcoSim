@@ -82,18 +82,15 @@ public partial class CreatureRenderer : Node2D
                 bool moving = Math.Sqrt(c.Vx * c.Vx + c.Vy * c.Vy) > 0.02;
                 CreatureDrawUtil.DrawSprite(this, pos, s, c.Dir, def.Shape, rgb, dk, moving, c.Walk,
                     !creatures.IsAdult(c), bright);
-                if (_camZoom > 6)
-                {
-                    string? em = CreatureDrawUtil.StateEmoji(c.State);
-                    if (em != null && c.State != "wander")
-                    {
-                        CreatureDrawUtil.DrawStateEmoji(this, pos, em, _camZoom, eSize, WorldRenderer.TilePixels);
-                    }
-                }
             }
             else
             {
                 CreatureDrawUtil.DrawBodyRect(this, pos, s, rgb, bright);
+            }
+
+            if (_camZoom >= 3.5f && c.State != "wander")
+            {
+                CreatureDrawUtil.DrawStateIcon(this, pos, c.State, eSize, _camZoom, WorldRenderer.TilePixels, s);
             }
         }
     }

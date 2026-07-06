@@ -42,6 +42,7 @@ public partial class HudController : CanvasLayer
     private double _heartbeatIntervalSec = 5;
     private long _lastHeartbeatBucket = -1;
     private DraggablePanel[] _panels = [];
+    private PopHistoryTracker _popHistory = new();
 
     public override void _Ready()
     {
@@ -145,10 +146,12 @@ public partial class HudController : CanvasLayer
         _world.BindInput(() => _tools.ActiveTool, OnToolApply);
 
         _host.BootstrapIfNeeded();
-        _ecosystem.Bind(_host.Species!);
+        _popHistory.Bind(_host.Species!);
+        _ecosystem.Bind(_host.Species!, _popHistory);
         _tools.Bind(_host.Species!);
         _inspector.Bind(_host.Species!);
-        _speciesStats.Bind(_host.Species!);
+        _speciesStats.Bind(_host.Species!, _popHistory);
+        _story.CreatureLifeEvent += OnCreatureLifeEvent;
 
         if (!Engine.IsEditorHint())
         {
@@ -213,6 +216,15 @@ public partial class HudController : CanvasLayer
                 GetViewport().SetInputAsHandled();
             }
         }
+        else if (@event is InputEventMouseButton mb && mb.Pressed && mb.ButtonIndex == MouseButton.Left)
+        {
+            if (!string.IsNullOrEmpty(_ecosystem.LockedSpecies) && !IsPointerOnHud(mb.GlobalPosition))
+            {
+                _ecosystem.ClearSpeciesLock();
+                OnSpeciesLocked("");
+                GetViewport().SetInputAsHandled();
+            }
+        }
     }
 
     public override void _Process(double delta)
@@ -243,8 +255,39 @@ public partial class HudController : CanvasLayer
         _world.BindWorld(session, _host.Species!);
         _camera.CenterOnWorld();
         _story.Reset();
+        _ecosystem.Reset();
         _story.LogGodAction($"Day 0: World generated ({cfg.Size}, seed {seed})", session);
         RefreshHud();
+    }
+
+    private void OnCreatureLifeEvent(string speciesKey, string kind)
+    {
+        _ecosystem.FlashSpeciesPop(speciesKey, kind);
+    }
+
+    private bool IsPointerOnHud(Vector2 globalPos)
+    {
+        var topBar = GetNode<PanelContainer>("TopBar");
+        if (topBar.GetGlobalRect().HasPoint(globalPos)) return true;
+
+        foreach (var panel in _panels)
+        {
+            if (!panel.Visible) continue;
+            if (panel.GetGlobalRect().HasPoint(globalPos)) return true;
+        }
+
+        if (_profilerDetail != null && _profilerDetail.Visible
+            && _profilerDetail.GetGlobalRect().HasPoint(globalPos))
+        {
+            return true;
+        }
+
+        if (_godMenu.Visible)
+        {
+            return true;
+        }
+
+        return false;
     }
 
     private void OnRestock()
@@ -411,6 +454,7 @@ public partial class HudController : CanvasLayer
         _simFpsLabel.Text = $"⚙ {fps:F0} FPS · {frameMs:F1}ms";
 
         _speedValueLabel.Text = $"{session.State.Speed:0}×";
+        _popHistory.SampleIfDue(session, _gameApp.Paused);
         _ecosystem.Refresh(session);
         _inspector.Refresh(session.State.Selected);
         if (!string.IsNullOrEmpty(_ecosystem.LockedSpecies))

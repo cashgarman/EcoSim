@@ -51,10 +51,10 @@ public partial class SpeciesStatsPanel : DraggablePanel
             ?? throw new InvalidOperationException($"Missing node: {name}");
     }
 
-    public void Bind(SpeciesCatalog catalog)
+    public void Bind(SpeciesCatalog catalog, PopHistoryTracker popHistory)
     {
         _catalog = catalog;
-        _graph.Bind(catalog);
+        _graph.Bind(catalog, popHistory);
     }
 
     public void ShowSpecies(string? speciesKey, SimSession session, SpeciesStatsTracker stats)
@@ -70,8 +70,8 @@ public partial class SpeciesStatsPanel : DraggablePanel
         Visible = true;
         var def = _catalog.Get(speciesKey);
         _title.Text = $"{def.Emoji} {def.Label}";
-        _graph.SetHighlight(speciesKey);
-        _graph.Sample(session);
+        _graph.SetFocus(speciesKey, null);
+        _graph.QueueRedraw();
 
         double hp = 0, hun = 0, thi = 0, ene = 0;
         int n = 0;

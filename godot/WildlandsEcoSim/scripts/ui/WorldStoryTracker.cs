@@ -6,6 +6,9 @@ namespace WildlandsEcoSim.UI;
 
 public partial class WorldStoryTracker : Control
 {
+    [Signal]
+    public delegate void CreatureLifeEventEventHandler(string speciesKey, string kind);
+
     private readonly HashSet<int> _knownAlive = new();
     private readonly HashSet<int> _reportedDeaths = new();
     private readonly List<string> _lines = [];
@@ -63,6 +66,7 @@ public partial class WorldStoryTracker : Control
                         ? CreatureNotify.FormatDiedEvent(_catalog, c, CreatureNotify.InferKillerId(c, session.State), session.State)
                         : $"Day {session.State.Day}: {c.Sp} #{c.Id} died";
                     AddLine(line, session);
+                    EmitSignal(SignalName.CreatureLifeEvent, c.Sp, "died");
                 }
                 continue;
             }
@@ -75,6 +79,7 @@ public partial class WorldStoryTracker : Control
                     ? $"Day {session.State.Day}: {def.Emoji} {def.Label} #{c.Id} appeared"
                     : $"Day {session.State.Day}: {c.Sp} #{c.Id} appeared";
                 AddLine(line, session);
+                EmitSignal(SignalName.CreatureLifeEvent, c.Sp, "born");
             }
         }
 

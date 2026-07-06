@@ -17,6 +17,14 @@ public partial class DraggablePanel : PanelContainer
     public Control? Body => _body;
     public bool IsCollapsed => _collapsed;
 
+    public void SetCollapsed(bool collapsed)
+    {
+        if (_collapsed != collapsed)
+        {
+            ToggleCollapse();
+        }
+    }
+
     public override void _Ready()
     {
         NormalizePanelHead();
@@ -221,7 +229,12 @@ public partial class DraggablePanel : PanelContainer
             _collapseBtn.Text = _collapsed ? "▶" : "▼";
         }
 
+        OnCollapseToggled(_collapsed);
         Callable.From(ApplyCollapseLayout).CallDeferred();
+    }
+
+    protected virtual void OnCollapseToggled(bool collapsed)
+    {
     }
 
     private void ApplyCollapseLayout()

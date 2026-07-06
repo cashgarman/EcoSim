@@ -135,23 +135,156 @@ public static class CreatureDrawUtil
         _ => null,
     };
 
-    /// <summary>Draw behavior emoji above a creature (JS: screen px, converted to tile-local draw units).</summary>
-    public static void DrawStateEmoji(
+    /// <summary>Draw crisp pixel-art behavior icon above a creature (JS screen-px sizing, snapped cells).</summary>
+    public static void DrawStateIcon(
         CanvasItem canvas,
         Vector2 tilePos,
-        string emoji,
-        float camZoom,
+        string state,
         float eSize,
-        float tilePixels)
+        float camZoom,
+        float tilePixels,
+        float creatureSizeTiles)
     {
-        float sScreen = Math.Max(2.5f, camZoom * 0.9f * eSize);
-        int fontScreen = Math.Max(6, (int)(sScreen * 0.9f));
+        if (!TryGetStateIconGrid(state, out string[] grid)) return;
+
+        int gridSize = grid.Length;
         float worldScale = tilePixels * Math.Max(camZoom, 0.01f);
-        int fontLocal = Math.Max(1, (int)Math.Ceiling(fontScreen / worldScale));
-        Vector2 offset = new(-sScreen * 0.4f / worldScale, -sScreen * 0.9f / worldScale);
-        canvas.DrawString(ThemeDB.FallbackFont, tilePos + offset, emoji,
-            HorizontalAlignment.Left, -1, fontLocal);
+        float sScreen = Math.Max(2.5f, camZoom * 0.9f * eSize);
+
+        // ~8–10 screen px; grows gently with zoom, stays smaller than the creature.
+        float iconScreen = Math.Clamp(sScreen * 0.45f, 8f, 10f);
+        float iconSize = iconScreen / worldScale;
+        float cellLocal = iconSize / gridSize;
+
+        // Snap each grid cell to whole screen pixels so rects stay sharp when scaled.
+        float cellScreen = Math.Max(1f, Mathf.Round(cellLocal * worldScale));
+        cellLocal = cellScreen / worldScale;
+        iconSize = cellLocal * gridSize;
+
+        float liftScreen = Math.Max(sScreen * 0.75f, creatureSizeTiles * worldScale * 0.5f + 3f);
+        float liftTiles = liftScreen / worldScale;
+        Vector2 origin = new(
+            tilePos.X - iconSize * 0.5f,
+            tilePos.Y - liftTiles - iconSize);
+
+        for (int y = 0; y < gridSize; y++)
+        {
+            string row = grid[y];
+            for (int x = 0; x < gridSize && x < row.Length; x++)
+            {
+                if (!TryIconColor(row[x], out Color col)) continue;
+                canvas.DrawRect(new Rect2(
+                    origin.X + x * cellLocal,
+                    origin.Y + y * cellLocal,
+                    cellLocal,
+                    cellLocal), col);
+            }
+        }
     }
+
+    private static bool TryGetStateIconGrid(string state, out string[] grid)
+    {
+        grid = state switch
+        {
+            "flee" => FleeIcon,
+            "thirst" => ThirstIcon,
+            "graze" => GrazeIcon,
+            "hunt" => HuntIcon,
+            "mate" => MateIcon,
+            "rest" => RestIcon,
+            _ => [],
+        };
+        return grid.Length > 0;
+    }
+
+    private static bool TryIconColor(char key, out Color color)
+    {
+        color = key switch
+        {
+            'R' => new Color("#e04a3a"),
+            'W' => new Color("#f0ece0"),
+            'B' => new Color("#3aa8d8"),
+            'G' => new Color("#4fd455"),
+            'Y' => new Color("#d8c23a"),
+            'K' => new Color("#141810"),
+            'P' => new Color("#e84a6a"),
+            'L' => new Color("#9ad8ff"),
+            _ => default,
+        };
+        return key != '.';
+    }
+
+    // 8x8 pixel grids — each cell snaps to a whole screen pixel when drawn.
+    private static readonly string[] FleeIcon =
+    [
+        "........",
+        "...R....",
+        "...R....",
+        "...R....",
+        "...R....",
+        "........",
+        "...R....",
+        "........",
+    ];
+
+    private static readonly string[] ThirstIcon =
+    [
+        "........",
+        "...B....",
+        "..BBB...",
+        ".BBBBB..",
+        "..BBB...",
+        "...B....",
+        "........",
+        "........",
+    ];
+
+    private static readonly string[] GrazeIcon =
+    [
+        "........",
+        "G.....G.",
+        ".G...G..",
+        "..G.G...",
+        "...G....",
+        "..GGG...",
+        ".GGGGG..",
+        "........",
+    ];
+
+    private static readonly string[] HuntIcon =
+    [
+        ".WWWWWW.",
+        "WRRRRRRW",
+        "WRWWWRW",
+        "WRWKWRW",
+        "WRWWWRW",
+        "WRRRRRRW",
+        ".WWWWWW.",
+    ];
+
+    private static readonly string[] MateIcon =
+    [
+        "........",
+        ".PP..PP.",
+        "PPPPPPP.",
+        ".PPPPP..",
+        "..PPP...",
+        "...P....",
+        "........",
+        "........",
+    ];
+
+    private static readonly string[] RestIcon =
+    [
+        "........",
+        "....LL..",
+        "...LL...",
+        "..LL....",
+        "LL......",
+        ".LL.....",
+        "..LLL...",
+        "........",
+    ];
 
     private static Color HslToRgb(double h, double s, double l)
     {

@@ -1,74 +1,112 @@
 using EcoSim.Core.Data;
-using EcoSim.Core.Sim;
 using Godot;
 
 namespace WildlandsEcoSim.UI;
 
 public partial class PopGraph : Control
 {
-    private readonly Dictionary<string, List<int>> _history = new(StringComparer.Ordinal);
+    private PopHistoryTracker? _history;
     private SpeciesCatalog? _catalog;
-    private string? _highlightSpecies;
-    private const int MaxSamples = 120;
+    private string? _lockedSpecies;
+    private string? _hoveredSpecies;
+    private int _hoverIndex = -1;
+    private bool _showCrosshair;
 
     public override void _Ready()
     {
         CustomMinimumSize = new Vector2(0, 70);
+        MouseFilter = MouseFilterEnum.Stop;
+        Resized += () =>
+        {
+            if (_history != null)
+            {
+                _history.SyncCapacity(Math.Max(226, (int)Size.X));
+            }
+        };
     }
 
-    public void Bind(SpeciesCatalog catalog)
+    public void Bind(SpeciesCatalog catalog, PopHistoryTracker? history)
     {
         _catalog = catalog;
-        _history.Clear();
-        foreach (string sp in catalog.SpeciesKeys)
+        _history = history;
+        if (_history != null)
         {
-            _history[sp] = [];
+            _history.SyncCapacity(Math.Max(226, (int)Size.X));
         }
-    }
-
-    public void SetHighlight(string? speciesKey)
-    {
-        _highlightSpecies = speciesKey;
         QueueRedraw();
     }
 
-    public void Sample(SimSession session)
+    public void SetHistory(PopHistoryTracker history)
     {
-        if (_catalog == null) return;
-        foreach (string sp in _catalog.SpeciesKeys)
-        {
-            int count = session.State.Creatures.Count(c => c.Sp == sp && !c.Dead);
-            var list = _history[sp];
-            list.Add(count);
-            if (list.Count > MaxSamples) list.RemoveAt(0);
-        }
+        _history = history;
+        _history.SyncCapacity(Math.Max(226, (int)Size.X));
         QueueRedraw();
+    }
+
+    public void SetFocus(string? lockedSpecies, string? hoveredSpecies)
+    {
+        _lockedSpecies = lockedSpecies;
+        _hoveredSpecies = hoveredSpecies;
+        QueueRedraw();
+    }
+
+    public void SetHoverIndex(int index, bool showCrosshair)
+    {
+        _hoverIndex = index;
+        _showCrosshair = showCrosshair;
+        QueueRedraw();
+    }
+
+    public int HoverIndexFromMouse(Vector2 localPos)
+    {
+        if (_catalog == null || _history == null) return -1;
+        int capacity = Math.Max(1, _history.GraphCapacity);
+        var first = _history.GetSeries(_catalog.SpeciesKeys[0]);
+        int len = Math.Max(first.Count, 1);
+        float x = Mathf.Clamp(localPos.X, 0, Size.X);
+        return (int)Math.Round(x / Math.Max(1f, Size.X - 1) * Math.Max(1, len - 1));
     }
 
     public override void _Draw()
     {
-        if (_catalog == null) return;
+        if (_catalog == null || _history == null) return;
 
         var rect = GetRect();
         DrawStyleBox(UiSliceCatalog.MakeInsetPanel(), rect);
 
         float maxVal = 1;
-        foreach (var list in _history.Values)
+        foreach (string sp in _catalog.SpeciesKeys)
         {
-            foreach (int v in list) maxVal = Math.Max(maxVal, v);
+            foreach (int v in _history.GetSeries(sp)) maxVal = Math.Max(maxVal, v);
         }
 
-        float xStep = rect.Size.X / Math.Max(1, MaxSamples - 1);
+        string? focusSpecies = _hoveredSpecies ?? _lockedSpecies;
 
         foreach (string sp in _catalog.SpeciesKeys)
         {
-            var list = _history[sp];
+            var list = _history.GetSeries(sp);
             if (list.Count < 2) continue;
+
             var def = _catalog.Get(sp);
-            Color col = EcoSimThemeBuilder.SpeciesColor(def);
-            bool highlighted = sp == _highlightSpecies;
-            if (highlighted) col = EcoSimThemeBuilder.Gold;
-            float width = highlighted ? 2f : 1f;
+            Color baseCol = EcoSimThemeBuilder.SpeciesColor(def);
+            bool focused = focusSpecies == sp;
+            bool dimmed = !string.IsNullOrEmpty(focusSpecies) && !focused;
+            Color col;
+            if (focused && _hoveredSpecies == sp)
+            {
+                col = EcoSimThemeBuilder.Blue;
+            }
+            else if (dimmed)
+            {
+                col = new Color(baseCol.R, baseCol.G, baseCol.B, 0.25f);
+            }
+            else
+            {
+                col = new Color(baseCol.R, baseCol.G, baseCol.B, focused ? 1f : 0.95f);
+            }
+
+            float width = focused ? 2.4f : 1f;
+            float xStep = rect.Size.X / Math.Max(1, list.Count - 1);
 
             for (int i = 1; i < list.Count; i++)
             {
@@ -77,6 +115,22 @@ public partial class PopGraph : Control
                 float x1 = rect.Position.X + i * xStep;
                 float y1 = rect.Position.Y + rect.Size.Y - (list[i] / maxVal) * (rect.Size.Y - 4) - 2;
                 DrawLine(new Vector2(x0, y0), new Vector2(x1, y1), col, width);
+            }
+        }
+
+        if (_showCrosshair && _hoverIndex >= 0)
+        {
+            var refSeries = _history.GetSeries(_catalog.SpeciesKeys[0]);
+            if (refSeries.Count > 0)
+            {
+                int ix = Mathf.Clamp(_hoverIndex, 0, refSeries.Count - 1);
+                float xStep = rect.Size.X / Math.Max(1, refSeries.Count - 1);
+                float x = rect.Position.X + ix * xStep;
+                DrawLine(
+                    new Vector2(x, rect.Position.Y + 1),
+                    new Vector2(x, rect.Position.Y + rect.Size.Y - 1),
+                    new Color(EcoSimThemeBuilder.Gold.R, EcoSimThemeBuilder.Gold.G, EcoSimThemeBuilder.Gold.B, 0.75f),
+                    1f);
             }
         }
     }
