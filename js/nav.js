@@ -171,6 +171,39 @@ export function snapWalkableGoal(gx, gy, canSwim, radius = 8)
   return best;
 }
 
+export const DIRECT_PURSUIT_RADIUS = 4;
+
+/** Live float goal — snap only when the entity tile is impassable. */
+export function unsnappedWalkableGoal(gx, gy, canSwim)
+{
+  const tx = Math.round(gx);
+  const ty = Math.round(gy);
+  if (isTileWalkable(tx, ty, canSwim)) return { x: gx, y: gy };
+  const sn = snapWalkableGoal(tx, ty, canSwim, 8);
+  if (sn) return { x: sn.x + 0.5, y: sn.y + 0.5 };
+  return { x: gx, y: gy };
+}
+
+/**
+ * Pick movement target for this tick: direct pursuit when close/LOS, else one A* grid step.
+ */
+export function resolveMovementTarget(px, py, goalX, goalY, canSwim, radius = 48, opts = {})
+{
+  const direct = opts.direct === true;
+  const directRadius = opts.directRadius ?? DIRECT_PURSUIT_RADIUS;
+  const dist = Math.hypot(goalX - px, goalY - py);
+
+  if (direct && dist <= directRadius) return { x: goalX, y: goalY };
+
+  const fx = Math.round(px);
+  const fy = Math.round(py);
+  const gx = Math.round(goalX);
+  const gy = Math.round(goalY);
+  if (lineOfSightClear(fx, fy, gx, gy, canSwim)) return { x: goalX, y: goalY };
+
+  return planGridStep(px, py, goalX, goalY, canSwim, radius);
+}
+
 export const WATER_SEEK_RADIUS_MIN = 48;
 
 export function waterSeekRadius(senseR)

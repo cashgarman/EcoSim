@@ -156,7 +156,10 @@ export class Simulation
         creatures.rebuildGrid();
         for (const c of state.creatures)
         {
-          if (!c.dead) behaviorTree.tickDecisionOnly(c, creatures);
+          if (!c.dead)
+          {
+            behaviorTree.tickDecisionOnly(c, creatures);
+          }
         }
         gpuSimulationBackend.uploadBehaviorDecisions();
       }

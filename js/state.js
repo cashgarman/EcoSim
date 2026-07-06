@@ -11,7 +11,7 @@ export const WORLD_SIZE_PRESETS = {
 export const MAX_POP = 6000;
 export const CELL = 6;
 export const rendererMode = 'webgpu_hybrid';
-export const simulationMode = 'gpu_hybrid';
+export const simulationMode = 'cpu';
 export const GPU_SIM_MAX_CREATURES = 16384;
 
 export const state = {
@@ -99,6 +99,8 @@ export const state = {
     vegetationStock: 0,
     simStepMs: 0,
     readbackMs: 0,
+    readbackMapMs: 0,
+    readbackApplyMs: 0,
     poolSize: 0,
     creatureArraySize: 0,
     droppedTimelineWrites: 0,

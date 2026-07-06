@@ -658,6 +658,43 @@ export class UI
       const target = creatures.getById(id);
       if (target && !target.dead) this.setSelectedCreature(target, false);
     });
+    $('inspect').addEventListener('click', e =>
+    {
+      const link = e.target.closest('#i-target [data-creature-id]');
+      if (!link) return;
+      e.preventDefault();
+      const id = Number(link.dataset.creatureId);
+      const target = creatures.getById(id);
+      if (target && !target.dead) this.setSelectedCreature(target, false);
+    });
+  }
+
+  inspectorTargetLabel(c)
+  {
+    if (c.target == null) return null;
+    const target = creatures.getById(c.target);
+    if (!target) return null;
+    const S = SPECIES[target.sp];
+    if (!S) return null;
+    const role = c.state === 'flee' ? 'Fleeing from'
+      : c.state === 'mate' ? 'Mate'
+      : (c.state === 'hunt' || c.state === 'huntSearch') ? 'Prey'
+      : 'Target';
+    return { role, target, label: `${S.emoji} ${S.label}`, id: target.id };
+  }
+
+  drawInspectorTarget(c)
+  {
+    const el = $('i-target');
+    const info = this.inspectorTargetLabel(c);
+    if (!info || info.target.dead)
+    {
+      el.classList.add('hidden');
+      el.innerHTML = '';
+      return;
+    }
+    el.classList.remove('hidden');
+    el.innerHTML = `${info.role}: <span class="story-link" data-creature-id="${info.id}">${info.label}</span>`;
   }
 
   drawInspector()
@@ -682,6 +719,7 @@ export class UI
     const stg = !creatures.isAdult(c) ? 'juvenile' : c.age > c.genome.lifespan * 0.75 ? 'elder' : 'adult';
     const stateName = this.creatureStateLabel(c.state, c);
     $('i-state').textContent = c.dead ? ('Died: ' + c.cause) : `${stateName} · ${stg} · age ${c.age.toFixed(1)}${c.pregnant > 0 ? ' · 🤰' : ''}`;
+    this.drawInspectorTarget(c);
     if (state.inspectPanelTab === 'stats') this.drawInspectorStats(c);
     else this.drawInspectorLifeStory(c);
   }

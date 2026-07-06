@@ -6,11 +6,32 @@ import json
 import os
 import re
 import threading
+import time
 
 
 REPORTS_DIR = 'reports'
 SAFE_ID = re.compile(r'^[A-Za-z0-9._-]+$')
 _STATIC_SEM = threading.Semaphore(12)
+_DEV_BUILD_ID = '0'
+_DEV_SERVER_STARTED_AT = 0
+
+
+def _compute_dev_build_id(root):
+    latest = 0.0
+    js_root = os.path.join(root, 'js')
+    if not os.path.isdir(js_root):
+        return str(int(time.time()))
+    for dirpath, _, filenames in os.walk(js_root):
+        for name in filenames:
+            if not name.endswith(('.js', '.mjs')):
+                continue
+            try:
+                latest = max(latest, os.path.getmtime(os.path.join(dirpath, name)))
+            except OSError:
+                pass
+    if latest <= 0:
+        return str(int(time.time()))
+    return str(int(latest * 1000))
 
 
 class ThreadingEcoSimServer(ThreadingHTTPServer):
@@ -21,13 +42,26 @@ class ThreadingEcoSimServer(ThreadingHTTPServer):
 class EcoSimHandler(SimpleHTTPRequestHandler):
     protocol_version = 'HTTP/1.1'
 
-    def end_headers(self):
-        self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate')
+    def _send_dev_cache_headers(self):
+        self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
         self.send_header('Pragma', 'no-cache')
+        self.send_header('Expires', '0')
+        self.send_header('Surrogate-Control', 'no-store')
+        self.send_header('CDN-Cache-Control', 'no-store')
+        self.send_header('X-Dev-Build', _DEV_BUILD_ID)
+
+    def end_headers(self):
+        self._send_dev_cache_headers()
         self.send_header('Connection', 'close')
         super().end_headers()
 
     def do_GET(self):
+        path_only = self.path.split('?', 1)[0]
+        if path_only in ('/', ''):
+            self.send_response(302)
+            self.send_header('Location', f'/wildlands-ecosim.html?dev={_DEV_BUILD_ID}')
+            self.end_headers()
+            return
         if self.path.startswith('/api/batch-reports'):
             self.handle_batch_reports_get()
             return
@@ -60,17 +94,31 @@ class EcoSimHandler(SimpleHTTPRequestHandler):
         with open(path, 'rb') as file_obj:
             data = file_obj.read()
 
-        self.send_response(200)
         path_only = self.path.split('?', 1)[0]
+        if path_only.endswith('.html'):
+            text = data.decode('utf-8', errors='replace')
+            text = text.replace('__DEV_BUILD_ID__', _DEV_BUILD_ID)
+            data = text.encode('utf-8')
+        elif path_only.endswith('.js') or path_only.endswith('.mjs'):
+            try:
+                stamp = int(os.path.getmtime(path) * 1000)
+            except OSError:
+                stamp = int(time.time() * 1000)
+            prefix = f'/* dev:{stamp} */\n'.encode('utf-8')
+            if not data.startswith(prefix):
+                data = prefix + data
+
+        self.send_response(200)
         if path_only.endswith('.js') or path_only.endswith('.mjs'):
             ctype = 'text/javascript; charset=utf-8'
         elif path_only.endswith('.json'):
             ctype = 'application/json; charset=utf-8'
+        elif path_only.endswith('.html'):
+            ctype = 'text/html; charset=utf-8'
         else:
             ctype = self.guess_type(path)
         self.send_header('Content-type', ctype)
         self.send_header('Content-Length', str(len(data)))
-        self.send_header('Last-Modified', self.date_time_string(os.path.getmtime(path)))
         self.end_headers()
         try:
             self.wfile.write(data)
@@ -185,16 +233,22 @@ class EcoSimHandler(SimpleHTTPRequestHandler):
 
 
 def main():
+    global _DEV_BUILD_ID, _DEV_SERVER_STARTED_AT
     port = int(os.environ.get('PORT', '8765'))
     batch_mode = os.environ.get('BATCH_SERVER', '') == '1'
     root = os.path.dirname(os.path.abspath(__file__))
     os.chdir(root)
     os.makedirs(os.path.join(root, REPORTS_DIR), exist_ok=True)
+    _DEV_BUILD_ID = _compute_dev_build_id(root)
+    _DEV_SERVER_STARTED_AT = int(time.time())
     server_cls = HTTPServer if batch_mode else ThreadingEcoSimServer
     server = server_cls(('127.0.0.1', port), EcoSimHandler)
     mode = 'batch (sequential)' if batch_mode else 'threaded'
-    print(f'EcoSim dev server ({mode}): http://127.0.0.1:{port}/wildlands-ecosim.html')
-    print(f'Batch test runner: http://127.0.0.1:{port}/batch-test.html')
+    game_url = f'http://127.0.0.1:{port}/wildlands-ecosim.html?dev={_DEV_BUILD_ID}'
+    print(f'EcoSim dev server ({mode}): {game_url}')
+    print(f'Dev build id: {_DEV_BUILD_ID} (use serve.py — not python -m http.server)')
+    print(f'Batch test runner: http://127.0.0.1:{port}/batch-test.html?dev={_DEV_BUILD_ID}')
+    print('All responses sent with no-store cache headers; JS modules stamped on each save.')
     print('Press Ctrl+C to stop.')
     try:
         server.serve_forever()

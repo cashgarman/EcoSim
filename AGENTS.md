@@ -221,14 +221,14 @@ Hybrid JSON-driven behavior trees in [`data/behaviors/`](data/behaviors/) + [`js
 - **`{species}.json`** — `extends` template, threshold overrides, action tweaks, tree insert/remove patches
 - Each species in [`data/species.json`](data/species.json) has a `"behavior"` key pointing to its behavior file stem
 - **`BehaviorTree.tick()`** — builds perception context (`nearby` scan), walks selector/sequence nodes, returns first succeeding action
-- **CPU path:** BT sets state + goals, then `applyActionEffects` runs graze/hunt/mate/etc.; `planGridStep` (A*) handles movement
-- **GPU path:** BT runs on CPU each tick (`tickDecisionOnly`); `uploadBehaviorDecisions()` writes goal (`sv.x/y`), state code, target slot; GPU runs `claimBehaviorTargets` → **`planNavStep` (A*)** → `resolveIntegrate` (needs, actions, movement)
+- **CPU path:** BT sets state + goals, then `applyActionEffects` runs graze/hunt/mate/etc.; **`resolveMovementTarget`** picks direct pursuit (live target position within ~4 tiles / LOS) or **`planGridStep`** (A*) for movement
+- **GPU path:** BT runs on CPU each tick (`tickDecisionOnly`); `uploadBehaviorDecisions()` writes behavior goal to `sv.x/y`, target slot + state to `tv.z/w` (waypoints stay in `tv.x/y`); GPU runs `claimBehaviorTargets` → **`planNavStep` (A*)** → `resolveIntegrate` → **`resolveHuntDamage`** (predation). Hunt/mate use live target positions in `resolveIntegrate`; flee uses `sv` flee goals (not threat position).
 
 **States** (unchanged labels): `flee` · `thirst` · `graze` · `hunt` · `huntSearch` · `rest` · `mate` · `wander`
 
 **Perception:** `nearby(c, senseR)` via spatial hash. Night: speed ×0.6; `NightWanderTired` condition forces rest when energy <75.
 
-**Movement:** Goals from BT action nodes; [`js/nav.js`](js/nav.js) **`planGridStep`** uses **windowed A\*** (8-connected, octile heuristic, corner-cutting guard, LOS shortcut). GPU `planNavStep` mirrors A* in WGSL; goals read from `sv.x/y`, waypoints written to `tv.x/y`.
+**Movement:** Dynamic targets (hunt/flee/mate) use live entity float positions — not snapped tile centers — with **direct pursuit** when within `DIRECT_PURSUIT_RADIUS` (~4 tiles) or on LOS; otherwise windowed A* via **`resolveMovementTarget`** / **`planGridStep`** (8-connected, octile heuristic, corner-cutting guard). GPU `planNavStep` mirrors A* in WGSL; goals read from `sv.x/y`, waypoints written to `tv.x/y`; integrate overrides movement toward live target slot for flee/hunt/mate.
 
 **Passability:** `BIOME_INFO[].passable` plus optional `state.passMask` (bit 0 = blocked). Packed into GPU `worldData` stride index 5 on upload.
 
@@ -348,7 +348,7 @@ At sim speed ≥5×, reduces overhead without changing sim correctness:
 ### WebGPU hybrid (`rendererMode='webgpu_hybrid'`)
 
 - Falls back to Canvas if no `navigator.gpu`
-- `simulationMode='gpu_hybrid'` enables GPU simulation when WebGPU is available; fallback is CPU simulation
+- `simulationMode='cpu'` is the sandbox default; set to `'gpu_hybrid'` to enable GPU simulation when WebGPU is available (fallback is CPU simulation)
 - **Creature render paths** (chosen each frame in `RenderPipeline.render()`):
   1. **`webgpu_circles`** (default under load / normal zoom) — GPU draws filled circles; highlights on `#world-hl` via `renderHighlightsOverlay()`
   2. **`webgpu_canvas_sprites`** — when `detail >= 2 && cam.z > 4.2`: GPU overlay cleared, full Canvas pixel sprites + highlights on `#world`
@@ -528,6 +528,8 @@ CSS for `#toolbar` exists; DOM toolbar was removed or not yet added. Re-add `<di
 | `lineOfSightClear` | Bresenham walkability check |
 | `snapWalkableGoal`, `nearestWaterEdgeTarget`, `pickRandomWalkableTile` | Goal selection helpers |
 | `planGridStep` | Windowed A* next-step planner (CPU; mirrored in GPU WGSL) |
+| `resolveMovementTarget` | Direct pursuit for close/LOS goals, else `planGridStep` |
+| `unsnappedWalkableGoal` | Live float goal; snap only when entity tile impassable |
 | `atWaterEdge` | Shoreline drink detection |
 
 ### `js/perf-policy.js`

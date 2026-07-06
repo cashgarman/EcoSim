@@ -5,6 +5,7 @@ import {
   atWaterEdge,
   nearestWaterEdgeTarget,
   snapWalkableGoal,
+  unsnappedWalkableGoal,
   waterSeekRadius,
 } from '../nav.js';
 import { lifeStory } from '../life-story.js';
@@ -38,8 +39,15 @@ export function resolveGoals(action, ctx, creatureSystem)
       {
         targetId = ctx.threat.id;
         targetSlot = ctx.threat.gpuSlot ?? -1;
-        const a = Math.atan2(c.y - ctx.threat.y, c.x - ctx.threat.x);
-        applySnapped(c.x + Math.cos(a) * 6, c.y + Math.sin(a) * 6);
+        const tp = creatureSystem.simPos(ctx.threat);
+        const a = Math.atan2(c.y - tp.y, c.x - tp.x);
+        const flee = unsnappedWalkableGoal(
+          c.x + Math.cos(a) * 6,
+          c.y + Math.sin(a) * 6,
+          ctx.canSwim,
+        );
+        goalX = flee.x;
+        goalY = flee.y;
       }
       break;
 
@@ -85,7 +93,10 @@ export function resolveGoals(action, ctx, creatureSystem)
       {
         targetId = ctx.prey.id;
         targetSlot = ctx.prey.gpuSlot ?? -1;
-        applySnapped(ctx.prey.x, ctx.prey.y);
+        const pp = creatureSystem.simPos(ctx.prey);
+        const g = unsnappedWalkableGoal(pp.x, pp.y, ctx.canSwim);
+        goalX = g.x;
+        goalY = g.y;
       }
       else
       {
@@ -101,7 +112,9 @@ export function resolveGoals(action, ctx, creatureSystem)
         targetId = ctx.mate.id;
         targetSlot = ctx.mate.gpuSlot ?? -1;
         const mp = creatureSystem.simPos(ctx.mate);
-        applySnapped(mp.x, mp.y);
+        const g = unsnappedWalkableGoal(mp.x, mp.y, ctx.canSwim);
+        goalX = g.x;
+        goalY = g.y;
       }
       else
       {
@@ -173,7 +186,14 @@ export function applyActionEffects(action, nodeId, ctx, creatureSystem, dt, spee
       // Otherwise, if not stopping to drink, and there's still a threat, keep fleeing (move)
       if (!action.drinkAtShore && ctx.threat)
       {
-        creatureSystem.moveTo(c, moveSpeed, dt);
+        const tp = creatureSystem.simPos(ctx.threat);
+        const a = Math.atan2(c.y - tp.y, c.x - tp.x);
+        const flee = unsnappedWalkableGoal(
+          c.x + Math.cos(a) * 6,
+          c.y + Math.sin(a) * 6,
+          ctx.canSwim,
+        );
+        creatureSystem.moveTowardGoal(c, flee.x, flee.y, moveSpeed, dt, { direct: true });
       }
       // Fleeing action considers itself moving (unless just drank above)
       return { moved: true };
@@ -224,25 +244,31 @@ export function applyActionEffects(action, nodeId, ctx, creatureSystem, dt, spee
     case 'hunt':
       if (ctx.prey)
       {
-        // Move toward prey
-        creatureSystem.moveTo(c, moveSpeed, dt);
+        const pp = creatureSystem.simPos(ctx.prey);
+        const pos = creatureSystem.simPos(c);
+        const pdist = Math.hypot(pp.x - pos.x, pp.y - pos.y);
+        const strikeR = creatureSystem.huntStrikeRange(c, ctx.prey);
 
-        // If in striking distance (pdist < effective size threshold)
-        if (ctx.pdist < creatureSystem.eSize(c) * 0.6 + 0.5)
+        if (pdist >= strikeR)
         {
-          // Random chance of landing a hit depends on aggression stat
-          if (rng() < (0.10 + g.agg * 0.10))
+          creatureSystem.moveTowardGoal(c, pp.x, pp.y, moveSpeed, dt, { direct: true });
+        }
+        else
+        {
+          c.vx *= 0.25;
+          c.vy *= 0.25;
+        }
+
+        if (pdist < strikeR && rng() < creatureSystem.huntStrikeChance(c))
+        {
+          ctx.prey.hp -= 30 + g.size * 15;
+          ctx.prey.cause = 'predation';
+          if (ctx.prey.hp <= 0)
           {
-            // Inflict damage to prey, attribute it to predation
-            ctx.prey.hp -= 30 + g.size * 15;
-            ctx.prey.cause = 'predation';
-            // If prey dies, hunter is rewarded
-            if (ctx.prey.hp <= 0)
-            {
-              c.hunger = Math.min(100, c.hunger + 50);
-              c.energy = Math.min(100, c.energy + 12);
-              lifeStory.recordHunted(c, ctx.prey);
-            }
+            creatureSystem.die(ctx.prey, 'predation');
+            c.hunger = Math.min(100, c.hunger + 50);
+            c.energy = Math.min(100, c.energy + 12);
+            lifeStory.recordHunted(c, ctx.prey);
           }
         }
       }
@@ -268,8 +294,8 @@ export function applyActionEffects(action, nodeId, ctx, creatureSystem, dt, spee
     case 'mate':
       if (ctx.mate)
       {
-        // Move toward mate
-        creatureSystem.moveTo(c, moveSpeed, dt);
+        const mp = creatureSystem.simPos(ctx.mate);
+        creatureSystem.moveTowardGoal(c, mp.x, mp.y, moveSpeed, dt, { direct: true });
 
         tryConsummateMate(c, ctx, creatureSystem);
       }

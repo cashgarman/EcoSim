@@ -3,7 +3,7 @@ import { B, SPECIES, SP_KEYS, GENE_KEYS, GENE_RANGE, isWater } from './data.js';
 import { state, MAX_POP, idx, inB, gkey, CELL } from './state.js';
 import {
   atWaterEdge,
-  planGridStep,
+  resolveMovementTarget,
   pickRandomWalkableTile,
 } from './nav.js';
 import { quality } from './render/quality.js';
@@ -238,6 +238,18 @@ export class CreatureSystem
     return c.genome.size * (c.age < c.genome.lifespan * 0.25 ? 0.55 : 1);
   }
 
+  huntStrikeRange(hunter, prey)
+  {
+    const h = this.eSize(hunter);
+    const p = prey ? this.eSize(prey) : 0.5;
+    return h * 0.55 + p * 0.45 + 0.65;
+  }
+
+  huntStrikeChance(hunter)
+  {
+    return 0.35 + hunter.genome.agg * 0.35;
+  }
+
   isAdult(c)
   {
     return c.age >= c.genome.lifespan * 0.25;
@@ -310,7 +322,7 @@ export class CreatureSystem
     }
   }
 
-  moveTowardGoal(c, goalX, goalY, speed, dt)
+  moveTowardGoal(c, goalX, goalY, speed, dt, opts = {})
   {
     const canSwim = SPECIES[c.sp].shape === 'bird';
     const navR = quality.config().navRadius;
@@ -320,7 +332,7 @@ export class CreatureSystem
       c.vy *= 0.7;
       return;
     }
-    const wp = planGridStep(c.x, c.y, goalX, goalY, canSwim, navR);
+    const wp = resolveMovementTarget(c.x, c.y, goalX, goalY, canSwim, navR, opts);
     const tx = wp ? wp.x : goalX;
     const ty = wp ? wp.y : goalY;
     c.tx = tx;

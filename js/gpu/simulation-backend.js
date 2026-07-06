@@ -92,6 +92,7 @@ fn setWorldVeg(tile: u32, value: f32) { worldData[tile * WORLD_STRIDE + 2u] = va
 const NAV_R: i32 = 32;
 const NAV_SIDE: u32 = 65u;
 const NAV_CELLS: u32 = 4225u;
+const DIRECT_PURSUIT_RADIUS: f32 = 4.0;
 const PASS_GROUND_BLOCKED: u32 = 1u;
 
 fn tileWalkableAt(wx: i32, wy: i32, w: i32, h: i32, canSwim: bool) -> bool
@@ -171,6 +172,8 @@ fn planNavWaypoint(
   var gy = i32(round(goalY));
   let fx = i32(round(px));
   let fy = i32(round(py));
+  let dist = distance(vec2<f32>(px, py), vec2<f32>(goalX, goalY));
+  if (dist <= DIRECT_PURSUIT_RADIUS) { return vec2<f32>(goalX, goalY); }
   if (!tileWalkableAt(gx, gy, w, h, canSwim))
   {
     var foundSnap = false;
@@ -699,6 +702,8 @@ fn planNavStep(@builtin(global_invocation_id) gid: vec3<u32>)
 
   let st = tv.w;
   if (st == 5.0) { return; }
+  // Hunt/mate pursuit uses live target positions in resolveIntegrate — skip grid A* here.
+  if (st == 4.0 || st == 6.0) { return; }
 
   let sp = u32(mv.x + 0.5);
   let canSwim = speciesTables[sp].w > 0.5;
@@ -717,8 +722,7 @@ fn planNavStep(@builtin(global_invocation_id) gid: vec3<u32>)
   let goalY = sv.y;
   let navR = i32(p_f(13u));
   let replanEvery = max(1u, p_u(14u));
-  let stuck = abs(pv.z) + abs(pv.w) < 0.02;
-  let shouldPlan = stuck || ((p_u(7u) + i) % replanEvery) == 0u;
+  let shouldPlan = ((p_u(7u) + i) % replanEvery) == 0u;
   if (!shouldPlan) { return; }
 
   let wp = planNavWaypoint(pv.x, pv.y, goalX, goalY, w, h, canSwim, navR);
@@ -777,30 +781,6 @@ fn resolveIntegrate(@builtin(global_invocation_id) gid: vec3<u32>)
   if (nv.y <= 0.0) { nv.x = nv.x - 6.0 * dt; }
   if (nv.z <= 0.0) { nv.x = nv.x - 7.0 * dt; }
   if (nv.y > 55.0 && nv.z > 55.0 && stress <= 0.001) { nv.x = min(100.0, nv.x + 4.0 * dt); }
-
-  if (tv.w == 4.0 && tv.z >= 0.0)
-  {
-    let preyId = u32(tv.z + 0.5);
-    if (preyId < creatureCount && atomicLoad(&simAtomics[PREY_OWNER_BASE + preyId]) == (i + 1u))
-    {
-      let pb = creatureBase(preyId);
-      var pn = creatures[pb + 1u];
-      let pp = creatures[pb + 0u];
-      let d = distance(vec2<f32>(pv.x, pv.y), vec2<f32>(pp.x, pp.y));
-      let chance = 0.10 + sv.y * 0.10;
-      let roll = hash3(f32(i), f32(preyId), p_f(7u));
-      if (d < mv.y * 0.6 + 0.5 && roll < chance)
-      {
-        pn.x = pn.x - (30.0 + mv.y * 15.0);
-        creatures[pb + 1u] = pn;
-        if (pn.x <= 0.0)
-        {
-          nv.y = min(100.0, nv.y + 50.0);
-          nv.w = min(100.0, nv.w + 12.0);
-        }
-      }
-    }
-  }
 
   if (tv.w == 3.0)
   {
@@ -881,12 +861,47 @@ fn resolveIntegrate(@builtin(global_invocation_id) gid: vec3<u32>)
     speed = 0.0;
   }
 
+  if (tv.w == 4.0 && tv.z >= 0.0)
+  {
+    let preyId = u32(tv.z + 0.5);
+    if (preyId < creatureCount)
+    {
+      let pb = creatureBase(preyId);
+      let pm = creatures[pb + 4u];
+      if (pm.w > 0.5)
+      {
+        let pp = creatures[pb + 0u];
+        let dPrey = distance(vec2<f32>(pv.x, pv.y), vec2<f32>(pp.x, pp.y));
+        let strikeR = mv.y * 0.55 + pm.y * 0.45 + 0.65;
+        if (dPrey < strikeR) { speed = 0.0; }
+      }
+    }
+  }
+
   let sp = u32(mv.x + 0.5);
   let speciesInfo = speciesTables[sp];
   let canSwim = speciesInfo.w > 0.5;
 
-  let dx = tv.x - pv.x;
-  let dy = tv.y - pv.y;
+  var moveX = tv.x;
+  var moveY = tv.y;
+  if (tv.z >= 0.0 && (tv.w == 4.0 || tv.w == 6.0))
+  {
+    let tgtId = u32(tv.z + 0.5);
+    if (tgtId < creatureCount)
+    {
+      let tb = creatureBase(tgtId);
+      let tm = creatures[tb + 4u];
+      if (tm.w > 0.5)
+      {
+        let tp = creatures[tb + 0u];
+        moveX = tp.x;
+        moveY = tp.y;
+      }
+    }
+  }
+
+  let dx = moveX - pv.x;
+  let dy = moveY - pv.y;
   let d = max(0.001, length(vec2<f32>(dx, dy)));
   var nx = pv.x + dx / d * speed * 2.2 * dt;
   var ny = pv.y + dy / d * speed * 2.2 * dt;
@@ -932,6 +947,50 @@ fn resolveIntegrate(@builtin(global_invocation_id) gid: vec3<u32>)
     {
       setWorldVeg(ti, min(cap, worldVegAt(ti) + 0.15));
     }
+  }
+}
+
+@compute @workgroup_size(128)
+fn resolveHuntDamage(@builtin(global_invocation_id) gid: vec3<u32>)
+{
+  let i = gid.x;
+  let creatureCount = p_u(4u);
+  if (i >= creatureCount) { return; }
+  let b = creatureBase(i);
+  let pv = creatures[b + 0u];
+  let tv = creatures[b + 3u];
+  let mv = creatures[b + 4u];
+  if (mv.w < 0.5 || tv.w != 4.0 || tv.z < 0.0) { return; }
+
+  let preyId = u32(tv.z + 0.5);
+  if (preyId >= creatureCount) { return; }
+  let pb = creatureBase(preyId);
+  let pm = creatures[pb + 4u];
+  if (pm.w < 0.5) { return; }
+
+  let pp = creatures[pb + 0u];
+  let d = distance(vec2<f32>(pv.x, pv.y), vec2<f32>(pp.x, pp.y));
+  let strikeR = mv.y * 0.55 + pm.y * 0.45 + 0.65;
+  if (d >= strikeR) { return; }
+
+  let agg = creatures[b + 7u].z;
+  let chance = 0.35 + agg * 0.35;
+  let roll = hash3(f32(i), f32(preyId), p_f(7u) + p_f(0u) * 0.37);
+  if (roll >= chance) { return; }
+
+  var pn = creatures[pb + 1u];
+  pn.x = pn.x - (30.0 + mv.y * 15.0);
+  creatures[pb + 1u] = pn;
+
+  if (pn.x <= 0.0)
+  {
+    var preyMv = creatures[pb + 4u];
+    preyMv.w = 0.0;
+    creatures[pb + 4u] = preyMv;
+    var nv = creatures[b + 1u];
+    nv.y = min(100.0, nv.y + 50.0);
+    nv.w = min(100.0, nv.w + 12.0);
+    creatures[b + 1u] = nv;
   }
 }
 
@@ -1116,7 +1175,7 @@ function writeCreatureToArray(data, base, c)
   data[base + 27] = c.walk || 0;
   data[base + 28] = g.dir;
   data[base + 29] = c.sex === 'male' ? 1 : 0;
-  data[base + 30] = 0;
+  data[base + 30] = g.agg;
   data[base + 31] = c.litterQ || 0;
 }
 
@@ -1139,7 +1198,70 @@ export class GpuSimulationBackend
     this.cpuCreatureIndexById = new Map();
     this._readbackLock = null;
     this._decisionQuad = new Float32Array(4);
+    this._goalPair = new Float32Array(2);
+    this._targetPair = new Float32Array(2);
     this._paramsScratch = new Float32Array(PARAM_FLOATS);
+    this._readbackBootUntil = 0;
+    this._readbackPendingSince = 0;
+    this._creatureReadbackMapping = false;
+    this._gpuLostHandled = false;
+  }
+
+  handleGpuDeviceLost(reason, info = null)
+  {
+    if (this._gpuLostHandled) return;
+    this._gpuLostHandled = true;
+    state.gpuSimEnabled = false;
+    state.simBackend = 'cpu';
+    state.rendererBackend = 'canvas';
+    state.gpuSimReadbackPending = false;
+    this.selectedReadbackPending = false;
+    this.countersReadbackPending = false;
+    this.worldReadbackPending = false;
+    this._creatureReadbackMapping = false;
+    this._readbackPendingSince = 0;
+    const gpuCanvas = document.getElementById('world-gpu');
+    if (gpuCanvas) gpuCanvas.classList.add('hidden');
+    console.warn('GPU device lost; fallback to CPU simulation.', reason, info || '');
+  }
+
+  creatureReadbackIntervalMs()
+  {
+    let base = this.readbackEveryMs;
+    const rbMs = state.gpuTelemetry?.readbackMs || 0;
+    if (rbMs > 2000) base *= 8;
+    else if (rbMs > 800) base *= 4;
+    else if (rbMs > 400) base *= 2;
+    return effectiveReadbackEveryMs(base);
+  }
+
+  shouldScheduleCreatureReadback(now)
+  {
+    if (state.scrubActive || state.batchMode) return false;
+    if (this._readbackBootUntil && now < this._readbackBootUntil) return false;
+    if (state.gpuSimReadbackPending || this._creatureReadbackMapping) return false;
+    if (now - state.gpuSimLastReadbackAt < this.creatureReadbackIntervalMs()) return false;
+    if (state.selected && !state.selected.dead) return true;
+    if (state.followSelected) return true;
+    return (this.tickCounter % 30) === 0;
+  }
+
+  recoverStalledReadback(now)
+  {
+    const rb = state.gpuSimBuffers?.renderReadback;
+    if (!state.gpuSimReadbackPending)
+    {
+      this._readbackPendingSince = 0;
+      return;
+    }
+    if (!this._readbackPendingSince) this._readbackPendingSince = now;
+    else if (now - this._readbackPendingSince > 1500)
+    {
+      state.gpuSimReadbackPending = false;
+      this._creatureReadbackMapping = false;
+      this._readbackPendingSince = 0;
+      if (rb?.mapState === 'mapped') rb.unmap();
+    }
   }
 
   aliveCreaturesForDecisions()
@@ -1171,6 +1293,14 @@ export class GpuSimulationBackend
     }
     try
     {
+      if (!this._dbgDeviceLostHooked && state.gpuDevice?.lost)
+      {
+        this._dbgDeviceLostHooked = true;
+        state.gpuDevice.lost.then(info =>
+        {
+          this.handleGpuDeviceLost(info?.reason || 'unknown', info?.message || null);
+        }).catch(() => {});
+      }
       const mod = dev.createShaderModule({ code: buildGpuSimShader() });
       const bindGroupLayout = dev.createBindGroupLayout({ entries: GPU_SIM_BIND_GROUP_LAYOUT });
       const layout = dev.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] });
@@ -1182,6 +1312,7 @@ export class GpuSimulationBackend
         claimBehaviorTargets: dev.createComputePipeline({ layout, compute: { module: mod, entryPoint: 'claimBehaviorTargets' } }),
         planNavStep: dev.createComputePipeline({ layout, compute: { module: mod, entryPoint: 'planNavStep' } }),
         resolveIntegrate: dev.createComputePipeline({ layout, compute: { module: mod, entryPoint: 'resolveIntegrate' } }),
+        resolveHuntDamage: dev.createComputePipeline({ layout, compute: { module: mod, entryPoint: 'resolveHuntDamage' } }),
         spawnFromBirthQueue: dev.createComputePipeline({ layout, compute: { module: mod, entryPoint: 'spawnFromBirthQueue' } }),
         growVegetation: dev.createComputePipeline({ layout, compute: { module: mod, entryPoint: 'growVegetation' } }),
         composeRenderData: dev.createComputePipeline({ layout, compute: { module: mod, entryPoint: 'composeRenderData' } }),
@@ -1300,7 +1431,8 @@ export class GpuSimulationBackend
   {
     if (!state.gpuSimBuffers || !state.gpuDevice) return;
     const bytesPerCreature = CREATURE_STRIDE_FLOATS * 4;
-    const quad = this._decisionQuad;
+    const goalPair = this._goalPair;
+    const targetPair = this._targetPair;
     const source = this.aliveCreaturesForDecisions();
     for (let i = 0; i < source.length; i++)
     {
@@ -1309,22 +1441,22 @@ export class GpuSimulationBackend
       const slot = creatureSlot(c, i);
       if (slot < 0 || slot >= this.maxCreatures) continue;
       const baseByte = slot * bytesPerCreature;
-      quad[0] = c.tx;
-      quad[1] = c.ty;
-      quad[2] = typeof c.gpuTargetSlot === 'number' ? c.gpuTargetSlot : -1;
-      quad[3] = typeof c.gpuStateCode === 'number' ? c.gpuStateCode : 0;
-      state.gpuDevice.queue.writeBuffer(
-        state.gpuSimBuffers.creatures,
-        baseByte + 12 * 4,
-        quad.buffer,
-        quad.byteOffset,
-        16,
-      );
+      goalPair[0] = c.tx;
+      goalPair[1] = c.ty;
       state.gpuDevice.queue.writeBuffer(
         state.gpuSimBuffers.creatures,
         baseByte + 24 * 4,
-        quad.buffer,
-        quad.byteOffset,
+        goalPair.buffer,
+        goalPair.byteOffset,
+        8,
+      );
+      targetPair[0] = typeof c.gpuTargetSlot === 'number' ? c.gpuTargetSlot : -1;
+      targetPair[1] = typeof c.gpuStateCode === 'number' ? c.gpuStateCode : 0;
+      state.gpuDevice.queue.writeBuffer(
+        state.gpuSimBuffers.creatures,
+        baseByte + 14 * 4,
+        targetPair.buffer,
+        targetPair.byteOffset,
         8,
       );
     }
@@ -1390,6 +1522,7 @@ export class GpuSimulationBackend
   setupForCurrentWorld()
   {
     if (!this.initialized) return false;
+    this._gpuLostHandled = false;
     if (!this.ensureBuffers()) return false;
     const tileCount = state.W * state.H;
     if (tileCount >= 350000)
@@ -1408,12 +1541,17 @@ export class GpuSimulationBackend
     }
     else
     {
-      this.readbackEveryMs = 160;
-      this.selectedReadbackEveryMs = 220;
-      this.countersReadbackEveryMs = 240;
-      this.worldReadbackEveryTicks = 160;
+      this.readbackEveryMs = 420;
+      this.selectedReadbackEveryMs = 280;
+      this.countersReadbackEveryMs = 320;
+      this.worldReadbackEveryTicks = 200;
     }
     this.countersReadbackAt = 0;
+    this._readbackBootUntil = performance.now() + 3500;
+    this._readbackPendingSince = 0;
+    this._creatureReadbackMapping = false;
+    state.gpuSimReadbackPending = false;
+    state.gpuTelemetry.readbackMs = 0;
     this.uploadWorld();
     this.uploadCreaturesFromCpu();
     state.gpuSimEnabled = true;
@@ -1471,6 +1609,7 @@ export class GpuSimulationBackend
     this.dispatch(pass, state.gpuSimPipelines.claimBehaviorTargets, Math.ceil(creatureCount / 128));
     this.dispatch(pass, state.gpuSimPipelines.planNavStep, Math.ceil(creatureCount / 128));
     this.dispatch(pass, state.gpuSimPipelines.resolveIntegrate, Math.ceil(creatureCount / 128));
+    this.dispatch(pass, state.gpuSimPipelines.resolveHuntDamage, Math.ceil(creatureCount / 128));
     this.dispatch(pass, state.gpuSimPipelines.spawnFromBirthQueue, Math.ceil(creatureCount / 128));
     this.dispatch(pass, state.gpuSimPipelines.growVegetation, Math.ceil(tileCount / 128));
     this.dispatch(pass, state.gpuSimPipelines.composeRenderData, Math.ceil(creatureCount / 128));
@@ -1479,10 +1618,12 @@ export class GpuSimulationBackend
     const now = performance.now();
     if (!state.batchMode)
     {
-      const readbackEveryMs = effectiveReadbackEveryMs(this.readbackEveryMs);
+      this.recoverStalledReadback(now);
+      const readbackEveryMs = this.creatureReadbackIntervalMs();
       const countersRb = state.gpuSimBuffers.countersReadback;
       const countersReady = (now - this.countersReadbackAt) > this.countersReadbackEveryMs;
-      if (!this.countersReadbackPending && countersRb && countersRb.mapState === 'unmapped')
+      const readbackBusy = state.gpuSimReadbackPending || this._creatureReadbackMapping;
+      if (!readbackBusy && !this.countersReadbackPending && countersRb && countersRb.mapState === 'unmapped')
       {
         if (countersReady)
         {
@@ -1493,11 +1634,9 @@ export class GpuSimulationBackend
       }
       const renderRb = state.gpuSimBuffers.renderReadback;
       if (
-        !state.scrubActive
-        && !state.gpuSimReadbackPending
+        this.shouldScheduleCreatureReadback(now)
         && renderRb
         && renderRb.mapState === 'unmapped'
-        && now - state.gpuSimLastReadbackAt > readbackEveryMs
       )
       {
         const bytes = state.gpuRenderCreatureCount * CREATURE_STRIDE_FLOATS * 4;
@@ -1505,12 +1644,14 @@ export class GpuSimulationBackend
         encoder.copyBufferToBuffer(state.gpuSimBuffers.creatures, 0, renderRb, 0, copyBytes);
         state.gpuSimReadbackPending = true;
         state.gpuSimLastReadbackAt = now;
+        this._readbackPendingSince = now;
       }
       const selectedRb = state.gpuSimBuffers.selectedReadback;
       const selectedSlot = state.selected?.gpuSlot;
       const selectedReadbackEligible = (now - state.gpuSimLastReadbackAt) > (readbackEveryMs * 0.65);
       if (
-        !state.scrubActive
+        !readbackBusy
+        && !state.scrubActive
         && state.selected
         && typeof selectedSlot === 'number'
         && selectedSlot >= 0
@@ -1538,12 +1679,19 @@ export class GpuSimulationBackend
 
     if (!state.batchMode)
     {
-      if (this.countersReadbackPending) this.consumeCountersReadback();
       if (state.gpuSimReadbackPending && !state.scrubActive) this.consumeCreatureReadback();
-      if (this.selectedReadbackPending && !state.scrubActive) this.consumeSelectedReadback();
+      else if (this.selectedReadbackPending && !state.scrubActive) this.consumeSelectedReadback();
+      else if (this.countersReadbackPending) this.consumeCountersReadback();
     }
 
-    if (!state.batchMode && !state.scrubActive && (this.tickCounter % this.worldReadbackIntervalTicks()) === 0)
+    if (
+      !state.batchMode
+      && !state.scrubActive
+      && !state.gpuSimReadbackPending
+      && !this._creatureReadbackMapping
+      && !this.worldReadbackPending
+      && (this.tickCounter % this.worldReadbackIntervalTicks()) === 0
+    )
     {
       this.syncWorldBackToCpu();
     }
@@ -1613,6 +1761,7 @@ export class GpuSimulationBackend
       this.countersReadbackPending = false;
     }).catch(() =>
     {
+      this.handleGpuDeviceLost('counters-readback-map-failed', rb.mapState);
       if (rb.mapState === 'mapped') rb.unmap();
       this.countersReadbackPending = false;
     });
@@ -1628,31 +1777,52 @@ export class GpuSimulationBackend
     }
     const rb = state.gpuSimBuffers?.renderReadback;
     if (!rb || rb.mapState !== 'unmapped') return;
-    const readbackStart = performance.now();
+    if (this._creatureReadbackMapping) return;
+    this._creatureReadbackMapping = true;
+    const mapStart = performance.now();
     rb.mapAsync(GPUMapMode.READ).then(() =>
     {
+      const mapWaitMs = performance.now() - mapStart;
       if (state.scrubActive)
       {
         if (rb.mapState === 'mapped') rb.unmap();
         state.gpuSimReadbackPending = false;
+        this._creatureReadbackMapping = false;
+        this._readbackPendingSince = 0;
         return;
       }
-      const floatData = new Float32Array(rb.getMappedRange());
-      this.applyCreatureReadbackFromBuffer(floatData);
-      const readbackMs = performance.now() - readbackStart;
+      const applyStart = performance.now();
+      try
+      {
+        const floatData = new Float32Array(rb.getMappedRange());
+        const lightSync = !state.selected && (this.tickCounter % 30) !== 0;
+        this.applyCreatureReadbackFromBuffer(floatData, lightSync);
+      }
+      finally
+      {
+        if (rb.mapState === 'mapped') rb.unmap();
+        state.gpuSimReadbackPending = false;
+        this._creatureReadbackMapping = false;
+        this._readbackPendingSince = 0;
+      }
+      const applyMs = performance.now() - applyStart;
+      const totalMs = mapWaitMs + applyMs;
       state.gpuTelemetry.readbackMs = state.gpuTelemetry.readbackMs
-        ? state.gpuTelemetry.readbackMs * 0.85 + readbackMs * 0.15
-        : readbackMs;
-      rb.unmap();
-      state.gpuSimReadbackPending = false;
+        ? state.gpuTelemetry.readbackMs * 0.85 + totalMs * 0.15
+        : totalMs;
+      state.gpuTelemetry.readbackMapMs = mapWaitMs;
+      state.gpuTelemetry.readbackApplyMs = applyMs;
     }).catch(() =>
     {
+      this.handleGpuDeviceLost('creature-readback-map-failed', rb.mapState);
       if (rb.mapState === 'mapped') rb.unmap();
       state.gpuSimReadbackPending = false;
+      this._creatureReadbackMapping = false;
+      this._readbackPendingSince = 0;
     });
   }
 
-  applyCreatureReadbackFromBuffer(floatData)
+  applyCreatureReadbackFromBuffer(floatData, lightSync = false)
   {
     const alive = [];
     const slotMap = new Map();
@@ -1665,7 +1835,7 @@ export class GpuSimulationBackend
       }
     }
     const pending = [];
-    const skipLifeStory = !!state.batchMode;
+    const skipLifeStory = !!state.batchMode || lightSync;
     for (let i = 0; i < Math.min(state.gpuRenderCreatureCount, this.maxCreatures); i++)
     {
       const base = i * CREATURE_STRIDE_FLOATS;
@@ -1887,6 +2057,7 @@ export class GpuSimulationBackend
       this.selectedReadbackPending = false;
     }).catch(() =>
     {
+      this.handleGpuDeviceLost('selected-readback-map-failed', rb.mapState);
       if (rb.mapState === 'mapped') rb.unmap();
       this.selectedReadbackPending = false;
     });
@@ -1936,6 +2107,7 @@ export class GpuSimulationBackend
       this.worldReadbackPending = false;
     }).catch(() =>
     {
+      this.handleGpuDeviceLost('world-readback-map-failed', rb?.mapState || null);
       if (rb && rb.mapState === 'mapped') rb.unmap();
       this.worldReadbackPending = false;
     });

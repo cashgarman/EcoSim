@@ -79,7 +79,15 @@ export class QualityController
       const arrEl = $('perf-arr');
       if (arrEl) arrEl.textContent = String(state.gpuTelemetry.creatureArraySize ?? state.creatures.length);
       const rbEl = $('perf-readback');
-      if (rbEl) rbEl.textContent = `${(state.gpuTelemetry.readbackMs || 0).toFixed(2)}ms`;
+      if (rbEl)
+      {
+        const mapMs = state.gpuTelemetry.readbackMapMs;
+        const applyMs = state.gpuTelemetry.readbackApplyMs;
+        const suffix = Number.isFinite(mapMs) && Number.isFinite(applyMs)
+          ? ` (${mapMs.toFixed(0)}m+${applyMs.toFixed(0)}a)`
+          : '';
+        rbEl.textContent = `${(state.gpuTelemetry.readbackMs || 0).toFixed(2)}ms${suffix}`;
+      }
       const dropEl = $('perf-drops');
       if (dropEl) dropEl.textContent = String(state.gpuTelemetry.droppedTimelineWrites ?? 0);
     }
