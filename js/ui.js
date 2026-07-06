@@ -3,7 +3,7 @@ import { effectiveScrubTickRefreshMs } from './perf-policy.js';
 import { TimelineViewport, simTimeToDay, timeOfDayAtSimT } from './timeline-viewport.js';
 import { buildVisibleTickTimes, buildVisibleDayMarkers, formatDayMarkerLabel, renderTimelineDayNight, resolveDayLabelMode } from './timeline-renderer.js';
 import { SPECIES, SP_KEYS, GENE_KEYS, GENE_LABEL, BIOME_INFO, sexSymbol, sexLabel } from './data.js';
-import { state, idx, inB } from './state.js';
+import { state, idx, inB, simulationMode } from './state.js';
 import { $, bindEl } from './dom.js';
 import { creatures } from './creatures.js';
 import { camera } from './camera.js';
@@ -25,6 +25,15 @@ import {
 } from './batch/balance-config.js';
 import { getSpeciesStats } from './species-stats.js';
 import { applyPanelLayout, persistPanelPosition } from './panel-layout.js';
+import { perfProfiler, isGpuSimActive } from './perf-profiler.js';
+
+const PROFILER_OPEN_KEY = 'ecosim-profiler-open';
+const PROFILER_DETAIL_OPEN_KEY = 'ecosim-profiler-detail-open';
+const PROFILER_DETAIL_SIZE_KEY = 'ecosim-profiler-detail-size';
+const PROFILER_DETAIL_MIN_W = 280;
+const PROFILER_DETAIL_MIN_H = 200;
+const PROFILER_DETAIL_DEFAULT_W = 400;
+const PROFILER_DETAIL_DEFAULT_H = 480;
 
 function getGameUiScale()
 {
@@ -74,6 +83,8 @@ export class UI
     this._timelineResizeObs = null;
     this._speciesPopFlash = {};
     this._speciesFlashMs = 900;
+    this._profilerDetailTab = 'cpu';
+    this._profilerTreeCollapsed = new Set();
   }
 
   async restoreScrubMeta(meta)
@@ -460,7 +471,475 @@ export class UI
       const panel = $('speciestats');
       this.setPanelCollapsed(panel, !panel.classList.contains('collapsed'));
     });
+    bindEl('profiler-collapse-btn', 'click', e =>
+    {
+      e.stopPropagation();
+      const panel = $('profiler-panel');
+      this.setPanelCollapsed(panel, !panel.classList.contains('collapsed'));
+    });
     this.setPanelCollapsed($('speciestats'), false);
+    this.setPanelCollapsed($('profiler-panel'), true);
+  }
+
+  initProfilerPanel()
+  {
+    let open = false;
+    try
+    {
+      open = localStorage.getItem(PROFILER_OPEN_KEY) === '1';
+    }
+    catch
+    {
+      open = false;
+    }
+    this.setProfilerOpen(open, false);
+    bindEl('profiler-toggle-btn', 'click', e =>
+    {
+      e.preventDefault();
+      this.toggleProfiler();
+    });
+    this.initProfilerDetailPanel();
+  }
+
+  initProfilerDetailPanel()
+  {
+    let detailOpen = false;
+    try
+    {
+      detailOpen = localStorage.getItem(PROFILER_DETAIL_OPEN_KEY) === '1';
+    }
+    catch
+    {
+      detailOpen = false;
+    }
+    this.setProfilerDetailOpen(detailOpen, false);
+    bindEl('profiler-detail-toggle-btn', 'click', e =>
+    {
+      e.stopPropagation();
+      this.toggleProfilerDetail();
+    });
+    bindEl('profiler-detail-collapse-btn', 'click', e =>
+    {
+      e.stopPropagation();
+      const panel = $('profiler-detail-panel');
+      this.setPanelCollapsed(panel, !panel.classList.contains('collapsed'));
+      this.positionProfilerDetailPanel();
+    });
+    const tabs = $('profiler-detail-tabs');
+    if (tabs)
+    {
+      tabs.addEventListener('click', e =>
+      {
+        const btn = e.target.closest('[data-profiler-detail-tab]');
+        if (!btn) return;
+        this._profilerDetailTab = btn.dataset.profilerDetailTab || 'cpu';
+        for (const tabBtn of tabs.querySelectorAll('[data-profiler-detail-tab]'))
+        {
+          tabBtn.classList.toggle('active', tabBtn === btn);
+        }
+        $('profiler-detail-cpu')?.classList.toggle('hidden', this._profilerDetailTab !== 'cpu');
+        $('profiler-detail-gpu')?.classList.toggle('hidden', this._profilerDetailTab !== 'gpu');
+      });
+    }
+    const treeEl = $('profiler-cpu-tree');
+    if (treeEl)
+    {
+      treeEl.addEventListener('click', e =>
+      {
+        const row = e.target.closest('[data-tree-key]');
+        if (!row) return;
+        const key = row.dataset.treeKey;
+        if (this._profilerTreeCollapsed.has(key)) this._profilerTreeCollapsed.delete(key);
+        else this._profilerTreeCollapsed.add(key);
+        this.updateProfilerDetailPanel();
+      });
+    }
+    this.initProfilerDetailResize();
+  }
+
+  _readProfilerDetailSize()
+  {
+    try
+    {
+      const raw = JSON.parse(localStorage.getItem(PROFILER_DETAIL_SIZE_KEY));
+      if (raw && Number.isFinite(raw.width) && Number.isFinite(raw.height))
+      {
+        return { width: raw.width, height: raw.height };
+      }
+    }
+    catch
+    {
+      // private mode / invalid JSON
+    }
+    return { width: PROFILER_DETAIL_DEFAULT_W, height: PROFILER_DETAIL_DEFAULT_H };
+  }
+
+  _clampProfilerDetailSize(width, height, panel)
+  {
+    const root = document.getElementById('game-ui-root');
+    const rw = root?.clientWidth || window.innerWidth;
+    const rh = root?.clientHeight || window.innerHeight;
+    const left = parseFloat(panel.style.left);
+    const top = parseFloat(panel.style.top);
+    const margin = 8;
+    const maxW = Math.max(PROFILER_DETAIL_MIN_W, rw - (Number.isFinite(left) ? left : 0) - margin);
+    const maxH = Math.max(PROFILER_DETAIL_MIN_H, rh - (Number.isFinite(top) ? top : 92) - margin);
+    return {
+      width: clamp(width, PROFILER_DETAIL_MIN_W, maxW),
+      height: clamp(height, PROFILER_DETAIL_MIN_H, maxH),
+    };
+  }
+
+  applyProfilerDetailSize(width, height)
+  {
+    const panel = $('profiler-detail-panel');
+    if (!panel) return;
+    const size = this._clampProfilerDetailSize(width, height, panel);
+    panel.style.width = `${Math.round(size.width)}px`;
+    panel.style.height = `${Math.round(size.height)}px`;
+  }
+
+  _persistProfilerDetailSize()
+  {
+    const panel = $('profiler-detail-panel');
+    if (!panel) return;
+    try
+    {
+      localStorage.setItem(PROFILER_DETAIL_SIZE_KEY, JSON.stringify({
+        width: panel.offsetWidth,
+        height: panel.offsetHeight,
+      }));
+    }
+    catch
+    {
+      // private mode
+    }
+  }
+
+  reclampProfilerDetailPanel()
+  {
+    const panel = $('profiler-detail-panel');
+    if (!panel || panel.classList.contains('hidden')) return;
+    this.applyProfilerDetailSize(panel.offsetWidth, panel.offsetHeight);
+  }
+
+  initProfilerDetailResize()
+  {
+    const panel = $('profiler-detail-panel');
+    const handle = $('profiler-detail-resize-handle');
+    if (!panel || !handle) return;
+    const saved = this._readProfilerDetailSize();
+    this.applyProfilerDetailSize(saved.width, saved.height);
+    handle.addEventListener('pointerdown', e =>
+    {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const scale = getGameUiScale();
+      const startW = panel.offsetWidth;
+      const startH = panel.offsetHeight;
+      const startX = e.clientX;
+      const startY = e.clientY;
+      panel.classList.add('resizing');
+      const onMove = ev =>
+      {
+        const dw = (ev.clientX - startX) / scale;
+        const dh = (ev.clientY - startY) / scale;
+        this.applyProfilerDetailSize(startW + dw, startH + dh);
+      };
+      const onUp = () =>
+      {
+        panel.classList.remove('resizing');
+        this._persistProfilerDetailSize();
+        handle.releasePointerCapture(e.pointerId);
+        handle.removeEventListener('pointermove', onMove);
+        handle.removeEventListener('pointerup', onUp);
+        handle.removeEventListener('pointercancel', onUp);
+      };
+      handle.setPointerCapture(e.pointerId);
+      handle.addEventListener('pointermove', onMove);
+      handle.addEventListener('pointerup', onUp);
+      handle.addEventListener('pointercancel', onUp);
+    });
+  }
+
+  setProfilerDetailOpen(open, persist = true)
+  {
+    const panel = $('profiler-detail-panel');
+    const btn = $('profiler-detail-toggle-btn');
+    if (!panel) return;
+    const on = !!open;
+    perfProfiler.setDetailEnabled(on);
+    state.profilerDetailOpen = on;
+    panel.classList.toggle('hidden', !on);
+    if (on)
+    {
+      this.setPanelCollapsed(panel, false);
+      this.positionProfilerDetailPanel();
+      this.reclampProfilerDetailPanel();
+    }
+    if (btn) btn.classList.toggle('active', on);
+    if (persist)
+    {
+      try
+      {
+        localStorage.setItem(PROFILER_DETAIL_OPEN_KEY, on ? '1' : '0');
+      }
+      catch
+      {
+        // private mode
+      }
+    }
+    if (on) this.updateProfilerDetailPanel();
+  }
+
+  toggleProfilerDetail()
+  {
+    this.setProfilerDetailOpen(!perfProfiler.detailEnabled);
+  }
+
+  positionProfilerDetailPanel()
+  {
+    const summary = $('profiler-panel');
+    const detail = $('profiler-detail-panel');
+    if (!detail || detail.classList.contains('hidden')) return;
+    if (!summary || summary.classList.contains('hidden'))
+    {
+      detail.style.left = 'auto';
+      detail.style.right = '10px';
+      detail.style.top = '92px';
+      this.reclampProfilerDetailPanel();
+      return;
+    }
+    const root = document.getElementById('game-ui-root');
+    const scale = getGameUiScale();
+    const rootRect = root ? root.getBoundingClientRect() : { left: 0, top: 0 };
+    const rect = summary.getBoundingClientRect();
+    const gap = 8;
+    const left = (rect.right - rootRect.left) / scale + gap;
+    const top = (rect.top - rootRect.top) / scale;
+    detail.style.left = `${Math.round(left)}px`;
+    detail.style.top = `${Math.round(top)}px`;
+    detail.style.right = 'auto';
+    detail.style.bottom = 'auto';
+    this.reclampProfilerDetailPanel();
+  }
+
+  _buildCpuTreeRows(nodes, frameMs)
+  {
+    const byParent = new Map();
+    for (const node of nodes)
+    {
+      const pk = node.parentKey || '';
+      if (!byParent.has(pk)) byParent.set(pk, []);
+      byParent.get(pk).push(node);
+    }
+    for (const list of byParent.values())
+    {
+      list.sort((a, b) => b.totalMs - a.totalMs || a.name.localeCompare(b.name));
+    }
+    const rows = [];
+    const walk = (parentKey, depth) =>
+    {
+      if (depth > 8) return;
+      const kids = byParent.get(parentKey || '') || [];
+      for (const node of kids)
+      {
+        if (node.totalMs < 0.01 && node.calls < 1) continue;
+        const hasKids = (byParent.get(node.key) || []).length > 0;
+        const collapsed = this._profilerTreeCollapsed.has(node.key);
+        rows.push({ node, depth, hasKids, collapsed });
+        if (hasKids && !collapsed) walk(node.key, depth + 1);
+      }
+    };
+    walk('', 0);
+    return rows.slice(0, 200).map(({ node, depth, hasKids, collapsed }) =>
+    {
+      const pct = frameMs > 0 ? (node.totalMs / frameMs) * 100 : 0;
+      const pad = depth * 12;
+      const toggle = hasKids ? (collapsed ? '▸' : '▾') : '·';
+      return `<div class="profiler-tree-row" data-tree-key="${node.key}" style="padding-left:${pad}px">`
+        + `<span class="profiler-tree-name"><span class="profiler-tree-toggle">${toggle}</span>${node.name}</span>`
+        + `<span class="profiler-tree-val">${Math.round(node.calls)}</span>`
+        + `<span class="profiler-tree-val">${node.totalMs.toFixed(2)}</span>`
+        + `<span class="profiler-tree-val">${node.selfMs.toFixed(2)}</span>`
+        + `<span class="profiler-tree-val">${pct.toFixed(1)}</span></div>`;
+    }).join('');
+  }
+
+  updateProfilerDetailPanel()
+  {
+    if (!perfProfiler.detailEnabled) return;
+    const snap = perfProfiler.getSnapshot();
+    const frameMs = snap.overview.frameMs || 16.7;
+    const treeEl = $('profiler-cpu-tree');
+    if (treeEl)
+    {
+      const html = this._buildCpuTreeRows(snap.cpuTree || [], frameMs);
+      treeEl.innerHTML = html || '<div class="profiler-context">No samples yet</div>';
+    }
+    const gpu = snap.gpu || {};
+    const gpuEl = $('profiler-gpu-grid');
+    if (gpuEl)
+    {
+      const rows = [
+        ['Draw calls', String(gpu.renderDrawCalls ?? 0)],
+        ['Instances', String(gpu.renderInstances ?? 0)],
+        ['Compute dispatches', String(gpu.computeDispatches ?? 0)],
+        ['Buffer uploads', `${((gpu.bufferUploadBytes ?? 0) / 1024).toFixed(1)} KB`],
+        ['Buffer transfers', String(gpu.bufferTransfers ?? 0)],
+        ['Est. VRAM', `${((gpu.bufferMemoryBytes ?? 0) / (1024 * 1024)).toFixed(2)} MB`],
+        ['Submit time', `${(gpu.submitMs ?? 0).toFixed(2)} ms`],
+        ['GPU done (est.)', `${(gpu.gpuSubmitDoneMs ?? 0).toFixed(2)} ms`],
+        ['GPU load (est.)', `${(gpu.gpuLoadPct ?? 0).toFixed(1)}%`],
+        ['Renderer', gpu.rendererBackend || '—'],
+        ['Max buffer', gpu.maxBufferSize ? `${(gpu.maxBufferSize / (1024 * 1024)).toFixed(0)} MB` : '—'],
+      ];
+      gpuEl.innerHTML = rows.map(([label, val]) =>
+        `<div class="profiler-row"><span class="profiler-lbl">${label}</span>`
+        + `<span class="profiler-ms">${val}</span><div class="profiler-bar"></div></div>`
+      ).join('');
+    }
+  }
+
+  setProfilerOpen(open, persist = true)
+  {
+    const panel = $('profiler-panel');
+    const btn = $('profiler-toggle-btn');
+    if (!panel) return;
+    const on = !!open;
+    perfProfiler.setEnabled(on);
+    state.profilerOpen = on;
+    panel.classList.toggle('hidden', !on);
+    if (on) this.setPanelCollapsed(panel, false);
+    if (btn) btn.classList.toggle('active', on);
+    if (persist)
+    {
+      try
+      {
+        localStorage.setItem(PROFILER_OPEN_KEY, on ? '1' : '0');
+      }
+      catch
+      {
+        // private mode
+      }
+    }
+    if (on) this.updateProfilerPanel();
+    if (perfProfiler.detailEnabled) this.positionProfilerDetailPanel();
+  }
+
+  toggleProfiler()
+  {
+    this.setProfilerOpen(!perfProfiler.enabled);
+  }
+
+  _profilerRowHtml(label, ms, frameMs)
+  {
+    const pct = frameMs > 0 ? Math.min(100, (ms / frameMs) * 100) : 0;
+    return `<div class="profiler-row"><span class="profiler-lbl">${label}</span>`
+      + `<span class="profiler-ms">${ms.toFixed(2)}</span>`
+      + `<div class="profiler-bar"><div class="profiler-bar-fill" style="width:${pct.toFixed(1)}%"></div></div></div>`;
+  }
+
+  _fillProfilerRows(el, rows, frameMs)
+  {
+    if (!el) return;
+    if (!rows.length)
+    {
+      el.innerHTML = '<div class="profiler-row"><span class="profiler-lbl">—</span><span class="profiler-ms">0.00</span><div class="profiler-bar"></div></div>';
+      return;
+    }
+    el.innerHTML = rows.map(r => this._profilerRowHtml(r.label, r.ms, frameMs)).join('');
+  }
+
+  updateProfilerPanel()
+  {
+    if (!perfProfiler.enabled) return;
+    const snap = perfProfiler.getSnapshot();
+    const frameMs = snap.overview.frameMs || 16.7;
+
+    const overview = $('profiler-overview');
+    if (overview)
+    {
+      overview.innerHTML = `<span class="profiler-stat">FPS <b>${snap.overview.fps}</b></span>`
+        + `<span class="profiler-stat">Frame <b>${frameMs.toFixed(2)}ms</b></span>`
+        + `<span class="profiler-stat">Tier <b>${snap.overview.tier}</b></span>`
+        + `<span class="profiler-badge">sim: ${snap.overview.simBackend}</span>`
+        + `<span class="profiler-badge">render: ${snap.overview.rendererBackend}</span>`;
+    }
+
+    perfProfiler.drawSparkline($('profiler-sparkline'), 'frameTotal');
+
+    const budget = $('profiler-budget');
+    if (budget)
+    {
+      const segs = snap.frame.filter(r => r.ms > 0.01);
+      const total = segs.reduce((s, r) => s + r.ms, 0) || frameMs;
+      budget.innerHTML = segs.map(r =>
+      {
+        const w = total > 0 ? (r.ms / total) * 100 : 0;
+        return `<div class="profiler-budget-seg ${r.key}" style="width:${w.toFixed(1)}%" title="${r.label} ${r.ms.toFixed(2)}ms"></div>`;
+      }).join('');
+    }
+    this._fillProfilerRows($('profiler-frame-rows'), snap.frame, frameMs);
+
+    const cpuSection = $('profiler-sim-cpu-section');
+    if (cpuSection) cpuSection.classList.toggle('hidden', isGpuSimActive());
+    this._fillProfilerRows($('profiler-sim-cpu-rows'), snap.simCpu, frameMs);
+
+    const gpuSimSection = $('profiler-sim-gpu-section');
+    if (gpuSimSection) gpuSimSection.classList.toggle('hidden', !isGpuSimActive());
+    const gpuRows = snap.simGpu.filter(r => r.ms > 0.005);
+    this._fillProfilerRows($('profiler-sim-gpu-rows'), gpuRows, frameMs);
+
+    const renderMeta = $('profiler-render-meta');
+    if (renderMeta)
+    {
+      renderMeta.innerHTML = `<div class="profiler-context">branch <b>${snap.context.renderBranch}</b> · `
+        + `LOD <b>${snap.context.lodMode}</b> · visible <b>${snap.context.visibleCount}</b></div>`;
+    }
+    this._fillProfilerRows($('profiler-render-rows'), snap.render, frameMs);
+
+    const gpuRenderSection = $('profiler-gpu-render-section');
+    if (gpuRenderSection)
+    {
+      gpuRenderSection.classList.toggle('hidden', snap.overview.rendererBackend !== 'webgpu');
+    }
+    this._fillProfilerRows($('profiler-gpu-render-rows'), snap.gpuRender, frameMs);
+
+    const timelineRows = [
+      { label: 'snapshot', ms: snap.timeline.snapshotMs },
+      { label: 'queue depth', ms: snap.timeline.queueDepth },
+      { label: 'dropped writes', ms: snap.timeline.droppedWrites },
+    ];
+    const timelineEl = $('profiler-timeline-rows');
+    if (timelineEl)
+    {
+      timelineEl.innerHTML = timelineRows.map(r =>
+      {
+        if (r.label === 'queue depth' || r.label === 'dropped writes')
+        {
+          return `<div class="profiler-row"><span class="profiler-lbl">${r.label}</span>`
+            + `<span class="profiler-ms">${Math.round(r.ms)}</span><div class="profiler-bar"></div></div>`;
+        }
+        return this._profilerRowHtml(r.label, r.ms, frameMs);
+      }).join('')
+        + (snap.timeline.flushing
+          ? '<div class="profiler-context">flushing…</div>'
+          : '');
+    }
+
+    const ctx = $('profiler-context');
+    if (ctx)
+    {
+      const c = snap.context;
+      ctx.innerHTML = `mode <b>${simulationMode}</b> · sim <b>${c.simBackend}</b>${c.gpuSimEnabled ? ' (gpu on)' : ''}`
+        + ` · render <b>${c.rendererBackend}</b><br>`
+        + `world <b>${c.worldTiles}</b> · speed <b>${c.speed}×</b> · substeps <b>${c.substepCount}</b>`
+        + ` · alive <b>${c.alive}</b><br>`
+        + `scrub <b>${c.scrubActive ? 'yes' : 'no'}</b> · pause <b>${c.paused ? 'yes' : 'no'}</b>`
+        + ` · veg bake <b>${c.vegBakeInterval.toFixed(2)}s</b>`;
+    }
   }
 
   syncGraphCanvas()
@@ -1052,6 +1531,8 @@ export class UI
 
   updateUI()
   {
+    const run = () =>
+    {
     const alive = state.creatures.filter(c => !c.dead);
     $('s-pop').textContent = alive.length;
     $('s-gen').textContent = 'Gen ' + state.generationMax;
@@ -1110,6 +1591,11 @@ export class UI
 
     this.syncSpeciesStatsPanel();
     this.syncScrubUI();
+    this.updateProfilerPanel();
+    if (perfProfiler.detailEnabled) this.updateProfilerDetailPanel();
+    };
+    if (perfProfiler.detailEnabled) return perfProfiler.scope('ui.update', run);
+    return run();
   }
 
   creatureStateLabel(st, creatureOrSp)
@@ -1304,7 +1790,7 @@ export class UI
   initDraggablePanels()
   {
     applyPanelLayout();
-    for (const id of ['genpanel', 'stats', 'speciestats', 'inspect', 'worldstory', 'timelinedb'])
+    for (const id of ['genpanel', 'stats', 'speciestats', 'inspect', 'worldstory', 'timelinedb', 'profiler-panel', 'profiler-detail-panel'])
     {
       const panel = $(id);
       const head = panel.querySelector('.panel-head');
@@ -1333,6 +1819,7 @@ export class UI
         {
           panel.classList.remove('dragging');
           persistPanelPosition(panel);
+          if (id === 'profiler-panel') this.positionProfilerDetailPanel();
           head.releasePointerCapture(e.pointerId);
           head.removeEventListener('pointermove', onMove);
           head.removeEventListener('pointerup', onUp);

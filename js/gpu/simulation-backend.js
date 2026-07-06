@@ -5,6 +5,7 @@ import { quality } from '../render/quality.js';
 import { lifeStory } from '../life-story.js';
 import { refineDeathCause, inferKillerId } from '../creature-notify.js';
 import { effectiveReadbackEveryMs } from '../perf-policy.js';
+import { perfProfiler } from '../perf-profiler.js';
 
 const CELL_CAP = 64;
 const CREATURE_STRIDE_VEC4 = 8;
@@ -1587,6 +1588,44 @@ export class GpuSimulationBackend
     pass.setPipeline(pipeline);
     pass.setBindGroup(0, state.gpuSimBindGroups.main);
     pass.dispatchWorkgroups(workgroups);
+    perfProfiler.recordGpuDispatch();
+  }
+
+  runComputePasses(encoder, creatureCount, tileCount, cellCount, speciesTriples)
+  {
+    const clearCount = Math.max(cellCount, tileCount, creatureCount, speciesTriples);
+    const passes = [
+      ['gpu.pass.clearCells', state.gpuSimPipelines.clearCells, Math.ceil(clearCount / 128)],
+      ['gpu.pass.clearCounters', state.gpuSimPipelines.clearCounters, Math.ceil(Math.max(COUNTERS_LEN, speciesTriples) / 64)],
+      ['gpu.pass.binCreatures', state.gpuSimPipelines.binCreatures, Math.ceil(creatureCount / 128)],
+      ['gpu.pass.claimBehaviorTargets', state.gpuSimPipelines.claimBehaviorTargets, Math.ceil(creatureCount / 128)],
+      ['gpu.pass.planNavStep', state.gpuSimPipelines.planNavStep, Math.ceil(creatureCount / 128)],
+      ['gpu.pass.resolveIntegrate', state.gpuSimPipelines.resolveIntegrate, Math.ceil(creatureCount / 128)],
+      ['gpu.pass.resolveHuntDamage', state.gpuSimPipelines.resolveHuntDamage, Math.ceil(creatureCount / 128)],
+      ['gpu.pass.spawnFromBirthQueue', state.gpuSimPipelines.spawnFromBirthQueue, Math.ceil(creatureCount / 128)],
+      ['gpu.pass.growVegetation', state.gpuSimPipelines.growVegetation, Math.ceil(tileCount / 128)],
+      ['gpu.pass.composeRenderData', state.gpuSimPipelines.composeRenderData, Math.ceil(creatureCount / 128)],
+    ];
+
+    if (perfProfiler.enabled)
+    {
+      for (const [key, pipeline, workgroups] of passes)
+      {
+        perfProfiler.begin(key);
+        const pass = encoder.beginComputePass();
+        this.dispatch(pass, pipeline, workgroups);
+        pass.end();
+        perfProfiler.end(key);
+      }
+      return;
+    }
+
+    const pass = encoder.beginComputePass();
+    for (const [, pipeline, workgroups] of passes)
+    {
+      this.dispatch(pass, pipeline, workgroups);
+    }
+    pass.end();
   }
 
   step(dt)
@@ -1600,24 +1639,14 @@ export class GpuSimulationBackend
     const tileCount = Math.max(1, state.W * state.H);
     const cellCount = Math.max(1, state.gpuSimCellCols * state.gpuSimCellRows);
     const speciesTriples = Math.max(1, speciesSumLen());
+    perfProfiler.begin('gpu.encode');
     const encoder = dev.createCommandEncoder();
-    const pass = encoder.beginComputePass();
-    const clearCount = Math.max(cellCount, tileCount, creatureCount, speciesTriples);
-    this.dispatch(pass, state.gpuSimPipelines.clearCells, Math.ceil(clearCount / 128));
-    this.dispatch(pass, state.gpuSimPipelines.clearCounters, Math.ceil(Math.max(COUNTERS_LEN, speciesTriples) / 64));
-    this.dispatch(pass, state.gpuSimPipelines.binCreatures, Math.ceil(creatureCount / 128));
-    this.dispatch(pass, state.gpuSimPipelines.claimBehaviorTargets, Math.ceil(creatureCount / 128));
-    this.dispatch(pass, state.gpuSimPipelines.planNavStep, Math.ceil(creatureCount / 128));
-    this.dispatch(pass, state.gpuSimPipelines.resolveIntegrate, Math.ceil(creatureCount / 128));
-    this.dispatch(pass, state.gpuSimPipelines.resolveHuntDamage, Math.ceil(creatureCount / 128));
-    this.dispatch(pass, state.gpuSimPipelines.spawnFromBirthQueue, Math.ceil(creatureCount / 128));
-    this.dispatch(pass, state.gpuSimPipelines.growVegetation, Math.ceil(tileCount / 128));
-    this.dispatch(pass, state.gpuSimPipelines.composeRenderData, Math.ceil(creatureCount / 128));
-    pass.end();
+    this.runComputePasses(encoder, creatureCount, tileCount, cellCount, speciesTriples);
 
     const now = performance.now();
     if (!state.batchMode)
     {
+      perfProfiler.begin('gpu.readbackSchedule');
       this.recoverStalledReadback(now);
       const readbackEveryMs = this.creatureReadbackIntervalMs();
       const countersRb = state.gpuSimBuffers.countersReadback;
@@ -1628,6 +1657,7 @@ export class GpuSimulationBackend
         if (countersReady)
         {
           encoder.copyBufferToBuffer(state.gpuSimBuffers.simAtomics, 0, countersRb, 0, 64);
+          perfProfiler.recordGpuTransfer();
           this.countersReadbackPending = true;
           this.countersReadbackAt = now;
         }
@@ -1642,6 +1672,7 @@ export class GpuSimulationBackend
         const bytes = state.gpuRenderCreatureCount * CREATURE_STRIDE_FLOATS * 4;
         const copyBytes = roundUp(bytes, 256);
         encoder.copyBufferToBuffer(state.gpuSimBuffers.creatures, 0, renderRb, 0, copyBytes);
+        perfProfiler.recordGpuTransfer();
         state.gpuSimReadbackPending = true;
         state.gpuSimLastReadbackAt = now;
         this._readbackPendingSince = now;
@@ -1673,15 +1704,28 @@ export class GpuSimulationBackend
         this.selectedReadbackPending = true;
         this.selectedReadbackAt = now;
       }
+      perfProfiler.end('gpu.readbackSchedule');
     }
     const cmd = encoder.finish();
+    const submitT0 = performance.now();
     dev.queue.submit([cmd]);
+    perfProfiler.end('gpu.encode');
+
+    if (!state.batchMode && perfProfiler.enabled)
+    {
+      dev.queue.onSubmittedWorkDone().then(() =>
+      {
+        perfProfiler.recordGpuSubmitDone(performance.now() - submitT0);
+      });
+    }
 
     if (!state.batchMode)
     {
+      perfProfiler.begin('gpu.readbackConsume');
       if (state.gpuSimReadbackPending && !state.scrubActive) this.consumeCreatureReadback();
       else if (this.selectedReadbackPending && !state.scrubActive) this.consumeSelectedReadback();
       else if (this.countersReadbackPending) this.consumeCountersReadback();
+      perfProfiler.end('gpu.readbackConsume');
     }
 
     if (
@@ -1812,6 +1856,7 @@ export class GpuSimulationBackend
         : totalMs;
       state.gpuTelemetry.readbackMapMs = mapWaitMs;
       state.gpuTelemetry.readbackApplyMs = applyMs;
+      perfProfiler.record('gpu.readbackConsume', totalMs);
     }).catch(() =>
     {
       this.handleGpuDeviceLost('creature-readback-map-failed', rb.mapState);

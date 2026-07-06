@@ -10,6 +10,7 @@ import {
 } from '../nav.js';
 import { lifeStory } from '../life-story.js';
 import { stateToGpuCode } from './state-codes.js';
+import { perfProfiler } from '../perf-profiler.js';
 
 export function resolveGoals(action, ctx, creatureSystem)
 {
@@ -158,6 +159,12 @@ export function resolveGoals(action, ctx, creatureSystem)
  *                   or false if it "acted in place" (e.g., drank, grazed, or rested).
  */
 export function applyActionEffects(action, nodeId, ctx, creatureSystem, dt, speed)
+{
+  const scopeName = `behavior.action.${action.state || 'unknown'}`;
+  return perfProfiler.scope(scopeName, () => _applyActionEffects(action, nodeId, ctx, creatureSystem, dt, speed));
+}
+
+function _applyActionEffects(action, nodeId, ctx, creatureSystem, dt, speed)
 {
   // Expose creature and genome for easier reference
   const c = ctx.creature;

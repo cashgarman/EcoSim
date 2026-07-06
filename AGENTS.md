@@ -34,6 +34,7 @@ EcoSim/
 │   ├── state.js            # Shared mutable state + grid helpers
 │   ├── config.js           # loadTimelineConfig() from JSON
 │   ├── perf-policy.js      # High-speed snapshot/readback/timeline pressure scaling
+│   ├── perf-profiler.js    # Frame/sim/render timing collector + Profiler panel data
 │   ├── creature-notify.js  # Death-cause refinement, killer inference, World Story formatting
 │   ├── dom.js              # DOM helper ($)
 │   ├── data.js             # Biome enums + loadSpeciesData() from JSON
@@ -332,7 +333,59 @@ At sim speed ≥5×, reduces overhead without changing sim correctness:
 | `#world` | 1 | Terrain, water, veg, 2D creatures (detail path), day/night tint, FX, tool ring |
 | `#world-gpu` | 2 | WebGPU instanced creature circles (transparent overlay) |
 | `#world-hl` | 3 | Species/selection highlight glows above GPU layer (`pointer-events: none`) |
-| `#perfhud` | 40 | F2 perf HUD (backend, frame ms, quality tier, visible count) |
+
+### Profiler panel (`#profiler-panel`)
+
+Draggable panel toggled via top-bar **Profiler** button or **F2** (`localStorage` key `ecosim-profiler-open`). Replaces the old bottom-left `#perfhud` overlay.
+
+- **Overview** — FPS, frame ms, quality tier, sim/render backend badges, frame-time sparkline
+- **Frame budget** — stacked bar + per-bucket ms for sim / snapshot / displaySmooth / render / ui / other
+- **CPU Simulation** (default sandbox) — `rebuildGrid`, `stepCreatures`, `vegGrow`, `migrant`, `pruneDead`, `heartbeat`
+- **GPU Simulation** (when `simBackend==='gpu' && gpuSimEnabled`) — behavior tree, upload, gpu step, per-pass encoding, readback
+- **Rendering** — terrain, collectVisible, creatures, pedigree, overlay; branch + LOD + visible count
+- **GPU Rendering** (when `rendererBackend==='webgpu'`) — `webgpuPack`, `webgpuSubmit`
+- **Timeline** — snapshot capture ms, IndexedDB queue depth, dropped writes
+- **Context** — `simulationMode`, world size, speed, substeps, scrub/pause, veg bake interval
+
+Instrumentation lives in [`js/perf-profiler.js`](js/perf-profiler.js). Top-level buckets (`frameTotal`, `sim`, `render`) always record; detailed keys only when the summary panel is open. GPU sim sub-pass timing is zero-cost when CPU sim is the active backend.
+
+### CPU/GPU detail panel (`#profiler-detail-panel`)
+
+Docked to the **right** of `#profiler-panel` when the summary panel is open (repositions when the summary panel is dragged or the window resizes); otherwise anchors to the top-right of the viewport. Toggled independently via the top-bar **CPU/GPU** button (`localStorage` key `ecosim-profiler-detail-open`). **F2** opens only the summary panel; detail does not auto-open.
+
+- **CPU tab** — hierarchical call tree (Name, Calls, Total ms, Self ms, % of frame); expandable rows; top 200 nodes by total ms (EMA-aggregated across frames)
+- **GPU tab** — draw calls, instances, compute dispatches, buffer uploads (KB/frame), buffer transfers, estimated VRAM (tracked buffer sizes), submit time, async GPU-done estimate, load % estimate, renderer backend, device `maxBufferSize`
+
+**Detail gating:** `perfProfiler.setDetailEnabled(true)` activates scope-stack instrumentation and per-frame GPU counters. When off, `enterScope` / `scope` / per-creature scopes are zero-cost no-ops.
+
+**Scope naming** (representative paths):
+
+| Scope | Source |
+|-------|--------|
+| `frame` → `frame.sim` / `snapshot` / `displaySmooth` / `render` / `ui` | `app.js` |
+| `sim.tick` → `sim.rebuildGrid`, `sim.stepCreatures`, `sim.vegGrow`, … | `simulation.js` |
+| `creature.stepCreature` → `creature.stepNeeds`, `creature.behavior` | `creatures.js` |
+| `behavior.decide` → `behavior.buildContext`, `behavior.evaluateTree`, `behavior.execute` | `behavior/index.js` |
+| `behavior.action.{state}` | `behavior/executor.js` |
+| `nav.planGridStep` | `nav.js` |
+| `render.*`, `render.webgpuPack`, `render.webgpuSubmit` | `pipeline.js`, `webgpu-renderer.js` |
+| `snapshot.capture` | `snapshot.js` |
+| `timeline.append` | `timeline-db.js` |
+| `ui.update` | `ui.js` |
+
+**GPU counter semantics** (reset each frame when detail open):
+
+| Counter | Meaning |
+|---------|---------|
+| `renderDrawCalls` | Each `pass.draw()` in WebGPU creature renderer |
+| `renderInstances` | Instance count summed across draws |
+| `computeDispatches` | Each `dispatchWorkgroups` in GPU sim (+ render compute if any) |
+| `bufferUploadBytes` | Bytes written via `queue.writeBuffer` |
+| `bufferTransfers` | `copyBufferToBuffer` ops (readback path) |
+| `bufferMemoryBytes` | Running total at buffer creation/resize (estimate, not driver VRAM) |
+| `submitMs` | `render.webgpuSubmit` + `gpu.encode` (when GPU sim active) |
+| `gpuSubmitDoneMs` | Async `onSubmittedWorkDone` wall time (1-frame lag) |
+| `gpuLoadPct` | `gpuSubmitDoneMs / frameTotalMs × 100` (labeled estimate in UI) |
 
 ### Layers (bottom → top)
 
@@ -363,7 +416,7 @@ At sim speed ≥5×, reduces overhead without changing sim correctness:
 - GPU behavior state is decoded from compute state codes (`wander/flee/thirst/graze/hunt/rest/mate/huntSearch`) for inspector/tooltips instead of showing a raw `gpu` placeholder
 - **Scrub / pause** — GPU sim stepping and readback skipped while `state.scrubActive`; **Spacebar** pause sets `gpuDisplayExtrapolate=false` and snaps display positions; resume forces readback then re-enables extrapolation
 - Large populations + poor FPS → quality tier rises → creatures simplify to circles/markers (intentional LOD, not a bug)
-- **F2** toggles perf HUD (`#perfhud`), including GPU sim metrics (sim step ms, alive, births, herbivore intake)
+- **F2** toggles the **Profiler** panel (`#profiler-panel`)
 
 ### Quality tiers (`QualityController` in `quality.js`)
 
@@ -416,11 +469,13 @@ Panel positions are saved to `localStorage` key `ecosim-panel-layout` on drag en
 | Species Stats | `#speciestats` | Per-species graph, avg needs, pop/death stats (visible when species row clicked) |
 | World Story | `#worldstory` | Collapsible, scrollable, clickable world event timeline |
 | Timeline DB | `#timelinedb` | Collapsible DB browser for world/creature/heartbeat rows in current run |
+| Profiler | `#profiler-panel` | CPU/GPU frame budget breakdown (F2 or top-bar toggle) |
+| CPU/GPU detail | `#profiler-detail-panel` | Call tree + GPU metrics (top-bar **CPU/GPU** toggle) |
 | Inspector | `#inspect` | Selected creature stats/genes + **Life Story** tab |
 
 ### Top bar stats
 
-Day/night, population, max generation, avg vegetation %, speed slider (0–10×), Follow button, and the **timeline scrub** bar (`#top-scrubctl`) with zoomable/pannable canvas day-night strip, snapshot tick marks, play/pause indicator (Spacebar), 12-hour clock, and **Present** button.
+Day/night, population, max generation, avg vegetation %, speed slider (0–10×), Follow button, **Profiler** button, **Test Runner** link, and the **timeline scrub** bar (`#top-scrubctl`) with zoomable/pannable canvas day-night strip, snapshot tick marks, play/pause indicator (Spacebar), 12-hour clock, and **Present** button.
 
 ### Species GOD menu (`#species-row-menu`)
 
@@ -532,6 +587,19 @@ CSS for `#toolbar` exists; DOM toolbar was removed or not yet added. Re-add `<di
 | `unsnappedWalkableGoal` | Live float goal; snap only when entity tile impassable |
 | `atWaterEdge` | Shoreline drink detection |
 
+### `js/perf-profiler.js`
+
+| Export | Role |
+|--------|------|
+| `perfProfiler` | EMA timers, ring-buffer sparklines, `getSnapshot()`, `enabled` / `detailEnabled` gating |
+| `setDetailEnabled(on)` | Gates scope stack + GPU counters (detail panel) |
+| `scope(name, fn)` / `enterScope` / `exitScope` | Hierarchical CPU call tree when detail open |
+| `getCpuTree()` / `getGpuSnapshot()` | Detail panel data (included in `getSnapshot()`) |
+| `recordGpuDraw`, `recordGpuDispatch`, `recordGpuUpload`, `trackBufferMemory` | Per-frame GPU counters |
+| `isGpuSimActive()` | `state.simBackend === 'gpu' && state.gpuSimEnabled` |
+
+Key timing buckets: `frameTotal`, `sim`, `snapshot`, `displaySmooth`, `render`, `ui`, `sim.rebuildGrid`, `sim.stepCreatures`, `render.terrain`, `render.webgpuPack`, `gpu.pass.*` (GPU sim only).
+
 ### `js/perf-policy.js`
 
 | Export | Role |
@@ -574,11 +642,11 @@ CSS for `#toolbar` exists; DOM toolbar was removed or not yet added. Re-add `<di
 | `render/terrain-renderer.js` | `TerrainRenderer` | `bakeTerrain`, `bakeWater`, `bakeVegetation`, infinite ocean |
 | `render/creature-renderer.js` | `CreatureRenderer` | `drawCreature`, `renderHighlights2d`, `renderHighlightsOverlay`, pedigree lines |
 | `render/webgpu-renderer.js` | `WebGpuRenderer` | WebGPU instanced creature circles |
-| `render/quality.js` | `QualityController` | adaptive tiers, `effectiveHighlight`, F2 perf HUD |
+| `render/quality.js` | `QualityController` | adaptive tiers, `effectiveHighlight` |
 | `render/pipeline.js` | `RenderPipeline` | `render()` layer orchestration (3 canvases) |
 | `gpu/simulation-backend.js` | `GpuSimulationBackend` | compute simulation passes, spatial bins, global awareness, conflict resolution, readback; exports `gpuBehaviorToState()` |
 | `ui.js` | `UI` | stats, graph, inspector (Stats + Life Story), World Story, Timeline DB, interactive timeline scrub, species GOD menu, terrain/creature/timeline tooltips |
-| `input.js` | `InputManager` | canvas/panel/keyboard handlers; **F2** perf HUD; **Spacebar** pause |
+| `input.js` | `InputManager` | canvas/panel/keyboard handlers; **F2** Profiler panel; **Spacebar** pause |
 | `app.js` | `GameApp` | boot, `doGenerate`, `frame` loop; exposes `window.runGpuBenchmark(seconds)` in console |
 
 ---
@@ -734,4 +802,4 @@ Sections to revise:
 - New UI panels or tools → UI & Input
 - Perf/render pipeline changes → Rendering
 
-*Last synced with codebase: 2026-07-05 (fuzz balance recommendations, sandbox override boot)*
+*Last synced with codebase: 2026-07-05 (CPU/GPU detail profiler panel, scope tree + GPU counters)*

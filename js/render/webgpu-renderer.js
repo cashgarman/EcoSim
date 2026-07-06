@@ -1,6 +1,7 @@
 import { state, rendererMode } from '../state.js';
 import { creatures } from '../creatures.js';
 import { creatureRenderer } from './creature-renderer.js';
+import { perfProfiler } from '../perf-profiler.js';
 
 const GPU_SHADER = `
 struct Creature {
@@ -106,10 +107,12 @@ export class WebGpuRenderer
         size: 32,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
+      perfProfiler.trackBufferMemory(32);
       state.gpuCreatureBuffer = state.gpuDevice.createBuffer({
         size: 4 * 1024 * 1024,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
       });
+      perfProfiler.trackBufferMemory(4 * 1024 * 1024);
       state.gpuPipeline = state.gpuDevice.createRenderPipeline({
         layout: 'auto',
         vertex: { module: shader, entryPoint: 'vsMain' },
@@ -173,6 +176,7 @@ export class WebGpuRenderer
         size: targetBytes,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
       });
+      perfProfiler.trackBufferMemory(targetBytes - (this.cpuBufferBytes || 0));
       this.cpuBindGroup = state.gpuDevice.createBindGroup({
         layout: state.gpuPipeline.getBindGroupLayout(0),
         entries: [
@@ -200,6 +204,7 @@ export class WebGpuRenderer
     let i = 0;
     const markerScale = detailTier <= 0 ? 0.55 : detailTier === 1 ? 0.75 : 1.0;
 
+    perfProfiler.begin('render.webgpuPack');
     for (const c of vis)
     {
       if (i >= maxInstances) break;
@@ -231,6 +236,7 @@ export class WebGpuRenderer
       data[i * stride + 7] = highlightTier === 1 ? 0.55 : 0.82;
       i++;
     }
+    perfProfiler.end('render.webgpuPack');
 
     const used = i;
     if (used === 0) return true;
@@ -238,11 +244,14 @@ export class WebGpuRenderer
     const usedBytes = used * stride * 4;
     if (!this.ensureCpuCreatureBindGroup(usedBytes)) return false;
 
+    perfProfiler.begin('render.webgpuSubmit');
+    perfProfiler.recordGpuUpload(usedBytes);
     state.gpuDevice.queue.writeBuffer(this.cpuCreatureBuffer, 0, data.buffer, 0, usedBytes);
     const cameraData = new Float32Array([
       state.cam.x, state.cam.y, state.cam.z,
       canvas.width, canvas.height, 1, 0, 0,
     ]);
+    perfProfiler.recordGpuUpload(cameraData.byteLength);
     state.gpuDevice.queue.writeBuffer(state.gpuUniformBuffer, 0, cameraData.buffer);
 
     const encoder = state.gpuDevice.createCommandEncoder();
@@ -257,8 +266,10 @@ export class WebGpuRenderer
     pass.setPipeline(state.gpuPipeline);
     pass.setBindGroup(0, this.cpuBindGroup);
     pass.draw(6, used, 0, 0);
+    perfProfiler.recordGpuDraw(used);
     pass.end();
     state.gpuDevice.queue.submit([encoder.finish()]);
+    perfProfiler.end('render.webgpuSubmit');
     return true;
   }
 
@@ -274,6 +285,7 @@ export class WebGpuRenderer
       state.cam.x, state.cam.y, state.cam.z,
       canvas.width, canvas.height, sizeScale, 0, 0,
     ]);
+    perfProfiler.recordGpuUpload(cameraData.byteLength);
     state.gpuDevice.queue.writeBuffer(state.gpuUniformBuffer, 0, cameraData.buffer);
     const encoder = state.gpuDevice.createCommandEncoder();
     const pass = encoder.beginRenderPass({
@@ -287,6 +299,7 @@ export class WebGpuRenderer
     pass.setPipeline(state.gpuPipeline);
     pass.setBindGroup(0, state.gpuBindGroup);
     pass.draw(6, count, 0, 0);
+    perfProfiler.recordGpuDraw(count);
     pass.end();
     state.gpuDevice.queue.submit([encoder.finish()]);
     return true;

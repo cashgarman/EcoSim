@@ -7,6 +7,7 @@ import { gpuSimulationBackend } from './gpu/simulation-backend.js';
 import { behaviorTree } from './behavior/index.js';
 import { timelineDb } from './timeline-db.js';
 import { effectiveHeartbeatIntervalSec, shouldRunBehaviorThisSubstep } from './perf-policy.js';
+import { perfProfiler } from './perf-profiler.js';
 
 export class Simulation
 {
@@ -117,6 +118,11 @@ export class Simulation
    */
   tick(dt, options = {})
   {
+    return perfProfiler.scope('sim.tick', () => this._tick(dt, options));
+  }
+
+  _tick(dt, options = {})
+  {
     // Advance the in-game time of day (fraction between 0 and 1)
     state.timeOfDay = (state.timeOfDay + dt / 40) % 1;
 
@@ -125,7 +131,9 @@ export class Simulation
 
     // Advance the absolute day counter based on total simulation time
     state.day = Math.floor(state.tGlobal / 40);
+    perfProfiler.begin('sim.heartbeat');
     this.captureHeartbeat();
+    perfProfiler.end('sim.heartbeat');
 
     // Check for special hybrid GPU simulation initialization step
     // - Only perform minimal vegetative "growRow" work to bootstrap GPU sim backend
@@ -153,6 +161,7 @@ export class Simulation
       const runBehavior = shouldRunBehaviorThisSubstep(options.substep, options.substepCount);
       if (runBehavior)
       {
+        perfProfiler.begin('sim.behaviorTree');
         creatures.rebuildGrid();
         for (const c of state.creatures)
         {
@@ -161,54 +170,57 @@ export class Simulation
             behaviorTree.tickDecisionOnly(c, creatures);
           }
         }
+        perfProfiler.end('sim.behaviorTree');
+        perfProfiler.begin('sim.behaviorUpload');
         gpuSimulationBackend.uploadBehaviorDecisions();
+        perfProfiler.end('sim.behaviorUpload');
       }
+      perfProfiler.begin('sim.reproduction');
       creatures.stepReproduction(dt);
+      perfProfiler.end('sim.reproduction');
 
-      const simStart = performance.now();
+      perfProfiler.begin('sim.gpuStep');
       gpuSimulationBackend.step(dt);
-      const simMs = performance.now() - simStart;
+      perfProfiler.end('sim.gpuStep');
 
-      // Keep process timing telemetry via exponential moving average
-      state.gpuTelemetry.simStepMs = state.gpuTelemetry.simStepMs
-        ? state.gpuTelemetry.simStepMs * 0.85 + simMs * 0.15
-        : simMs;
+      state.gpuTelemetry.simStepMs = perfProfiler.get('sim.gpuStep');
 
-      // Step 4: Progress one row of vegetation growth each tick
       state.growRow = (state.growRow + 1) % state.H;
-
-      // If we've processed all rows, flag the vegetation ("veg") as dirty so it can sync/redraw
       if (state.growRow === 0) state.vegDirty = true;
 
-      // Step 5: Handle periodic animal migration/refill if population is low
+      perfProfiler.begin('sim.migrant');
       this.runMigrantPulse(dt);
+      perfProfiler.end('sim.migrant');
 
-      // Step 6: Remove dead creatures from simulation arrays/grids (cleanup)
+      perfProfiler.begin('sim.pruneDead');
       creatures.pruneDead();
+      perfProfiler.end('sim.pruneDead');
       return;
     }
 
-    // Rebuild the spatial grid with the current positions of all (alive and dead) creatures.
-    // This is often used for spatial queries such as finding neighbors, pathfinding, etc.
+    perfProfiler.begin('sim.rebuildGrid');
     creatures.rebuildGrid();
+    perfProfiler.end('sim.rebuildGrid');
 
-    // Update each alive creature in the simulation for this time step.
-    // The stepCreature function usually handles actions such as movement, eating, drinking, aging, etc.
+    perfProfiler.begin('sim.stepCreatures');
     for (const c of state.creatures)
     {
-      if (!c.dead) // Only process creatures that are still alive.
+      if (!c.dead)
         creatures.stepCreature(c, dt);
     }
+    perfProfiler.end('sim.stepCreatures');
 
-    // Allow the world simulation to advance vegetation growth.
-    // This could mean grass and plants spread or regrow across the map.
+    perfProfiler.begin('sim.vegGrow');
     world.growVegetation(dt);
+    perfProfiler.end('sim.vegGrow');
 
+    perfProfiler.begin('sim.migrant');
     this.runMigrantPulse(dt);
+    perfProfiler.end('sim.migrant');
 
-    // Clean up the simulation by removing any creatures that have died this cycle,
-    // ensuring arrays and spatial data are up-to-date.
+    perfProfiler.begin('sim.pruneDead');
     creatures.pruneDead();
+    perfProfiler.end('sim.pruneDead');
   }
 }
 

@@ -11,6 +11,8 @@ export const DRAGGABLE_PANEL_IDS = [
   'inspect',
   'worldstory',
   'timelinedb',
+  'profiler-panel',
+  'profiler-detail-panel',
 ];
 
 const PANEL_MIN_MARGIN = 8;
@@ -110,6 +112,7 @@ export function applyPanelLayout()
   {
     const panel = $(id);
     if (!panel) continue;
+    if (id === 'profiler-detail-panel') continue;
     const entry = layout[id];
     if (!isValidSavedEntry(entry))
     {

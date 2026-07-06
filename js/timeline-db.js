@@ -1,5 +1,6 @@
 import { state } from './state.js';
 import { timelineWritePressure } from './perf-policy.js';
+import { perfProfiler } from './perf-profiler.js';
 
 const DB_NAME = 'ecosim_timeline';
 const DB_VERSION = 2;
@@ -170,39 +171,50 @@ export class TimelineDb
     }
   }
 
+  _publishQueueTelemetry()
+  {
+    if (!state.gpuTelemetry) state.gpuTelemetry = {};
+    state.gpuTelemetry.timelineQueueDepth = this._queue.length;
+    state.gpuTelemetry.timelineFlushing = this._flushing;
+  }
+
   _queueWrite(kind, payload)
   {
-    const pressure = timelineWritePressure();
-    const maxQueue = pressure === 'high' ? 480 : pressure === 'medium' ? 960 : 2400;
-    if (this._queue.length >= maxQueue)
+    perfProfiler.scope('timeline.append', () =>
     {
-      if (kind === 'creature')
+      const pressure = timelineWritePressure();
+      const maxQueue = pressure === 'high' ? 480 : pressure === 'medium' ? 960 : 2400;
+      if (this._queue.length >= maxQueue)
       {
-        this._droppedWrites++;
-        if (!state.gpuTelemetry) state.gpuTelemetry = {};
-        state.gpuTelemetry.droppedTimelineWrites = this._droppedWrites;
-        return;
+        if (kind === 'creature')
+        {
+          this._droppedWrites++;
+          if (!state.gpuTelemetry) state.gpuTelemetry = {};
+          state.gpuTelemetry.droppedTimelineWrites = this._droppedWrites;
+          return;
+        }
+        if (kind === 'heartbeat')
+        {
+          this._droppedWrites++;
+          if (!state.gpuTelemetry) state.gpuTelemetry = {};
+          state.gpuTelemetry.droppedTimelineWrites = this._droppedWrites;
+          return;
+        }
+        if (kind === 'snapshot')
+        {
+          this._flushQueue();
+        }
       }
-      if (kind === 'heartbeat')
+      this._queue.push({ kind, payload });
+      this._publishQueueTelemetry();
+      if (this._flushScheduled) return;
+      this._flushScheduled = true;
+      setTimeout(() =>
       {
-        this._droppedWrites++;
-        if (!state.gpuTelemetry) state.gpuTelemetry = {};
-        state.gpuTelemetry.droppedTimelineWrites = this._droppedWrites;
-        return;
-      }
-      if (kind === 'snapshot')
-      {
+        this._flushScheduled = false;
         this._flushQueue();
-      }
-    }
-    this._queue.push({ kind, payload });
-    if (this._flushScheduled) return;
-    this._flushScheduled = true;
-    setTimeout(() =>
-    {
-      this._flushScheduled = false;
-      this._flushQueue();
-    }, kind === 'snapshot' ? 8 : 30);
+      }, kind === 'snapshot' ? 8 : 30);
+    });
   }
 
   async _flushQueue()
@@ -210,6 +222,7 @@ export class TimelineDb
     if (this._flushing) return;
     if (!this._queue.length) return;
     this._flushing = true;
+    this._publishQueueTelemetry();
     try
     {
       await this._open();
@@ -251,6 +264,7 @@ export class TimelineDb
     finally
     {
       this._flushing = false;
+      this._publishQueueTelemetry();
       if (this._queue.length) this._flushQueue();
     }
   }

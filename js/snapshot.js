@@ -1,7 +1,13 @@
 import { state } from './state.js';
 import { lifeStory } from './life-story.js';
+import { perfProfiler } from './perf-profiler.js';
 
 export function captureSnapshot()
+{
+  return perfProfiler.scope('snapshot.capture', () => _captureSnapshot());
+}
+
+function _captureSnapshot()
 {
   const runId = state.timelineRunId || '';
   const t = state.tGlobal;

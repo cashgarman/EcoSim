@@ -107,27 +107,39 @@
   #speciestats::-webkit-scrollbar,
   #worldstory::-webkit-scrollbar,
   #timelinedb::-webkit-scrollbar,
+  #profiler-panel .panel-body::-webkit-scrollbar,
+  #profiler-detail-panel .panel-body::-webkit-scrollbar,
   .story-log::-webkit-scrollbar,
   #timelinedb-list::-webkit-scrollbar,
   #world-story-list::-webkit-scrollbar{
     width:8px;
+    height:8px;
   }
   #genpanel::-webkit-scrollbar-track,
   #stats::-webkit-scrollbar-track,
   #speciestats::-webkit-scrollbar-track,
   #worldstory::-webkit-scrollbar-track,
   #timelinedb::-webkit-scrollbar-track,
+  #profiler-panel .panel-body::-webkit-scrollbar-track,
+  #profiler-detail-panel .panel-body::-webkit-scrollbar-track,
   .story-log::-webkit-scrollbar-track,
   #timelinedb-list::-webkit-scrollbar-track,
   #world-story-list::-webkit-scrollbar-track{
     background:var(--panel-darker);
     border-left:2px solid var(--edge);
   }
+  #profiler-panel .panel-body::-webkit-scrollbar-track:horizontal,
+  #profiler-detail-panel .panel-body::-webkit-scrollbar-track:horizontal{
+    border-left:none;
+    border-top:2px solid var(--edge);
+  }
   #genpanel::-webkit-scrollbar-thumb,
   #stats::-webkit-scrollbar-thumb,
   #speciestats::-webkit-scrollbar-thumb,
   #worldstory::-webkit-scrollbar-thumb,
   #timelinedb::-webkit-scrollbar-thumb,
+  #profiler-panel .panel-body::-webkit-scrollbar-thumb,
+  #profiler-detail-panel .panel-body::-webkit-scrollbar-thumb,
   .story-log::-webkit-scrollbar-thumb,
   #timelinedb-list::-webkit-scrollbar-thumb,
   #world-story-list::-webkit-scrollbar-thumb{
@@ -141,6 +153,8 @@
   #speciestats::-webkit-scrollbar-thumb:hover,
   #worldstory::-webkit-scrollbar-thumb:hover,
   #timelinedb::-webkit-scrollbar-thumb:hover,
+  #profiler-panel .panel-body::-webkit-scrollbar-thumb:hover,
+  #profiler-detail-panel .panel-body::-webkit-scrollbar-thumb:hover,
   .story-log::-webkit-scrollbar-thumb:hover,
   #timelinedb-list::-webkit-scrollbar-thumb:hover,
   #world-story-list::-webkit-scrollbar-thumb:hover{
@@ -152,6 +166,8 @@
   #speciestats::-webkit-scrollbar-button,
   #worldstory::-webkit-scrollbar-button,
   #timelinedb::-webkit-scrollbar-button,
+  #profiler-panel .panel-body::-webkit-scrollbar-button,
+  #profiler-detail-panel .panel-body::-webkit-scrollbar-button,
   .story-log::-webkit-scrollbar-button,
   #timelinedb-list::-webkit-scrollbar-button,
   #world-story-list::-webkit-scrollbar-button{
@@ -164,6 +180,8 @@
   #speciestats,
   #worldstory,
   #timelinedb,
+  #profiler-panel .panel-body,
+  #profiler-detail-panel .panel-body,
   .story-log,
   #timelinedb-list,
   #world-story-list{
@@ -344,23 +362,63 @@
     align-items:center;justify-content:center;gap:14px;}
   #loading .t{font-size:12px;color:var(--gold);}
   #loading .b{font-size:7px;color:var(--dim);}
-  #perfhud{
-    position:absolute;left:10px;bottom:10px;z-index:40;padding:7px 9px;font-size:calc(7px * 1.3);line-height:1.5;
-    display:none;font-variant-numeric:tabular-nums;width:658px;
+  #profiler-toggle-btn.active,#profiler-detail-toggle-btn.active{outline:2px solid var(--gold);outline-offset:-1px;}
+  #profiler-panel{
+    position:absolute;top:92px;right:10px;width:320px;max-height:calc(100% - 110px);overflow:hidden;
+    padding:12px;z-index:35;display:flex;flex-direction:column;
   }
-  .perf-row{display:flex;flex-wrap:nowrap;}
-  .perf-row+.perf-row{margin-top:2px;}
-  .perf-item{position:relative;display:flex;align-items:baseline;gap:3px;flex:none;white-space:nowrap;padding-right:10px;}
-  .perf-item:not(:last-child)::after{content:'|';position:absolute;right:1px;top:0;color:var(--dim);}
-  .perf-item-w1{width:128px;}
-  .perf-item-w2{width:256px;}
-  .perf-lbl{width:46px;flex:none;color:var(--dim);}
-  .perf-lbl::after{content:':';}
-  .perf-val{width:68px;flex:none;text-align:right;color:var(--text);}
-  .perf-item-w2 .perf-val{width:196px;}
-  .perf-row-gpu{display:none;}
-  #perfhud.gpu-sim .perf-row-gpu{display:flex;}
-  #perfhud:not(.gpu-sim) .perf-item-gpu-only{visibility:hidden;}
+  #profiler-panel .panel-body{overflow-y:auto;max-height:calc(100vh - 180px);padding-right:2px;}
+  .profiler-section{margin-bottom:10px;}
+  .profiler-section h3{font-size:calc(7px * 1.3);color:var(--gold);margin:0 0 5px;}
+  .profiler-overview{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;margin-bottom:6px;font-size:calc(6px * 1.3);}
+  .profiler-overview .profiler-stat{color:var(--dim);}
+  .profiler-overview .profiler-stat b{color:var(--text);}
+  .profiler-badge{padding:2px 5px;border:1px solid var(--edge);border-radius:3px;background:var(--panel-darker);color:var(--gold);font-size:calc(6px * 1.3);}
+  #profiler-sparkline{width:100%;height:24px;background:var(--panel-darker);border:2px solid var(--edge);border-radius:4px;display:block;margin-bottom:4px;}
+  .profiler-budget{display:flex;height:10px;border:2px solid var(--edge);border-radius:3px;overflow:hidden;margin-bottom:6px;background:var(--panel-darker);}
+  .profiler-budget-seg{height:100%;min-width:1px;}
+  .profiler-budget-seg.sim{background:#5a9e4a;}
+  .profiler-budget-seg.snapshot{background:#9e6b4a;}
+  .profiler-budget-seg.smooth{background:#6a5a9e;}
+  .profiler-budget-seg.render{background:#4a8a9e;}
+  .profiler-budget-seg.ui{background:#9e9a4a;}
+  .profiler-budget-seg.other{background:#666;}
+  .profiler-row{display:grid;grid-template-columns:1fr 42px 1fr;gap:5px;align-items:center;margin-bottom:3px;font-size:calc(6px * 1.3);}
+  .profiler-row .profiler-lbl{color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .profiler-row .profiler-ms{text-align:right;color:var(--text);font-variant-numeric:tabular-nums;}
+  .profiler-bar{height:6px;background:var(--panel-darker);border:1px solid var(--edge);border-radius:2px;overflow:hidden;}
+  .profiler-bar-fill{height:100%;background:var(--gold);border-radius:1px;min-width:0;}
+  .profiler-context{font-size:calc(6px * 1.3);color:var(--dim);line-height:1.55;}
+  .profiler-context b{color:var(--text);font-weight:normal;}
+  #profiler-detail-panel{
+    position:absolute;top:92px;width:400px;height:480px;min-width:280px;min-height:200px;
+    max-height:calc(100vh - 110px);overflow:hidden;box-sizing:border-box;
+    padding:12px;z-index:35;display:flex;flex-direction:column;
+  }
+  #profiler-detail-panel .panel-body{flex:1 1 auto;min-height:0;overflow:auto;max-height:none;padding-right:2px;}
+  .profiler-detail-resize-handle{
+    position:absolute;right:1px;bottom:1px;width:14px;height:14px;cursor:nwse-resize;z-index:3;touch-action:none;
+  }
+  .profiler-detail-resize-handle::after{
+    content:'';position:absolute;right:3px;bottom:3px;width:8px;height:8px;
+    border-right:2px solid var(--dim);border-bottom:2px solid var(--dim);opacity:.75;
+  }
+  .profiler-detail-resize-handle:hover::after,
+  #profiler-detail-panel.resizing .profiler-detail-resize-handle::after{border-color:var(--gold);opacity:1;}
+  .profiler-detail-tabs{display:flex;gap:4px;margin-bottom:8px;}
+  #profiler-detail-cpu,#profiler-detail-gpu{min-width:min-content;}
+  .profiler-detail-tabs .btn{flex:1;padding:4px 6px;font-size:calc(6px * 1.3);}
+  .profiler-detail-tabs .btn.active{outline:2px solid var(--gold);outline-offset:-1px;}
+  .profiler-tree-head,.profiler-tree-row{
+    display:grid;grid-template-columns:minmax(120px,1.6fr) 52px 52px 52px 42px;gap:4px;
+    align-items:center;font-size:calc(6px * 1.3);font-variant-numeric:tabular-nums;
+  }
+  .profiler-tree-head{color:var(--gold);margin-bottom:4px;border-bottom:1px solid var(--edge);padding-bottom:3px;}
+  .profiler-tree-row{color:var(--text);margin-bottom:2px;}
+  .profiler-tree-row .profiler-tree-name{color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .profiler-tree-row .profiler-tree-val{text-align:right;}
+  .profiler-tree-toggle{cursor:pointer;user-select:none;margin-right:3px;color:var(--gold);width:10px;display:inline-block;}
+  .profiler-gpu-grid{display:flex;flex-direction:column;gap:4px;}
   #terrain-tip{
     position:absolute;bottom:10px;right:10px;z-index:22;display:flex;align-items:center;gap:6px;
     padding:6px 9px;pointer-events:none;min-width:118px;
@@ -396,31 +454,6 @@
 
 <div id="game-ui-root">
 <div id="loading"><div class="t">WILDLANDS</div><div class="b" id="loadmsg">Loading game modules…</div></div>
-<div id="perfhud" class="stone">
-  <div class="perf-row">
-    <div class="perf-item perf-item-w1"><span class="perf-lbl">backend</span><span class="perf-val" id="perf-backend">canvas</span></div>
-    <div class="perf-item perf-item-w1"><span class="perf-lbl">frame</span><span class="perf-val" id="perf-frame">0.00ms</span></div>
-    <div class="perf-item perf-item-w1"><span class="perf-lbl">avg</span><span class="perf-val" id="perf-avg">0.00ms</span></div>
-    <div class="perf-item perf-item-w1"><span class="perf-lbl">fps</span><span class="perf-val" id="perf-fps">60</span></div>
-    <div class="perf-item perf-item-w1"><span class="perf-lbl">tier</span><span class="perf-val" id="perf-tier">high</span></div>
-  </div>
-  <div class="perf-row">
-    <div class="perf-item perf-item-w1"><span class="perf-lbl">visible</span><span class="perf-val" id="perf-visible">0</span></div>
-    <div class="perf-item perf-item-w2"><span class="perf-lbl">sim</span><span class="perf-val" id="perf-sim">cpu</span></div>
-    <div class="perf-item perf-item-w1 perf-item-gpu-only"><span class="perf-lbl">step</span><span class="perf-val" id="perf-step">0.00ms</span></div>
-  </div>
-  <div class="perf-row perf-row-gpu">
-    <div class="perf-item perf-item-w1"><span class="perf-lbl">alive</span><span class="perf-val" id="perf-alive">0</span></div>
-    <div class="perf-item perf-item-w1"><span class="perf-lbl">births</span><span class="perf-val" id="perf-births">0</span></div>
-    <div class="perf-item perf-item-w1"><span class="perf-lbl">intake</span><span class="perf-val" id="perf-intake">0.00</span></div>
-  </div>
-  <div class="perf-row perf-row-gpu">
-    <div class="perf-item perf-item-w1"><span class="perf-lbl">pool</span><span class="perf-val" id="perf-pool">0</span></div>
-    <div class="perf-item perf-item-w1"><span class="perf-lbl">array</span><span class="perf-val" id="perf-arr">0</span></div>
-    <div class="perf-item perf-item-w1"><span class="perf-lbl">readbk</span><span class="perf-val" id="perf-readback">0.00ms</span></div>
-    <div class="perf-item perf-item-w1"><span class="perf-lbl">drops</span><span class="perf-val" id="perf-drops">0</span></div>
-  </div>
-</div>
 
 <div id="topbar" class="stone">
   <div class="topbar-row topbar-row-1">
@@ -438,6 +471,8 @@
       <span id="speed-label">1×</span>
     </div>
     <button class="btn" id="follow-btn" title="Follow selected animal (F or double-click)">Follow</button>
+    <button class="btn" id="profiler-toggle-btn" type="button" title="Frame profiler (F2)">📊 Profiler</button>
+    <button class="btn" id="profiler-detail-toggle-btn" type="button" title="CPU/GPU call tree and metrics">CPU/GPU</button>
     <a class="btn" id="batch-test-btn" href="batch-test.html" title="Headless ecology batch test runner — balance tuning, fuzz campaigns, run history">Test Runner</a>
   </div>
   <div class="topbar-row topbar-row-2">
@@ -569,6 +604,76 @@
     <div id="speciestats-summary" class="spstats-summary"></div>
     <div id="speciestats-deaths" class="spstats-deaths"></div>
   </div>
+</div>
+
+<div id="profiler-panel" class="stone ui-panel collapsed hidden">
+  <div class="panel-head">
+    <h2>Profiler</h2>
+    <div class="panel-actions">
+      <button class="btn panel-ui-btn panel-collapse-btn" id="profiler-collapse-btn" type="button" title="Expand panel">▶</button>
+    </div>
+  </div>
+  <div class="panel-body">
+    <div class="profiler-section" id="profiler-overview-section">
+      <div class="profiler-overview" id="profiler-overview"></div>
+      <canvas id="profiler-sparkline" width="296" height="24"></canvas>
+    </div>
+    <div class="profiler-section" id="profiler-frame-section">
+      <h3>Frame budget</h3>
+      <div class="profiler-budget" id="profiler-budget"></div>
+      <div id="profiler-frame-rows"></div>
+    </div>
+    <div class="profiler-section" id="profiler-sim-cpu-section">
+      <h3>CPU Simulation</h3>
+      <div id="profiler-sim-cpu-rows"></div>
+    </div>
+    <div class="profiler-section hidden" id="profiler-sim-gpu-section">
+      <h3>GPU Simulation</h3>
+      <div id="profiler-sim-gpu-rows"></div>
+    </div>
+    <div class="profiler-section" id="profiler-render-section">
+      <h3>Rendering</h3>
+      <div id="profiler-render-meta"></div>
+      <div id="profiler-render-rows"></div>
+    </div>
+    <div class="profiler-section hidden" id="profiler-gpu-render-section">
+      <h3>GPU Rendering</h3>
+      <div id="profiler-gpu-render-rows"></div>
+    </div>
+    <div class="profiler-section" id="profiler-timeline-section">
+      <h3>Timeline</h3>
+      <div id="profiler-timeline-rows"></div>
+    </div>
+    <div class="profiler-section" id="profiler-context-section">
+      <h3>Context</h3>
+      <div class="profiler-context" id="profiler-context"></div>
+    </div>
+  </div>
+</div>
+
+<div id="profiler-detail-panel" class="stone ui-panel collapsed hidden">
+  <div class="panel-head">
+    <h2>CPU / GPU</h2>
+    <div class="panel-actions">
+      <button class="btn panel-ui-btn panel-collapse-btn" id="profiler-detail-collapse-btn" type="button" title="Expand panel">▶</button>
+    </div>
+  </div>
+  <div class="panel-body">
+    <div class="profiler-detail-tabs" id="profiler-detail-tabs">
+      <button class="btn active" data-profiler-detail-tab="cpu" type="button">CPU</button>
+      <button class="btn" data-profiler-detail-tab="gpu" type="button">GPU</button>
+    </div>
+    <div id="profiler-detail-cpu">
+      <div class="profiler-tree-head">
+        <span>Name</span><span>Calls</span><span>Total</span><span>Self</span><span>%</span>
+      </div>
+      <div id="profiler-cpu-tree"></div>
+    </div>
+    <div id="profiler-detail-gpu" class="hidden">
+      <div class="profiler-gpu-grid" id="profiler-gpu-grid"></div>
+    </div>
+  </div>
+  <div class="profiler-detail-resize-handle" id="profiler-detail-resize-handle" role="separator" aria-label="Resize CPU/GPU panel" tabindex="0"></div>
 </div>
 
 <div id="species-row-menu" class="stone hidden" role="menu" aria-hidden="true">

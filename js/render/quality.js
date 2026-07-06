@@ -1,6 +1,5 @@
 import { lerp } from '../utils.js';
 import { state } from '../state.js';
-import { $ } from '../dom.js';
 
 export class QualityController
 {
@@ -10,8 +9,6 @@ export class QualityController
     this.tier = 0;
     this.renderDecimation = 1;
     this.frameCounter = 0;
-    this.perfHudEnabled = true;
-    this.perfHudLastMs = 16.7;
   }
 
   config()
@@ -36,7 +33,6 @@ export class QualityController
 
   updateTier(frameMs)
   {
-    this.perfHudLastMs = frameMs;
     this.frameMsAvg = lerp(this.frameMsAvg, frameMs, 0.12);
     if (this.frameMsAvg > 30) this.tier = 3;
     else if (this.frameMsAvg > 22) this.tier = 2;
@@ -44,65 +40,6 @@ export class QualityController
     else this.tier = 0;
     this.renderDecimation = this.config().decimation;
     if (state.gpuTelemetry) state.gpuTelemetry.qualityTier = this.tier;
-  }
-
-  updateHud(visibleCount)
-  {
-    const hud = $('perfhud');
-    if (!this.perfHudEnabled)
-    {
-      hud.style.display = 'none';
-      return;
-    }
-    hud.style.display = 'block';
-    const tierName = ['high', 'medium', 'low', 'emergency'][this.tier] || 'high';
-    const gpuSim = state.simBackend === 'gpu' && state.gpuSimEnabled;
-    hud.classList.toggle('gpu-sim', gpuSim);
-    $('perf-backend').textContent = state.rendererBackend || 'canvas';
-    $('perf-frame').textContent = `${this.perfHudLastMs.toFixed(2)}ms`;
-    $('perf-avg').textContent = `${this.frameMsAvg.toFixed(2)}ms`;
-    $('perf-fps').textContent = this.frameMsAvg > 0
-      ? String(Math.min(999, Math.round(1000 / this.frameMsAvg)))
-      : '—';
-    $('perf-tier').textContent = tierName;
-    $('perf-visible').textContent = String(visibleCount);
-    const simEl = $('perf-sim');
-    if (gpuSim)
-    {
-      simEl.textContent = 'gpu';
-      $('perf-step').textContent = `${(state.gpuTelemetry.simStepMs || 0).toFixed(2)}ms`;
-      $('perf-alive').textContent = String(state.gpuTelemetry.aliveCount ?? 0);
-      $('perf-births').textContent = String(state.gpuTelemetry.birthCount ?? 0);
-      $('perf-intake').textContent = (state.gpuTelemetry.herbivoreIntake ?? 0).toFixed(2);
-      const poolEl = $('perf-pool');
-      if (poolEl) poolEl.textContent = String(state.gpuTelemetry.poolSize ?? state.gpuRenderCreatureCount ?? 0);
-      const arrEl = $('perf-arr');
-      if (arrEl) arrEl.textContent = String(state.gpuTelemetry.creatureArraySize ?? state.creatures.length);
-      const rbEl = $('perf-readback');
-      if (rbEl)
-      {
-        const mapMs = state.gpuTelemetry.readbackMapMs;
-        const applyMs = state.gpuTelemetry.readbackApplyMs;
-        const suffix = Number.isFinite(mapMs) && Number.isFinite(applyMs)
-          ? ` (${mapMs.toFixed(0)}m+${applyMs.toFixed(0)}a)`
-          : '';
-        rbEl.textContent = `${(state.gpuTelemetry.readbackMs || 0).toFixed(2)}ms${suffix}`;
-      }
-      const dropEl = $('perf-drops');
-      if (dropEl) dropEl.textContent = String(state.gpuTelemetry.droppedTimelineWrites ?? 0);
-    }
-    else
-    {
-      simEl.textContent = state.gpuSimInitReason
-        ? `cpu (${state.gpuSimInitReason})`
-        : 'cpu';
-    }
-  }
-
-  toggleHud()
-  {
-    this.perfHudEnabled = !this.perfHudEnabled;
-    if (!this.perfHudEnabled) $('perfhud').style.display = 'none';
   }
 }
 

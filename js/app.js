@@ -21,6 +21,7 @@ import { timeScrub } from './time-scrub.js';
 import { captureSnapshot } from './snapshot.js';
 import { loadTimelineConfig } from './config.js';
 import { effectiveSnapshotIntervalSec } from './perf-policy.js';
+import { perfProfiler } from './perf-profiler.js';
 import { initSpeciesStats } from './species-stats.js';
 import { applyPanelLayout } from './panel-layout.js';
 import {
@@ -88,6 +89,7 @@ export class GameApp
     ui.initBalanceTuningControls();
     ui.initDraggablePanels();
     ui.initPanelCollapse();
+    ui.initProfilerPanel();
     ui.initTimelineDbViewer();
     ui.initTimeScrubber();
     timeScrub.setAfterRestoreCallback(p =>
@@ -138,6 +140,8 @@ export class GameApp
       applyPanelLayout();
       ui.syncGraphCanvas();
       ui.drawGraph();
+      ui.positionProfilerDetailPanel();
+      ui.reclampProfilerDetailPanel();
     });
     camera.resize(state.gpuContext, state.gpuDevice, state.gpuCanvasFormat, state.gpuReady);
 
@@ -320,6 +324,9 @@ export class GameApp
 
   frame(now)
   {
+    perfProfiler.beginFrame();
+    perfProfiler.begin('frame');
+    const frameT0 = performance.now();
     try
     {
       let dt = Math.min(0.05, (now - this.last) / 1000);
@@ -333,18 +340,27 @@ export class GameApp
       {
         state.tGlobal += sdt;
         const steps = Math.min(6, Math.ceil(state.speed));
+        perfProfiler.setMeta('substepCount', steps);
         const stepDt = sdt / steps;
+        perfProfiler.begin('frame.sim');
+        const simT0 = performance.now();
         for (let i = 0; i < steps; i++)
         {
           simulation.tick(stepDt, { substep: i, substepCount: steps });
         }
+        perfProfiler.end('frame.sim');
+        perfProfiler.record('sim', performance.now() - simT0);
+      }
+      else
+      {
+        perfProfiler.setMeta('substepCount', 0);
+        perfProfiler.record('sim', 0);
       }
 
       if (!viewingPast)
       {
         timeScrub.noteLiveAdvance();
 
-        // Periodic snapshot for time scrubbing (fixed sim-time interval, one bucket per frame)
         const snapInterval = effectiveSnapshotIntervalSec();
         const lastAt = state.lastSnapshotAt || 0;
         if (state.tGlobal >= lastAt + snapInterval - 1e-6)
@@ -353,6 +369,8 @@ export class GameApp
           if (bucketT > lastAt + 1e-6)
           {
             state.lastSnapshotAt = bucketT;
+            perfProfiler.begin('frame.snapshot');
+            const snapT0 = performance.now();
             try
             {
               const snap = captureSnapshot();
@@ -366,13 +384,19 @@ export class GameApp
             {
               // snapshot capture failure should not break sim
             }
+            perfProfiler.end('frame.snapshot');
+            perfProfiler.record('snapshot', performance.now() - snapT0);
           }
         }
       }
 
       if (state.ready)
       {
+        perfProfiler.begin('frame.displaySmooth');
+        const smoothT0 = performance.now();
         creatures.advanceDisplayPositions(dt);
+        perfProfiler.end('frame.displaySmooth');
+        perfProfiler.record('displaySmooth', performance.now() - smoothT0);
       }
 
       if (state.followSelected)
@@ -387,9 +411,10 @@ export class GameApp
         else ui.deselect();
       }
 
-      const frameStart = performance.now();
       quality.frameCounter++;
       let shouldRender = false;
+      perfProfiler.begin('frame.render');
+      const renderT0 = performance.now();
       if (state.ready)
       {
         const skipDecimationForWebGpu = state.rendererBackend === 'webgpu' && !state.scrubActive;
@@ -400,15 +425,23 @@ export class GameApp
             : (quality.frameCounter % quality.renderDecimation) === 0;
         if (shouldRender) renderPipeline.render();
       }
-      const frameMs = performance.now() - frameStart;
-      quality.updateTier(frameMs);
+      perfProfiler.end('frame.render');
+      perfProfiler.record('render', performance.now() - renderT0);
 
       const q = quality.config();
       state.vegBakeInterval = (state.W * state.H >= 100000 ? 0.30 : state.W * state.H >= 60000 ? 0.22 : 0.15) * q.vegMul;
       state.vegBakeCd = Math.max(0, state.vegBakeCd - dt);
 
       this.uiT += dt;
-      if (this.uiT > 0.2) { this.uiT = 0; ui.updateUI(); }
+      if (this.uiT > 0.2)
+      {
+        this.uiT = 0;
+        perfProfiler.begin('frame.ui');
+        const uiT0 = performance.now();
+        ui.updateUI();
+        perfProfiler.end('frame.ui');
+        perfProfiler.record('ui', performance.now() - uiT0);
+      }
     }
     catch (err)
     {
@@ -416,6 +449,10 @@ export class GameApp
     }
     finally
     {
+      perfProfiler.end('frame');
+      const frameTotal = performance.now() - frameT0;
+      perfProfiler.endFrame(frameTotal);
+      quality.updateTier(frameTotal);
       requestAnimationFrame(t => this.frame(t));
     }
   }

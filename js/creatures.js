@@ -9,6 +9,7 @@ import {
 import { quality } from './render/quality.js';
 import { lifeStory } from './life-story.js';
 import { behaviorTree } from './behavior/index.js';
+import { perfProfiler } from './perf-profiler.js';
 
 export class CreatureSystem
 {
@@ -503,16 +504,22 @@ export class CreatureSystem
 
   stepCreature(c, dt)
   {
-    if (!this.stepNeeds(c, dt)) return;
+    return perfProfiler.scope('creature.stepCreature', () =>
+    {
+      if (!perfProfiler.scope('creature.stepNeeds', () => this.stepNeeds(c, dt))) return;
 
-    behaviorTree.tick(c, dt, this, {
-      executeActions: state.simBackend !== 'gpu',
-      logLifeStory: state.simBackend !== 'gpu',
+      perfProfiler.scope('creature.behavior', () =>
+      {
+        behaviorTree.tick(c, dt, this, {
+          executeActions: state.simBackend !== 'gpu',
+          logLifeStory: state.simBackend !== 'gpu',
+        });
+      });
+
+      const sp2 = Math.hypot(c.vx, c.vy);
+      c.walk += sp2 * dt * 10 + dt * 0.5;
+      if (Math.abs(c.vx) > 0.001) c.dir = c.vx > 0 ? 1 : -1;
     });
-
-    const sp2 = Math.hypot(c.vx, c.vy);
-    c.walk += sp2 * dt * 10 + dt * 0.5;
-    if (Math.abs(c.vx) > 0.001) c.dir = c.vx > 0 ? 1 : -1;
   }
 
   findAt(wx, wy)

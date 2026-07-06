@@ -104,8 +104,13 @@ export const state = {
     poolSize: 0,
     creatureArraySize: 0,
     droppedTimelineWrites: 0,
+    timelineQueueDepth: 0,
+    timelineFlushing: false,
     qualityTier: 0,
   },
+
+  profilerOpen: false,
+  profilerDetailOpen: false,
 
   day: 0,
   tGlobal: 0,

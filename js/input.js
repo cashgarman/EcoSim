@@ -6,7 +6,6 @@ import { camera } from './camera.js';
 import { creatures } from './creatures.js';
 import { ui } from './ui.js';
 import { applyTool } from './tools.js';
-import { quality } from './render/quality.js';
 import { timeScrub } from './time-scrub.js';
 import { gpuSimulationBackend } from './gpu/simulation-backend.js';
 
@@ -341,7 +340,7 @@ export class InputManager
       if (e.key === 'F2')
       {
         e.preventDefault();
-        quality.toggleHud();
+        ui.toggleProfiler();
         return;
       }
       if (e.code === 'Space' || e.key === ' ')

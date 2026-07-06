@@ -1,5 +1,6 @@
 import { B, isWater } from './data.js';
 import { state, idx, inB } from './state.js';
+import { perfProfiler } from './perf-profiler.js';
 
 export const PASS_GROUND_BLOCKED = 1;
 
@@ -259,6 +260,11 @@ export function pickRandomWalkableTile(cx, cy, spread, canSwim)
 }
 
 export function planGridStep(x, y, goalX, goalY, canSwim, radius = 48)
+{
+  return perfProfiler.scope('nav.planGridStep', () => _planGridStep(x, y, goalX, goalY, canSwim, radius));
+}
+
+function _planGridStep(x, y, goalX, goalY, canSwim, radius = 48)
 {
   const R = Math.max(8, Math.min(64, radius | 0));
   let gx = Math.round(goalX), gy = Math.round(goalY);

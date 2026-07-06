@@ -9,6 +9,7 @@ import { quality } from './quality.js';
 import { terrainRenderer } from './terrain-renderer.js';
 import { creatureRenderer } from './creature-renderer.js';
 import { webGpuRenderer } from './webgpu-renderer.js';
+import { perfProfiler } from '../perf-profiler.js';
 
 export class RenderPipeline
 {
@@ -169,13 +170,22 @@ export class RenderPipeline
     const shouldUseGpu = state.rendererBackend === 'webgpu';
     const authority = this.resolveCreatureAuthority();
     const lodPlan = this.resolveLodPlan(q);
+    perfProfiler.setMeta('lodMode', lodPlan.mode);
     let renderBranch = 'unknown';
 
+    perfProfiler.begin('render.terrain');
     terrainRenderer.renderStage(camera);
     this.drawTerrainDayNightOverlay();
+    perfProfiler.end('render.terrain');
+
+    perfProfiler.begin('render.collectVisible');
     const vis = creatures.collectVisible(camera);
+    perfProfiler.end('render.collectVisible');
+    perfProfiler.setMeta('visibleCount', vis.length);
+
     creatureRenderer.clearHighlightOverlay();
 
+    perfProfiler.begin('render.creatures');
     if (shouldUseGpu && !state.scrubActive)
     {
       renderBranch = this.renderWebGpuByLod(camera, vis, lodPlan, highlightTier, authority);
@@ -201,16 +211,22 @@ export class RenderPipeline
       renderBranch = 'canvas-only';
       this.renderCanvasByLod(camera, vis, lodPlan, highlightTier);
     }
+    perfProfiler.end('render.creatures');
 
     if (state.selected && !state.selected.dead)
     {
+      perfProfiler.begin('render.pedigree');
       creatureRenderer.drawSelectedTargetLine(camera, state.selected);
       creatureRenderer.drawFollowPedigreeLines(camera, state.selected);
+      perfProfiler.end('render.pedigree');
     }
 
     ui.updateCreatureTooltip(state.mouseX, state.mouseY);
+    perfProfiler.begin('render.overlay');
     this.renderOverlayStage();
-    quality.updateHud(vis.length);
+    perfProfiler.end('render.overlay');
+
+    perfProfiler.setMeta('renderBranch', renderBranch);
   }
 }
 
