@@ -11,6 +11,8 @@ public sealed class CreatureSystem
     private readonly SpeciesCatalog _catalog;
     private readonly BehaviorTree _behaviorTree;
     private readonly List<Creature> _nearbyScratch = [];
+    public LifeStory? LifeStory { get; set; }
+    public SpeciesStatsTracker? SpeciesStats { get; set; }
 
     public CreatureSystem(SimState state, SpeciesCatalog catalog, BehaviorTree behaviorTree)
     {
@@ -48,6 +50,8 @@ public sealed class CreatureSystem
         _state.Creatures.Add(c);
         InsertIntoGrid(c, GridKeyFor(c));
         if (c.Gen > _state.GenerationMax) _state.GenerationMax = c.Gen;
+        LifeStory?.Record(c, _state, "appeared");
+        SpeciesStats?.RecordBirth(c.Sp, _state.TGlobal);
         return c;
     }
 
@@ -289,6 +293,9 @@ public sealed class CreatureSystem
         if (cause != null) c.Cause = cause;
         c.Dead = true;
         RemoveFromGrid(c);
+        string deathKey = string.IsNullOrEmpty(c.Cause) ? "unknown" : c.Cause;
+        SpeciesStats?.RecordDeath(c.Sp, deathKey);
+        LifeStory?.Record(c, _state, "died", detail: deathKey);
         int ti = GridHelpers.Idx(_state,
             (int)SimMath.Clamp(Math.Round(c.X), 0, _state.W - 1),
             (int)SimMath.Clamp(Math.Round(c.Y), 0, _state.H - 1));
@@ -344,7 +351,12 @@ public sealed class CreatureSystem
     public void StepCreature(Creature c, double dt)
     {
         if (!StepNeeds(c, dt)) return;
+        string prevState = c.State;
         _behaviorTree.Tick(c, dt, this, executeActions: true);
+        if (c.State != prevState)
+        {
+            LifeStory?.ObserveDecision(c, _state, c.State);
+        }
         double sp2 = SimMath.Hypot(c.Vx, c.Vy);
         c.Walk += sp2 * dt * 10 + dt * 0.5;
         if (Math.Abs(c.Vx) > 0.001) c.Dir = c.Vx > 0 ? 1 : -1;
@@ -423,5 +435,19 @@ public sealed class CreatureSystem
             if (!c.Dead) n++;
         }
         return n;
+    }
+
+    public int KillAllBySpecies(string speciesKey)
+    {
+        int killed = 0;
+        foreach (var c in _state.Creatures)
+        {
+            if (!c.Dead && c.Sp == speciesKey)
+            {
+                Die(c, "removed");
+                killed++;
+            }
+        }
+        return killed;
     }
 }

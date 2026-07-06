@@ -12,6 +12,8 @@ public sealed class SimSession
     public WorldGenerator World { get; }
     public BehaviorTree BehaviorTree { get; }
     public Simulation Simulation { get; }
+    public LifeStory LifeStory { get; } = new();
+    public SpeciesStatsTracker SpeciesStats { get; } = new();
 
     private SimSession(SimState state, SpeciesCatalog species, BehaviorLibrary behaviors)
     {
@@ -20,6 +22,8 @@ public sealed class SimSession
         Behaviors = behaviors;
         BehaviorTree = new BehaviorTree(state, species);
         Creatures = new CreatureSystem(state, species, BehaviorTree);
+        Creatures.LifeStory = LifeStory;
+        Creatures.SpeciesStats = SpeciesStats;
         World = new WorldGenerator(state);
         Simulation = new Simulation(state, species, Creatures, World);
     }
@@ -45,6 +49,7 @@ public sealed class SimSession
         State.MigrantTimer = 0;
         State.Ready = true;
         if (cfg != null) State.Cfg = cfg;
+        SpeciesStats.Init(Species);
         World.Generate();
         Creatures.StockLife();
         return Creatures.AliveCount();

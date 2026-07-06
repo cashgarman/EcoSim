@@ -1,4 +1,4 @@
-[gd_scene load_steps=10 format=3 uid="uid://main_scene"]
+[gd_scene load_steps=15 format=3 uid="uid://main_scene"]
 
 [ext_resource type="Script" path="res://scripts/Main.cs" id="1_main"]
 [ext_resource type="Script" path="res://scripts/render/WorldRenderer.cs" id="2_world"]
@@ -9,6 +9,12 @@
 [ext_resource type="Script" path="res://scripts/ui/InspectorPanel.cs" id="7_inspect"]
 [ext_resource type="Script" path="res://scripts/ui/StoryPanel.cs" id="8_story"]
 [ext_resource type="Script" path="res://scripts/ui/WorldStoryTracker.cs" id="9_tracker"]
+[ext_resource type="Script" path="res://scripts/ui/SpeciesStatsPanel.cs" id="10_spstats"]
+[ext_resource type="Script" path="res://scripts/ui/ProfilerPanel.cs" id="11_profiler"]
+[ext_resource type="Script" path="res://scripts/ui/PopGraph.cs" id="12_graph"]
+[ext_resource type="Script" path="res://scripts/ui/ToolsController.cs" id="13_tools"]
+[ext_resource type="Script" path="res://scripts/ui/SpeciesGodMenu.cs" id="14_god"]
+[ext_resource type="Script" path="res://scripts/ui/TimelineStrip.cs" id="15_timeline"]
 
 [node name="Main" type="Control"]
 layout_mode = 3
@@ -18,6 +24,15 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("1_main")
+
+[node name="PageBg" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.047, 0.063, 0.039, 1)
 
 [node name="WorldViewportContainer" type="SubViewportContainer" parent="."]
 layout_mode = 1
@@ -30,6 +45,7 @@ stretch = true
 
 [node name="WorldViewport" type="SubViewport" parent="WorldViewportContainer"]
 unique_name_in_owner = true
+transparent_bg = true
 handle_input_locally = true
 size = Vector2i(1600, 900)
 render_target_update_mode = 4
@@ -45,48 +61,106 @@ script = ExtResource("3_cam")
 script = ExtResource("4_hud")
 
 [node name="TopBar" type="PanelContainer" parent="Hud"]
+anchors_preset = 10
+anchor_right = 1.0
 offset_left = 8.0
 offset_top = 8.0
-offset_right = 900.0
-offset_bottom = 44.0
+offset_right = -8.0
+offset_bottom = 88.0
+grow_horizontal = 2
 
-[node name="HBox" type="HBoxContainer" parent="Hud/TopBar"]
+[node name="VBox" type="VBoxContainer" parent="Hud/TopBar"]
 layout_mode = 2
-theme_override_constants/separation = 12
 
-[node name="DayLabel" type="Label" parent="Hud/TopBar/HBox"]
+[node name="Row1" type="HBoxContainer" parent="Hud/TopBar/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="DayIcon" type="Label" parent="Hud/TopBar/VBox/Row1"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "🌅"
+
+[node name="ClockLabel" type="Label" parent="Hud/TopBar/VBox/Row1"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "6:00 AM"
+
+[node name="DayNumLabel" type="Label" parent="Hud/TopBar/VBox/Row1"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "Day 0"
 
-[node name="PopLabel" type="Label" parent="Hud/TopBar/HBox"]
+[node name="PopLabel" type="Label" parent="Hud/TopBar/VBox/Row1"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "Pop 0"
+text = "0"
 
-[node name="SpeedLabel" type="Label" parent="Hud/TopBar/HBox"]
-layout_mode = 2
-text = "Speed"
-
-[node name="SpeedSlider" type="HSlider" parent="Hud/TopBar/HBox"]
+[node name="GenLabel" type="Label" parent="Hud/TopBar/VBox/Row1"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(120, 0)
 layout_mode = 2
+text = "Gen 1"
+
+[node name="VegLabel" type="Label" parent="Hud/TopBar/VBox/Row1"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "0%"
+
+[node name="SimFpsLabel" type="Label" parent="Hud/TopBar/VBox/Row1"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "—"
+
+[node name="SpeedSlider" type="HSlider" parent="Hud/TopBar/VBox/Row1"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(100, 0)
+layout_mode = 2
+size_flags_horizontal = 3
 max_value = 10.0
-step = 0.5
+step = 1.0
 value = 2.0
 
-[node name="GenerateButton" type="Button" parent="Hud/TopBar/HBox"]
+[node name="SpeedValueLabel" type="Label" parent="Hud/TopBar/VBox/Row1"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "Generate"
+text = "2×"
+
+[node name="FollowBtn" type="Button" parent="Hud/TopBar/VBox/Row1"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Follow"
+
+[node name="ProfilerBtn" type="Button" parent="Hud/TopBar/VBox/Row1"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Profiler"
+
+[node name="TestRunnerBtn" type="Button" parent="Hud/TopBar/VBox/Row1"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Test Runner"
+
+[node name="Row2" type="HBoxContainer" parent="Hud/TopBar/VBox"]
+layout_mode = 2
+
+[node name="TimelineStrip" type="Control" parent="Hud/TopBar/VBox/Row2"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+custom_minimum_size = Vector2(0, 22)
+script = ExtResource("15_timeline")
+
+[node name="PresentBtn" type="Button" parent="Hud/TopBar/VBox/Row2"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Present"
 
 [node name="GenPanel" type="PanelContainer" parent="Hud"]
 unique_name_in_owner = true
-offset_left = 8.0
-offset_top = 52.0
-offset_right = 248.0
-offset_bottom = 340.0
+offset_left = 10.0
+offset_top = 100.0
+offset_right = 260.0
+offset_bottom = 480.0
 script = ExtResource("5_gen")
 
 [node name="VBox" type="VBoxContainer" parent="Hud/GenPanel"]
@@ -98,60 +172,153 @@ layout_mode = 2
 
 [node name="Title" type="Label" parent="Hud/GenPanel/VBox/PanelHead"]
 layout_mode = 2
+size_flags_horizontal = 3
 text = "World Generator"
 
-[node name="SeedBox" type="SpinBox" parent="Hud/GenPanel/VBox"]
+[node name="CollapseBtn" type="Button" parent="Hud/GenPanel/VBox/PanelHead"]
 unique_name_in_owner = true
 layout_mode = 2
+text = "▼"
+
+[node name="PanelBody" type="VBoxContainer" parent="Hud/GenPanel/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="SeedRow" type="HBoxContainer" parent="Hud/GenPanel/VBox/PanelBody"]
+layout_mode = 2
+
+[node name="SeedBox" type="SpinBox" parent="Hud/GenPanel/VBox/PanelBody/SeedRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
 min_value = 1.0
 max_value = 999999.0
 value = 42.0
 
-[node name="SizeOption" type="OptionButton" parent="Hud/GenPanel/VBox"]
+[node name="RandSeedBtn" type="Button" parent="Hud/GenPanel/VBox/PanelBody/SeedRow"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "🎲"
+
+[node name="SizeRow" type="HBoxContainer" parent="Hud/GenPanel/VBox/PanelBody"]
 unique_name_in_owner = true
 layout_mode = 2
 
-[node name="SeaSlider" type="HSlider" parent="Hud/GenPanel/VBox"]
+[node name="SeaRow" type="HBoxContainer" parent="Hud/GenPanel/VBox/PanelBody"]
+layout_mode = 2
+
+[node name="SeaLabel" type="Label" parent="Hud/GenPanel/VBox/PanelBody/SeaRow"]
+layout_mode = 2
+text = "Sea level"
+
+[node name="SeaVal" type="Label" parent="Hud/GenPanel/VBox/PanelBody/SeaRow"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "46%"
+
+[node name="SeaSlider" type="HSlider" parent="Hud/GenPanel/VBox/PanelBody"]
 unique_name_in_owner = true
 layout_mode = 2
 max_value = 1.0
 step = 0.01
 value = 0.46
 
-[node name="TempSlider" type="HSlider" parent="Hud/GenPanel/VBox"]
+[node name="TempRow" type="HBoxContainer" parent="Hud/GenPanel/VBox/PanelBody"]
+layout_mode = 2
+
+[node name="TempLabel" type="Label" parent="Hud/GenPanel/VBox/PanelBody/TempRow"]
+layout_mode = 2
+text = "Temperature"
+
+[node name="TempVal" type="Label" parent="Hud/GenPanel/VBox/PanelBody/TempRow"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Temperate"
+
+[node name="TempSlider" type="HSlider" parent="Hud/GenPanel/VBox/PanelBody"]
 unique_name_in_owner = true
 layout_mode = 2
 max_value = 1.0
 step = 0.01
 value = 0.5
 
-[node name="MoistSlider" type="HSlider" parent="Hud/GenPanel/VBox"]
+[node name="MoistRow" type="HBoxContainer" parent="Hud/GenPanel/VBox/PanelBody"]
+layout_mode = 2
+
+[node name="MoistLabel" type="Label" parent="Hud/GenPanel/VBox/PanelBody/MoistRow"]
+layout_mode = 2
+text = "Moisture"
+
+[node name="MoistVal" type="Label" parent="Hud/GenPanel/VBox/PanelBody/MoistRow"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Balanced"
+
+[node name="MoistSlider" type="HSlider" parent="Hud/GenPanel/VBox/PanelBody"]
 unique_name_in_owner = true
 layout_mode = 2
 max_value = 1.0
 step = 0.01
 value = 0.5
 
-[node name="ReliefSlider" type="HSlider" parent="Hud/GenPanel/VBox"]
+[node name="ReliefRow" type="HBoxContainer" parent="Hud/GenPanel/VBox/PanelBody"]
+layout_mode = 2
+
+[node name="ReliefLabel" type="Label" parent="Hud/GenPanel/VBox/PanelBody/ReliefRow"]
+layout_mode = 2
+text = "Terrain relief"
+
+[node name="ReliefVal" type="Label" parent="Hud/GenPanel/VBox/PanelBody/ReliefRow"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Medium"
+
+[node name="ReliefSlider" type="HSlider" parent="Hud/GenPanel/VBox/PanelBody"]
 unique_name_in_owner = true
 layout_mode = 2
 max_value = 1.0
 step = 0.01
 value = 0.6
 
-[node name="AnimalsSlider" type="HSlider" parent="Hud/GenPanel/VBox"]
+[node name="AnimRow" type="HBoxContainer" parent="Hud/GenPanel/VBox/PanelBody"]
+layout_mode = 2
+
+[node name="AnimLabel" type="Label" parent="Hud/GenPanel/VBox/PanelBody/AnimRow"]
+layout_mode = 2
+text = "Starting animals"
+
+[node name="AnimVal" type="Label" parent="Hud/GenPanel/VBox/PanelBody/AnimRow"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Normal"
+
+[node name="AnimalsSlider" type="HSlider" parent="Hud/GenPanel/VBox/PanelBody"]
 unique_name_in_owner = true
 layout_mode = 2
 max_value = 1.0
 step = 0.01
 value = 0.45
 
+[node name="GenerateWorldBtn" type="Button" parent="Hud/GenPanel/VBox/PanelBody"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Generate World"
+
+[node name="RestockBtn" type="Button" parent="Hud/GenPanel/VBox/PanelBody"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Restock Life"
+
 [node name="EcosystemPanel" type="PanelContainer" parent="Hud"]
 unique_name_in_owner = true
-offset_left = 1320.0
-offset_top = 52.0
-offset_right = 1592.0
-offset_bottom = 400.0
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -280.0
+offset_top = 100.0
+offset_right = -10.0
+offset_bottom = 420.0
+grow_horizontal = 0
 script = ExtResource("6_eco")
 
 [node name="VBox" type="VBoxContainer" parent="Hud/EcosystemPanel"]
@@ -163,23 +330,47 @@ layout_mode = 2
 
 [node name="Title" type="Label" parent="Hud/EcosystemPanel/VBox/PanelHead"]
 layout_mode = 2
+size_flags_horizontal = 3
 text = "Ecosystem"
 
-[node name="Scroll" type="ScrollContainer" parent="Hud/EcosystemPanel/VBox"]
+[node name="CollapseBtn" type="Button" parent="Hud/EcosystemPanel/VBox/PanelHead"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "▼"
+
+[node name="PanelBody" type="VBoxContainer" parent="Hud/EcosystemPanel/VBox"]
+unique_name_in_owner = true
 layout_mode = 2
 size_flags_vertical = 3
 
-[node name="SpeciesRows" type="VBoxContainer" parent="Hud/EcosystemPanel/VBox/Scroll"]
+[node name="PopGraph" type="Control" parent="Hud/EcosystemPanel/VBox/PanelBody"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(0, 70)
+script = ExtResource("12_graph")
+
+[node name="Scroll" type="ScrollContainer" parent="Hud/EcosystemPanel/VBox/PanelBody"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="SpeciesRows" type="VBoxContainer" parent="Hud/EcosystemPanel/VBox/PanelBody/Scroll"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
 
 [node name="InspectorPanel" type="PanelContainer" parent="Hud"]
 unique_name_in_owner = true
-offset_left = 8.0
-offset_top = 620.0
-offset_right = 320.0
-offset_bottom = 880.0
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -270.0
+offset_top = -300.0
+offset_right = -10.0
+offset_bottom = -70.0
+grow_horizontal = 0
+grow_vertical = 0
 script = ExtResource("7_inspect")
 
 [node name="VBox" type="VBoxContainer" parent="Hud/InspectorPanel"]
@@ -194,41 +385,126 @@ unique_name_in_owner = true
 layout_mode = 2
 text = "Inspector"
 
-[node name="HpBar" type="ProgressBar" parent="Hud/InspectorPanel/VBox"]
+[node name="TabRow" type="HBoxContainer" parent="Hud/InspectorPanel/VBox"]
+layout_mode = 2
+
+[node name="StatsTabBtn" type="Button" parent="Hud/InspectorPanel/VBox/TabRow"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Stats"
+
+[node name="StoryTabBtn" type="Button" parent="Hud/InspectorPanel/VBox/TabRow"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Life Story"
+
+[node name="StatsTab" type="VBoxContainer" parent="Hud/InspectorPanel/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="HpRow" type="HBoxContainer" parent="Hud/InspectorPanel/VBox/StatsTab"]
+layout_mode = 2
+
+[node name="HpLabel" type="Label" parent="Hud/InspectorPanel/VBox/StatsTab/HpRow"]
+layout_mode = 2
+text = "❤️ Health"
+
+[node name="HpVal" type="Label" parent="Hud/InspectorPanel/VBox/StatsTab/HpRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+horizontal_alignment = 2
+text = "—"
+
+[node name="HpBar" type="ProgressBar" parent="Hud/InspectorPanel/VBox/StatsTab"]
 unique_name_in_owner = true
 layout_mode = 2
 max_value = 100.0
 show_percentage = false
 
-[node name="HungerBar" type="ProgressBar" parent="Hud/InspectorPanel/VBox"]
+[node name="HunRow" type="HBoxContainer" parent="Hud/InspectorPanel/VBox/StatsTab"]
+layout_mode = 2
+
+[node name="HunLabel" type="Label" parent="Hud/InspectorPanel/VBox/StatsTab/HunRow"]
+layout_mode = 2
+text = "🍖 Fullness"
+
+[node name="HunVal" type="Label" parent="Hud/InspectorPanel/VBox/StatsTab/HunRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+horizontal_alignment = 2
+text = "—"
+
+[node name="HungerBar" type="ProgressBar" parent="Hud/InspectorPanel/VBox/StatsTab"]
 unique_name_in_owner = true
 layout_mode = 2
 max_value = 100.0
 show_percentage = false
 
-[node name="ThirstBar" type="ProgressBar" parent="Hud/InspectorPanel/VBox"]
+[node name="ThiRow" type="HBoxContainer" parent="Hud/InspectorPanel/VBox/StatsTab"]
+layout_mode = 2
+
+[node name="ThiLabel" type="Label" parent="Hud/InspectorPanel/VBox/StatsTab/ThiRow"]
+layout_mode = 2
+text = "💧 Hydration"
+
+[node name="ThiVal" type="Label" parent="Hud/InspectorPanel/VBox/StatsTab/ThiRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+horizontal_alignment = 2
+text = "—"
+
+[node name="ThirstBar" type="ProgressBar" parent="Hud/InspectorPanel/VBox/StatsTab"]
 unique_name_in_owner = true
 layout_mode = 2
 max_value = 100.0
 show_percentage = false
 
-[node name="EnergyBar" type="ProgressBar" parent="Hud/InspectorPanel/VBox"]
+[node name="EneRow" type="HBoxContainer" parent="Hud/InspectorPanel/VBox/StatsTab"]
+layout_mode = 2
+
+[node name="EneLabel" type="Label" parent="Hud/InspectorPanel/VBox/StatsTab/EneRow"]
+layout_mode = 2
+text = "⚡ Energy"
+
+[node name="EneVal" type="Label" parent="Hud/InspectorPanel/VBox/StatsTab/EneRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+horizontal_alignment = 2
+text = "—"
+
+[node name="EnergyBar" type="ProgressBar" parent="Hud/InspectorPanel/VBox/StatsTab"]
 unique_name_in_owner = true
 layout_mode = 2
 max_value = 100.0
 show_percentage = false
 
-[node name="GeneGrid" type="GridContainer" parent="Hud/InspectorPanel/VBox"]
+[node name="GeneGrid" type="GridContainer" parent="Hud/InspectorPanel/VBox/StatsTab"]
 unique_name_in_owner = true
 layout_mode = 2
 columns = 2
 
+[node name="StoryTab" type="VBoxContainer" parent="Hud/InspectorPanel/VBox"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="LifeStoryLog" type="RichTextLabel" parent="Hud/InspectorPanel/VBox/StoryTab"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 3
+scroll_active = true
+
 [node name="StoryPanel" type="PanelContainer" parent="Hud"]
 unique_name_in_owner = true
-offset_left = 1080.0
-offset_top = 620.0
-offset_right = 1592.0
-offset_bottom = 880.0
+offset_left = 10.0
+offset_top = 500.0
+offset_right = 360.0
+offset_bottom = 820.0
 script = ExtResource("8_story")
 
 [node name="VBox" type="VBoxContainer" parent="Hud/StoryPanel"]
@@ -240,19 +516,186 @@ layout_mode = 2
 
 [node name="Title" type="Label" parent="Hud/StoryPanel/VBox/PanelHead"]
 layout_mode = 2
+size_flags_horizontal = 3
 text = "World Story"
 
-[node name="WorldStory" type="Node" parent="Hud/StoryPanel/VBox"]
+[node name="CollapseBtn" type="Button" parent="Hud/StoryPanel/VBox/PanelHead"]
 unique_name_in_owner = true
-script = ExtResource("9_tracker")
+layout_mode = 2
+text = "▼"
 
-[node name="StoryText" type="RichTextLabel" parent="Hud/StoryPanel/VBox/WorldStory"]
+[node name="PanelBody" type="ScrollContainer" parent="Hud/StoryPanel/VBox"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 200)
 layout_mode = 2
 size_flags_vertical = 3
-scroll_active = true
-fit_content = true
+
+[node name="WorldStory" type="Control" parent="Hud/StoryPanel/VBox/PanelBody"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+script = ExtResource("9_tracker")
+
+[node name="StoryList" type="VBoxContainer" parent="Hud/StoryPanel/VBox/PanelBody/WorldStory"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="SpeciesStatsPanel" type="PanelContainer" parent="Hud"]
+unique_name_in_owner = true
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -280.0
+offset_top = 430.0
+offset_right = -10.0
+offset_bottom = 700.0
+grow_horizontal = 0
+script = ExtResource("10_spstats")
+
+[node name="VBox" type="VBoxContainer" parent="Hud/SpeciesStatsPanel"]
+layout_mode = 2
+
+[node name="PanelHead" type="HBoxContainer" parent="Hud/SpeciesStatsPanel/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="SpeciesStatsTitle" type="Label" parent="Hud/SpeciesStatsPanel/VBox/PanelHead"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Species Stats"
+
+[node name="PanelBody" type="VBoxContainer" parent="Hud/SpeciesStatsPanel/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="SpeciesStatsGraph" type="Control" parent="Hud/SpeciesStatsPanel/VBox/PanelBody"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(0, 70)
+script = ExtResource("12_graph")
+
+[node name="Needs" type="VBoxContainer" parent="Hud/SpeciesStatsPanel/VBox/PanelBody"]
+layout_mode = 2
+
+[node name="SsHpRow" type="HBoxContainer" parent="Hud/SpeciesStatsPanel/VBox/PanelBody/Needs"]
+layout_mode = 2
+
+[node name="SsHpVal" type="Label" parent="Hud/SpeciesStatsPanel/VBox/PanelBody/Needs/SsHpRow"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "—"
+
+[node name="SsHpBar" type="ProgressBar" parent="Hud/SpeciesStatsPanel/VBox/PanelBody/Needs"]
+unique_name_in_owner = true
+layout_mode = 2
+max_value = 100.0
+
+[node name="SsHunVal" type="Label" parent="Hud/SpeciesStatsPanel/VBox/PanelBody/Needs"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "—"
+
+[node name="SsHunBar" type="ProgressBar" parent="Hud/SpeciesStatsPanel/VBox/PanelBody/Needs"]
+unique_name_in_owner = true
+layout_mode = 2
+max_value = 100.0
+
+[node name="SsThiVal" type="Label" parent="Hud/SpeciesStatsPanel/VBox/PanelBody/Needs"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "—"
+
+[node name="SsThiBar" type="ProgressBar" parent="Hud/SpeciesStatsPanel/VBox/PanelBody/Needs"]
+unique_name_in_owner = true
+layout_mode = 2
+max_value = 100.0
+
+[node name="SsEneVal" type="Label" parent="Hud/SpeciesStatsPanel/VBox/PanelBody/Needs"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "—"
+
+[node name="SsEneBar" type="ProgressBar" parent="Hud/SpeciesStatsPanel/VBox/PanelBody/Needs"]
+unique_name_in_owner = true
+layout_mode = 2
+max_value = 100.0
+
+[node name="SpeciesStatsSummary" type="Label" parent="Hud/SpeciesStatsPanel/VBox/PanelBody"]
+unique_name_in_owner = true
+layout_mode = 2
+autowrap_mode = 3
+
+[node name="SpeciesStatsDeaths" type="VBoxContainer" parent="Hud/SpeciesStatsPanel/VBox/PanelBody"]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="ProfilerPanel" type="PanelContainer" parent="Hud"]
+unique_name_in_owner = true
+offset_left = 10.0
+offset_top = 100.0
+offset_right = 310.0
+offset_bottom = 280.0
+script = ExtResource("11_profiler")
+
+[node name="VBox" type="VBoxContainer" parent="Hud/ProfilerPanel"]
+layout_mode = 2
+
+[node name="PanelHead" type="HBoxContainer" parent="Hud/ProfilerPanel/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="Title" type="Label" parent="Hud/ProfilerPanel/VBox/PanelHead"]
+layout_mode = 2
+text = "Profiler"
+
+[node name="PanelBody" type="VBoxContainer" parent="Hud/ProfilerPanel/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="ProfilerOverview" type="Label" parent="Hud/ProfilerPanel/VBox/PanelBody"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "FPS —"
+
+[node name="ProfilerBudget" type="Control" parent="Hud/ProfilerPanel/VBox/PanelBody"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(0, 12)
+
+[node name="Toolbar" type="HBoxContainer" parent="Hud"]
+unique_name_in_owner = true
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -300.0
+offset_top = -56.0
+offset_right = 300.0
+offset_bottom = -10.0
+grow_horizontal = 2
+grow_vertical = 0
+alignment = 1
+script = ExtResource("13_tools")
+
+[node name="SpeciesGodMenu" type="PopupPanel" parent="Hud"]
+unique_name_in_owner = true
+script = ExtResource("14_god")
+
+[node name="VBox" type="VBoxContainer" parent="Hud/SpeciesGodMenu"]
+offset_right = 180.0
+offset_bottom = 80.0
+
+[node name="GodMenuTitle" type="Label" parent="Hud/SpeciesGodMenu/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "GOD"
+
+[node name="GodKillAll" type="Button" parent="Hud/SpeciesGodMenu/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Kill All"
 
 [node name="TerrainTip" type="Label" parent="Hud"]
 unique_name_in_owner = true

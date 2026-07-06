@@ -1,20 +1,19 @@
-using System.Text;
 using EcoSim.Core.Sim;
 using Godot;
 
 namespace WildlandsEcoSim.UI;
 
-public partial class WorldStoryTracker : Node
+public partial class WorldStoryTracker : Control
 {
     private readonly HashSet<int> _knownAlive = new();
     private readonly HashSet<int> _reportedDeaths = new();
     private readonly List<string> _lines = [];
-    private RichTextLabel? _label;
+    private VBoxContainer _list = null!;
     private const int MaxLines = 80;
 
     public override void _Ready()
     {
-        _label = GetNodeOrNull<RichTextLabel>("%StoryText");
+        _list = GetNode<VBoxContainer>("%StoryList");
     }
 
     public void Reset()
@@ -64,12 +63,14 @@ public partial class WorldStoryTracker : Node
 
     private void Render()
     {
-        if (_label == null) return;
-        var sb = new StringBuilder();
+        if (_list == null) return;
+        _list.GetChildren().ToList().ForEach(c => c.QueueFree());
         foreach (string line in _lines)
         {
-            sb.AppendLine(line);
+            var entry = new PanelContainer();
+            entry.AddThemeStyleboxOverride("panel", EcoSimThemeBuilder.MakeFlat(EcoSimThemeBuilder.PanelDarker, EcoSimThemeBuilder.Edge));
+            entry.AddChild(new Label { Text = line, AutowrapMode = TextServer.AutowrapMode.WordSmart });
+            _list.AddChild(entry);
         }
-        _label.Text = sb.ToString();
     }
 }

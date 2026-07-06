@@ -19,7 +19,7 @@ public partial class CreatureRenderer : Node2D
         {
             TransformFormat = MultiMesh.TransformFormatEnum.Transform2D,
             UseColors = true,
-            Mesh = new QuadMesh { Size = Vector2.One },
+            Mesh = new QuadMesh { Size = new Vector2(1f, 1f) },
         };
         _mesh.Multimesh = multiMesh;
         AddChild(_mesh);

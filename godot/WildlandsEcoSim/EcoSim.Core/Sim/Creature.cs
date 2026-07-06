@@ -40,6 +40,7 @@ public sealed class Creature
     public double NavGoalY { get; set; } = double.NaN;
     public double NavWpX { get; set; } = double.NaN;
     public double NavWpY { get; set; } = double.NaN;
+    public LifeStoryData? LifeStory { get; set; }
 }
 
 public sealed class Genome

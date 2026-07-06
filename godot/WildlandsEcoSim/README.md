@@ -49,9 +49,10 @@ python scripts/run_batch_godot.py --seed 42 --size s --days 10
 
 `godot/phase-0-bootstrap` … `godot/phase-7-ship`, merged into `godot-migration`.
 
-### Phase 4 HUD (current)
+### Phase 4b JS UI parity (current)
 
-- Draggable panels: World Generator (full sliders), Ecosystem species list, Inspector (needs + genes), World Story feed
-- Species row click locks map highlight (gold brighten)
-- Terrain + creature tooltips
-- Panel positions saved to `user://panel-layout.cfg`
+- Stone theme, full top bar (clock, gen, veg%, FPS, Follow, Profiler, Test Runner stub)
+- Timeline strip with scrub + Present (SQLite snapshots)
+- Labeled gen panel, pop graph, species stats, inspector tabs, world story feed
+- Bottom toolbar + species GOD menu (Kill All)
+- Terrain TX bake, water shimmer, dark page background
