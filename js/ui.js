@@ -26,6 +26,7 @@ import {
 import { getSpeciesStats } from './species-stats.js';
 import { applyPanelLayout, persistPanelPosition } from './panel-layout.js';
 import { perfProfiler, isGpuSimActive } from './perf-profiler.js';
+import { getProfilerHelpText, profilerLabelHelpAttr } from './profiler-help.js';
 
 const PROFILER_OPEN_KEY = 'ecosim-profiler-open';
 const PROFILER_DETAIL_OPEN_KEY = 'ecosim-profiler-detail-open';
@@ -85,6 +86,8 @@ export class UI
     this._speciesFlashMs = 900;
     this._profilerDetailTab = 'cpu';
     this._profilerTreeCollapsed = new Set();
+    this._profilerHelpKey = null;
+    this._profilerHelpAnchor = null;
   }
 
   async restoreScrubMeta(meta)
@@ -499,6 +502,75 @@ export class UI
       this.toggleProfiler();
     });
     this.initProfilerDetailPanel();
+    this.initProfilerStatHelp();
+  }
+
+  initProfilerStatHelp()
+  {
+    const panel = $('profiler-panel');
+    if (!panel || panel.dataset.profilerHelpBound) return;
+    panel.dataset.profilerHelpBound = '1';
+    panel.addEventListener('pointerover', e =>
+    {
+      const label = e.target.closest('[data-profiler-help]');
+      if (!label || !panel.contains(label)) return;
+      this._showProfilerStatTip(label, label.dataset.profilerHelp);
+    });
+    panel.addEventListener('pointerout', e =>
+    {
+      const label = e.target.closest('[data-profiler-help]');
+      if (!label) return;
+      const toLabel = e.relatedTarget?.closest?.('[data-profiler-help]');
+      if (toLabel) return;
+      this._hideProfilerStatTip();
+    });
+    panel.addEventListener('pointerleave', e =>
+    {
+      if (panel.contains(e.relatedTarget)) return;
+      this._hideProfilerStatTip();
+    });
+  }
+
+  _showProfilerStatTip(anchor, helpKey)
+  {
+    const tip = $('profiler-stat-tip');
+    const text = getProfilerHelpText(helpKey);
+    if (!tip || !anchor || !text) return;
+    this._profilerHelpKey = helpKey;
+    this._profilerHelpAnchor = anchor;
+    tip.textContent = text;
+    tip.classList.remove('hidden');
+    const rect = anchor.getBoundingClientRect();
+    const tipRect = tip.getBoundingClientRect();
+    let left = rect.left;
+    let top = rect.bottom + 6;
+    if (left + tipRect.width > window.innerWidth - 8) left = window.innerWidth - tipRect.width - 8;
+    if (left < 8) left = 8;
+    if (top + tipRect.height > window.innerHeight - 8) top = rect.top - tipRect.height - 6;
+    tip.style.left = `${Math.round(left)}px`;
+    tip.style.top = `${Math.round(top)}px`;
+  }
+
+  _hideProfilerStatTip()
+  {
+    const tip = $('profiler-stat-tip');
+    if (tip) tip.classList.add('hidden');
+    this._profilerHelpKey = null;
+    this._profilerHelpAnchor = null;
+  }
+
+  _syncProfilerStatTip()
+  {
+    if (!this._profilerHelpKey || !this._profilerHelpAnchor) return;
+    const panel = $('profiler-panel');
+    const anchor = panel?.querySelector(`[data-profiler-help="${this._profilerHelpKey}"]`);
+    if (!anchor)
+    {
+      this._hideProfilerStatTip();
+      return;
+    }
+    this._profilerHelpAnchor = anchor;
+    this._showProfilerStatTip(anchor, this._profilerHelpKey);
   }
 
   initProfilerDetailPanel()
@@ -725,8 +797,22 @@ export class UI
     this.reclampProfilerDetailPanel();
   }
 
+  _profilerTreeHeatColor(ratio)
+  {
+    const t = clamp(ratio, 0, 1);
+    const gr = 79;
+    const gg = 212;
+    const gb = 85;
+    const rr = 232;
+    const rg = 90;
+    const rb = 90;
+    return `rgb(${Math.round(lerp(gr, rr, t))},${Math.round(lerp(gg, rg, t))},${Math.round(lerp(gb, rb, t))})`;
+  }
+
   _buildCpuTreeRows(nodes, frameMs)
   {
+    const nodeByKey = new Map(nodes.map(n => [n.key, n]));
+    const frameNode = nodeByKey.get('frame');
     const byParent = new Map();
     for (const node of nodes)
     {
@@ -753,13 +839,28 @@ export class UI
       }
     };
     walk('', 0);
-    return rows.slice(0, 200).map(({ node, depth, hasKids, collapsed }) =>
+    const visible = rows.slice(0, 200);
+    const maxMs = visible.reduce((m, r) => Math.max(m, r.node.totalMs), 0.001);
+    return visible.map(({ node, depth, hasKids, collapsed }) =>
     {
-      const pct = frameMs > 0 ? (node.totalMs / frameMs) * 100 : 0;
+      const parent = node.parentKey ? nodeByKey.get(node.parentKey) : null;
+      let pct;
+      if (!node.parentKey)
+      {
+        pct = frameMs > 0 ? (node.totalMs / frameMs) * 100 : 0;
+      }
+      else
+      {
+        const parentMs = parent?.totalMs || frameNode?.totalMs || frameMs;
+        pct = parentMs > 0 ? (node.totalMs / parentMs) * 100 : 0;
+      }
+      const heat = node.totalMs / maxMs;
+      const nameColor = this._profilerTreeHeatColor(heat);
       const pad = depth * 12;
       const toggle = hasKids ? (collapsed ? '▸' : '▾') : '·';
       return `<div class="profiler-tree-row" data-tree-key="${node.key}" style="padding-left:${pad}px">`
-        + `<span class="profiler-tree-name"><span class="profiler-tree-toggle">${toggle}</span>${node.name}</span>`
+        + `<span class="profiler-tree-name"><span class="profiler-tree-toggle">${toggle}</span>`
+        + `<span class="profiler-tree-label" style="color:${nameColor}">${node.name}</span></span>`
         + `<span class="profiler-tree-val">${Math.round(node.calls)}</span>`
         + `<span class="profiler-tree-val">${node.totalMs.toFixed(2)}</span>`
         + `<span class="profiler-tree-val">${node.selfMs.toFixed(2)}</span>`
@@ -833,12 +934,18 @@ export class UI
     this.setProfilerOpen(!perfProfiler.enabled);
   }
 
-  _profilerRowHtml(label, ms, frameMs)
+  _profilerRowHtml(label, ms, frameMs, helpKey, countMode = false)
   {
-    const pct = frameMs > 0 ? Math.min(100, (ms / frameMs) * 100) : 0;
-    return `<div class="profiler-row"><span class="profiler-lbl">${label}</span>`
-      + `<span class="profiler-ms">${ms.toFixed(2)}</span>`
-      + `<div class="profiler-bar"><div class="profiler-bar-fill" style="width:${pct.toFixed(1)}%"></div></div></div>`;
+    const pct = frameMs > 0 && !countMode ? Math.min(100, (ms / frameMs) * 100) : 0;
+    const msHtml = countMode
+      ? `<span class="profiler-ms">${Math.round(ms)}</span>`
+      : `<span class="profiler-ms">${ms.toFixed(2)}</span>`;
+    const barHtml = countMode
+      ? '<div class="profiler-bar"></div>'
+      : `<div class="profiler-bar"><div class="profiler-bar-fill" style="width:${pct.toFixed(1)}%"></div></div>`;
+    return `<div class="profiler-row"><span class="profiler-lbl-wrap">`
+      + `<span class="profiler-lbl"${profilerLabelHelpAttr(helpKey)}>${label}</span></span>`
+      + msHtml + barHtml + '</div>';
   }
 
   _fillProfilerRows(el, rows, frameMs)
@@ -846,10 +953,11 @@ export class UI
     if (!el) return;
     if (!rows.length)
     {
-      el.innerHTML = '<div class="profiler-row"><span class="profiler-lbl">—</span><span class="profiler-ms">0.00</span><div class="profiler-bar"></div></div>';
+      el.innerHTML = '<div class="profiler-row"><span class="profiler-lbl-wrap"><span class="profiler-lbl">—</span></span>'
+        + '<span class="profiler-ms">0.00</span><div class="profiler-bar"></div></div>';
       return;
     }
-    el.innerHTML = rows.map(r => this._profilerRowHtml(r.label, r.ms, frameMs)).join('');
+    el.innerHTML = rows.map(r => this._profilerRowHtml(r.label, r.ms, frameMs, r.key)).join('');
   }
 
   updateProfilerPanel()
@@ -861,11 +969,11 @@ export class UI
     const overview = $('profiler-overview');
     if (overview)
     {
-      overview.innerHTML = `<span class="profiler-stat">FPS <b>${snap.overview.fps}</b></span>`
-        + `<span class="profiler-stat">Frame <b>${frameMs.toFixed(2)}ms</b></span>`
-        + `<span class="profiler-stat">Tier <b>${snap.overview.tier}</b></span>`
-        + `<span class="profiler-badge">sim: ${snap.overview.simBackend}</span>`
-        + `<span class="profiler-badge">render: ${snap.overview.rendererBackend}</span>`;
+      overview.innerHTML = `<span class="profiler-stat"${profilerLabelHelpAttr('fps')}>FPS <b>${snap.overview.fps}</b></span>`
+        + `<span class="profiler-stat"${profilerLabelHelpAttr('frameMs')}>Frame <b>${frameMs.toFixed(2)}ms</b></span>`
+        + `<span class="profiler-stat"${profilerLabelHelpAttr('tier')}>Tier <b>${snap.overview.tier}</b></span>`
+        + `<span class="profiler-badge"${profilerLabelHelpAttr('badge.sim')}>sim: ${snap.overview.simBackend}</span>`
+        + `<span class="profiler-badge"${profilerLabelHelpAttr('badge.render')}>render: ${snap.overview.rendererBackend}</span>`;
     }
 
     perfProfiler.drawSparkline($('profiler-sparkline'), 'frameTotal');
@@ -895,8 +1003,11 @@ export class UI
     const renderMeta = $('profiler-render-meta');
     if (renderMeta)
     {
-      renderMeta.innerHTML = `<div class="profiler-context">branch <b>${snap.context.renderBranch}</b> · `
-        + `LOD <b>${snap.context.lodMode}</b> · visible <b>${snap.context.visibleCount}</b></div>`;
+      renderMeta.innerHTML = `<div class="profiler-context">`
+        + `<span class="profiler-lbl-wrap"${profilerLabelHelpAttr('meta.branch')}>branch <b>${snap.context.renderBranch}</b></span> · `
+        + `<span class="profiler-lbl-wrap"${profilerLabelHelpAttr('meta.lod')}>LOD <b>${snap.context.lodMode}</b></span> · `
+        + `<span class="profiler-lbl-wrap"${profilerLabelHelpAttr('meta.visible')}>visible <b>${snap.context.visibleCount}</b></span>`
+        + `</div>`;
     }
     this._fillProfilerRows($('profiler-render-rows'), snap.render, frameMs);
 
@@ -908,22 +1019,15 @@ export class UI
     this._fillProfilerRows($('profiler-gpu-render-rows'), snap.gpuRender, frameMs);
 
     const timelineRows = [
-      { label: 'snapshot', ms: snap.timeline.snapshotMs },
-      { label: 'queue depth', ms: snap.timeline.queueDepth },
-      { label: 'dropped writes', ms: snap.timeline.droppedWrites },
+      { label: 'snapshot', ms: snap.timeline.snapshotMs, key: 'timeline.snapshot' },
+      { label: 'queue depth', ms: snap.timeline.queueDepth, key: 'timeline.queueDepth' },
+      { label: 'dropped writes', ms: snap.timeline.droppedWrites, key: 'timeline.droppedWrites' },
     ];
     const timelineEl = $('profiler-timeline-rows');
     if (timelineEl)
     {
       timelineEl.innerHTML = timelineRows.map(r =>
-      {
-        if (r.label === 'queue depth' || r.label === 'dropped writes')
-        {
-          return `<div class="profiler-row"><span class="profiler-lbl">${r.label}</span>`
-            + `<span class="profiler-ms">${Math.round(r.ms)}</span><div class="profiler-bar"></div></div>`;
-        }
-        return this._profilerRowHtml(r.label, r.ms, frameMs);
-      }).join('')
+        this._profilerRowHtml(r.label, r.ms, frameMs, r.key, r.key !== 'timeline.snapshot')).join('')
         + (snap.timeline.flushing
           ? '<div class="profiler-context">flushing…</div>'
           : '');
@@ -933,13 +1037,16 @@ export class UI
     if (ctx)
     {
       const c = snap.context;
-      ctx.innerHTML = `mode <b>${simulationMode}</b> · sim <b>${c.simBackend}</b>${c.gpuSimEnabled ? ' (gpu on)' : ''}`
-        + ` · render <b>${c.rendererBackend}</b><br>`
-        + `world <b>${c.worldTiles}</b> · speed <b>${c.speed}×</b> · substeps <b>${c.substepCount}</b>`
-        + ` · alive <b>${c.alive}</b><br>`
-        + `scrub <b>${c.scrubActive ? 'yes' : 'no'}</b> · pause <b>${c.paused ? 'yes' : 'no'}</b>`
-        + ` · veg bake <b>${c.vegBakeInterval.toFixed(2)}s</b>`;
+      const line = (label, value, helpKey) =>
+        `<span class="profiler-lbl-wrap"${profilerLabelHelpAttr(helpKey)}>${label} <b>${value}</b></span>`;
+      ctx.innerHTML = `${line('mode', simulationMode, 'ctx.mode')} · ${line('sim', c.simBackend + (c.gpuSimEnabled ? ' (gpu on)' : ''), 'ctx.sim')}`
+        + ` · ${line('render', c.rendererBackend, 'ctx.render')}<br>`
+        + `${line('world', c.worldTiles, 'ctx.world')} · ${line('speed', `${c.speed}×`, 'ctx.speed')}`
+        + ` · ${line('substeps', c.substepCount, 'ctx.substeps')} · ${line('alive', c.alive, 'ctx.alive')}<br>`
+        + `${line('scrub', c.scrubActive ? 'yes' : 'no', 'ctx.scrub')} · ${line('pause', c.paused ? 'yes' : 'no', 'ctx.pause')}`
+        + ` · ${line('veg bake', `${c.vegBakeInterval.toFixed(2)}s`, 'ctx.vegBake')}`;
     }
+    this._syncProfilerStatTip();
   }
 
   syncGraphCanvas()

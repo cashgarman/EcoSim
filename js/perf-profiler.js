@@ -287,25 +287,34 @@ export class PerfProfiler
 
   _mergeFrameNodes()
   {
+    for (const [key, agg] of this._aggregateNodes)
+    {
+      const frameNode = this._frameNodes.get(key);
+      if (frameNode)
+      {
+        agg.calls = emaInt(agg.calls, frameNode.calls);
+        agg.totalMs = emaUpdate(agg.totalMs, frameNode.totalMs);
+        agg.selfMs = emaUpdate(agg.selfMs, frameNode.selfMs);
+      }
+      else
+      {
+        agg.calls = emaInt(agg.calls, 0);
+        agg.totalMs = emaUpdate(agg.totalMs, 0);
+        agg.selfMs = emaUpdate(agg.selfMs, 0);
+      }
+    }
     for (const [key, frameNode] of this._frameNodes)
     {
-      let agg = this._aggregateNodes.get(key);
-      if (!agg)
-      {
-        agg = {
-          key,
-          name: frameNode.name,
-          parentKey: frameNode.parentKey,
-          depth: frameNode.depth,
-          calls: 0,
-          totalMs: 0,
-          selfMs: 0,
-        };
-        this._aggregateNodes.set(key, agg);
-      }
-      agg.calls = emaInt(agg.calls, frameNode.calls);
-      agg.totalMs = emaUpdate(agg.totalMs, frameNode.totalMs);
-      agg.selfMs = emaUpdate(agg.selfMs, frameNode.selfMs);
+      if (this._aggregateNodes.has(key)) continue;
+      this._aggregateNodes.set(key, {
+        key,
+        name: frameNode.name,
+        parentKey: frameNode.parentKey,
+        depth: frameNode.depth,
+        calls: frameNode.calls,
+        totalMs: frameNode.totalMs,
+        selfMs: frameNode.selfMs,
+      });
     }
   }
 

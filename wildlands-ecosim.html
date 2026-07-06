@@ -384,7 +384,17 @@
   .profiler-budget-seg.ui{background:#9e9a4a;}
   .profiler-budget-seg.other{background:#666;}
   .profiler-row{display:grid;grid-template-columns:1fr 42px 1fr;gap:5px;align-items:center;margin-bottom:3px;font-size:calc(6px * 1.3);}
+  .profiler-lbl-wrap{display:flex;align-items:center;gap:3px;min-width:0;}
   .profiler-row .profiler-lbl{color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  [data-profiler-help]{cursor:help;}
+  [data-profiler-help]:hover{color:var(--gold);}
+  #profiler-stat-tip{
+    position:fixed;z-index:80;max-width:min(280px,calc(100vw - 16px));padding:8px 10px;
+    background:var(--panel-darker);border:2px solid var(--gold);border-radius:4px;
+    box-shadow:0 8px 18px rgba(0,0,0,.65);font-size:calc(6px * 1.3);font-weight:400;color:var(--text);
+    line-height:1.6;text-align:left;white-space:normal;pointer-events:none;
+  }
+  #profiler-stat-tip.hidden{display:none!important;}
   .profiler-row .profiler-ms{text-align:right;color:var(--text);font-variant-numeric:tabular-nums;}
   .profiler-bar{height:6px;background:var(--panel-darker);border:1px solid var(--edge);border-radius:2px;overflow:hidden;}
   .profiler-bar-fill{height:100%;background:var(--gold);border-radius:1px;min-width:0;}
@@ -415,7 +425,8 @@
   }
   .profiler-tree-head{color:var(--gold);margin-bottom:4px;border-bottom:1px solid var(--edge);padding-bottom:3px;}
   .profiler-tree-row{color:var(--text);margin-bottom:2px;}
-  .profiler-tree-row .profiler-tree-name{color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .profiler-tree-row .profiler-tree-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .profiler-tree-row .profiler-tree-label{min-width:0;}
   .profiler-tree-row .profiler-tree-val{text-align:right;}
   .profiler-tree-toggle{cursor:pointer;user-select:none;margin-right:3px;color:var(--gold);width:10px;display:inline-block;}
   .profiler-gpu-grid{display:flex;flex-direction:column;gap:4px;}
@@ -648,6 +659,7 @@
       <h3>Context</h3>
       <div class="profiler-context" id="profiler-context"></div>
     </div>
+    <div id="profiler-stat-tip" class="profiler-stat-tip hidden" role="tooltip"></div>
   </div>
 </div>
 
@@ -665,7 +677,7 @@
     </div>
     <div id="profiler-detail-cpu">
       <div class="profiler-tree-head">
-        <span>Name</span><span>Calls</span><span>Total</span><span>Self</span><span>%</span>
+        <span>Name</span><span>Calls</span><span>Total</span><span>Self</span><span title="% of parent scope (root row vs frame time)">%</span>
       </div>
       <div id="profiler-cpu-tree"></div>
     </div>

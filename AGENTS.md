@@ -353,7 +353,7 @@ Instrumentation lives in [`js/perf-profiler.js`](js/perf-profiler.js). Top-level
 
 Docked to the **right** of `#profiler-panel` when the summary panel is open (repositions when the summary panel is dragged or the window resizes); otherwise anchors to the top-right of the viewport. Toggled independently via the top-bar **CPU/GPU** button (`localStorage` key `ecosim-profiler-detail-open`). **F2** opens only the summary panel; detail does not auto-open.
 
-- **CPU tab** — hierarchical call tree (Name, Calls, Total ms, Self ms, % of frame); expandable rows; top 200 nodes by total ms (EMA-aggregated across frames)
+- **CPU tab** — hierarchical call tree (Name, Calls, Total ms, Self ms, % of parent); expandable rows; top 200 nodes by total ms (EMA-aggregated; inactive scopes decay toward zero each frame)
 - **GPU tab** — draw calls, instances, compute dispatches, buffer uploads (KB/frame), buffer transfers, estimated VRAM (tracked buffer sizes), submit time, async GPU-done estimate, load % estimate, renderer backend, device `maxBufferSize`
 
 **Detail gating:** `perfProfiler.setDetailEnabled(true)` activates scope-stack instrumentation and per-frame GPU counters. When off, `enterScope` / `scope` / per-creature scopes are zero-cost no-ops.
