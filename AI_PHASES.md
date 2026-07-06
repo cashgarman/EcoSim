@@ -10,9 +10,9 @@ Each phase is implemented on its own branch. Before starting the next phase: com
 |-------|--------|--------|
 | 0 — Profiler scopes | `perf/phase-0-scopes` | Done |
 | 1A — Water distance field | `perf/phase-1a-water-field` | Done |
-| 1B — Goal replan cache | `perf/phase-1b-goal-cache` | In progress |
-| 1C — Alloc-free perception | `perf/phase-1c-perception` | Pending |
-| 1D — CPU nav replan | `perf/phase-1d-cpu-nav-replan` | Pending |
+| 1B — Goal replan cache | `perf/phase-1b-goal-cache` | Done |
+| 1C — Alloc-free perception | `perf/phase-1c-perception` | Done |
+| 1D — CPU nav replan | `perf/phase-1d-cpu-nav-replan` | In progress |
 | 2 — Incremental grid | `perf/phase-2-incremental-grid` | Pending |
 | 3A — Batch GPU upload | `perf/phase-3a-batch-upload` | Pending |
 | 3B — GPU perception | `perf/phase-3b-gpu-perception` | Pending |
@@ -65,7 +65,12 @@ Each phase is implemented on its own branch. Before starting the next phase: com
 
 ## Phase 1C — Allocation-free perception
 
-*(Pending)*
+**Branch:** `perf/phase-1c-perception`
+
+**Changes:**
+- [`js/data.js`](js/data.js): `attachSpeciesMasks()` on load/override.
+- [`js/creatures.js`](js/creatures.js): reusable `_nearbyScratch`, `simPosInto`, optional `nearby(c,r,out)`.
+- [`js/behavior/context.js`](js/behavior/context.js): bitmask threat/prey checks, squared distance in scan.
 
 ---
 
