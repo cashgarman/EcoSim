@@ -44,7 +44,10 @@ public partial class Main : Control
         _speedSlider.ValueChanged += OnSpeedChanged;
         _gameApp.SimTicked += OnSimTicked;
 
-        GenerateWorld();
+        if (!Engine.IsEditorHint())
+        {
+            GenerateWorld();
+        }
     }
 
     public override void _UnhandledInput(InputEvent @event)
@@ -70,7 +73,7 @@ public partial class Main : Control
         session.State.Speed = _speedSlider.Value;
         _gameApp.Paused = false;
 
-        _world.BindWorld(session, _host.Species);
+        _world.BindWorld(session, _host.Species!);
         _camera.CenterOnWorld();
         UpdateHud();
     }

@@ -2,6 +2,8 @@
 
 Godot 4.7+ port with C# simulation core (`EcoSim.Core`).
 
+**Important:** `WildlandsEcoSim.csproj` must use `Godot.NET.Sdk/4.7.0` to match the editor. After upgrading, delete `.godot/mono/` if the editor crashes on open, then let Godot rebuild.
+
 ## Prerequisites
 
 - Godot 4.7 stable Mono (local install):

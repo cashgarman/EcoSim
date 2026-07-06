@@ -9,23 +9,33 @@ namespace WildlandsEcoSim;
 /// <summary>Autoload — owns SimSession and shared data catalogs.</summary>
 public partial class EcoSimHost : Node
 {
-    public SpeciesCatalog Species { get; private set; } = null!;
-    public EcoSim.Core.Behavior.BehaviorLibrary Behaviors { get; private set; } = null!;
+    public SpeciesCatalog? Species { get; private set; }
+    public EcoSim.Core.Behavior.BehaviorLibrary? Behaviors { get; private set; }
+    private bool _bootstrapped;
     public SimSession? Session { get; private set; }
 
     public bool HasWorld => Session?.State.Ready == true && Session.State.W > 0;
 
     public override void _Ready()
     {
+        if (Engine.IsEditorHint()) return;
+        BootstrapIfNeeded();
+        GD.Print($"EcoSim loaded {Species!.SpeciesKeys.Count} species");
+    }
+
+    private void BootstrapIfNeeded()
+    {
+        if (_bootstrapped) return;
         string dataRoot = ResolveDataRoot();
         DataPaths.SetDataRoot(dataRoot);
         (Species, Behaviors) = EcoSimBootstrap.LoadBaseData(dataRoot);
-        GD.Print($"EcoSim loaded {Species.SpeciesKeys.Count} species from {dataRoot}");
+        _bootstrapped = true;
     }
 
     public SimSession EnsureSession(uint seed = 1)
     {
         if (Session != null) return Session;
+        BootstrapIfNeeded();
         Session = SimSession.Create(ResolveDataRoot(), seed);
         Session.State.Speed = 1;
         return Session;

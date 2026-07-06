@@ -16,11 +16,17 @@ public partial class GameApp : Node
 
     public override void _Ready()
     {
+        if (Engine.IsEditorHint())
+        {
+            return;
+        }
+
         _host = GetNode<EcoSimHost>("/root/EcoSimHost");
     }
 
     public override void _Process(double delta)
     {
+        if (Engine.IsEditorHint()) return;
         var session = _host.Session;
         if (session == null || !session.State.Ready) return;
 
