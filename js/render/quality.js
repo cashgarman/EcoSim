@@ -1,5 +1,6 @@
 import { lerp } from '../utils.js';
 import { state } from '../state.js';
+import { gpuThrottleMinQualityTier } from '../gpu-throttle.js';
 
 export class QualityController
 {
@@ -34,10 +35,11 @@ export class QualityController
   updateTier(frameMs)
   {
     this.frameMsAvg = lerp(this.frameMsAvg, frameMs, 0.12);
-    if (this.frameMsAvg > 30) this.tier = 3;
-    else if (this.frameMsAvg > 22) this.tier = 2;
-    else if (this.frameMsAvg > 16.8) this.tier = 1;
-    else this.tier = 0;
+    let tier = 0;
+    if (this.frameMsAvg > 30) tier = 3;
+    else if (this.frameMsAvg > 22) tier = 2;
+    else if (this.frameMsAvg > 16.8) tier = 1;
+    this.tier = Math.max(tier, gpuThrottleMinQualityTier());
     this.renderDecimation = this.config().decimation;
     if (state.gpuTelemetry) state.gpuTelemetry.qualityTier = this.tier;
   }

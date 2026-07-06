@@ -2,12 +2,13 @@ import { loadSpeciesData } from '../data.js';
 import { loadBehaviorLibrary } from '../behavior/loader.js';
 import { BatchRunner, parseBatchParams, overridesFromUi } from './runner.js';
 import { BalanceUi } from './balance-ui.js';
+import { BalanceRunsTable } from './balance-runs-table.js';
 import { batchReportStore } from './report-store.js';
 import { mergeStoredParams, saveStoredFormConfig } from './form-storage.js';
-import { buildHistoryDetailElement } from './history-detail.js';
 import { buildCampaignDetailElement, buildCampaignRecommendationsElement } from './campaign-detail.js';
 import { initPanelResize } from './panel-resize.js';
 import { initFormFieldHelp, initGlobalFieldHelpDismiss } from './field-help.js';
+import { initGpuThrottleUi } from '../gpu-throttle-ui.js';
 
 class BatchTestApp
 {
@@ -21,11 +22,7 @@ class BatchTestApp
       onComplete: report => this.onRunComplete(report),
     });
     this.balanceUi = null;
-    this.historySortKey = 'time';
-    this.historySortDir = 'desc';
-    this._historyReports = [];
-    this._historyExpanded = new Set();
-    this._historySelected = new Set();
+    this.balanceRunsTable = null;
     this._campaign = null;
     this._campaignExpanded = new Set();
     this.campaignSortKey = 'score';
@@ -38,17 +35,24 @@ class BatchTestApp
     await loadBehaviorLibrary();
 
     this.balanceUi = new BalanceUi(document.getElementById('balance-panel'));
+    this.balanceUi.render();
+
+    this.balanceRunsTable = new BalanceRunsTable(this.balanceUi.getRunsRoot(), {
+      onLoadBalance: report => this.loadBalanceFromReport(report),
+      onSwitchToDesigner: () => this.balanceUi.showTab('designer'),
+      onStatus: (text, done) => this.setStatus(text, done),
+      onRefresh: () => this.refreshHistory(),
+    });
+    this.balanceUi.setRunsTable(this.balanceRunsTable);
+
     if (this.params.balanceOverrides)
     {
       this.balanceUi.setOverrides(this.params.balanceOverrides);
     }
-    else
-    {
-      this.balanceUi.render();
-    }
 
     this.bindForm();
     initPanelResize();
+    initGpuThrottleUi();
     await this.refreshHistory();
 
     if (this.params.autostart)
@@ -88,64 +92,6 @@ class BatchTestApp
 
     document.getElementById('run-btn').addEventListener('click', () => this.startRun());
     document.getElementById('abort-btn').addEventListener('click', () => this.runner.abort());
-    document.getElementById('export-csv-btn').addEventListener('click', () => this.exportCsv());
-    document.getElementById('history-archive-btn').addEventListener('click', () => this.archiveSelectedHistory());
-    document.getElementById('history-delete-btn').addEventListener('click', () => this.deleteSelectedHistory());
-    document.getElementById('history-select-all').addEventListener('change', (e) =>
-    {
-      this.setAllHistorySelected(e.target.checked);
-    });
-    document.querySelectorAll('#history-table .sort-header').forEach(btn =>
-    {
-      btn.addEventListener('click', () => this.setHistorySort(btn.dataset.sort));
-    });
-  }
-
-  reportTimeMs(report)
-  {
-    if (report?.startedAt)
-    {
-      const ms = Date.parse(report.startedAt);
-      if (Number.isFinite(ms)) return ms;
-    }
-    const m = /^batch-(\d+)-/.exec(report?.runId || '');
-    return m ? Number(m[1]) : 0;
-  }
-
-  formatReportTime(report)
-  {
-    const ms = this.reportTimeMs(report);
-    if (!ms) return '—';
-    return new Date(ms).toLocaleString();
-  }
-
-  setHistorySort(key)
-  {
-    if (this.historySortKey === key)
-    {
-      this.historySortDir = this.historySortDir === 'desc' ? 'asc' : 'desc';
-    }
-    else
-    {
-      this.historySortKey = key;
-      this.historySortDir = 'desc';
-    }
-    this.renderHistoryTable();
-  }
-
-  historySortValue(report, key)
-  {
-    switch (key)
-    {
-      case 'runId': return report.runId || '';
-      case 'time': return this.reportTimeMs(report);
-      case 'outcome': return report.outcome || '';
-      case 'pop': return report.summary?.finalPop ?? 0;
-      case 'gen': return report.summary?.generationMax ?? 0;
-      case 'sim': return report.config?.simBackend || 'cpu';
-      case 'wall': return report.wallMs ?? 0;
-      default: return '';
-    }
   }
 
   compareHistoryValues(a, b)
@@ -154,120 +100,6 @@ class BatchTestApp
     const nb = typeof b === 'number' && Number.isFinite(b);
     if (na && nb) return a - b;
     return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' });
-  }
-
-  upsertHistoryReport(report)
-  {
-    const i = this._historyReports.findIndex(r => r.runId === report.runId);
-    if (i >= 0) this._historyReports[i] = report;
-    else this._historyReports.push(report);
-    this.renderHistoryTable();
-  }
-
-  sortHistoryReports(reports)
-  {
-    const dir = this.historySortDir === 'asc' ? 1 : -1;
-    const key = this.historySortKey;
-    return [...reports].sort((a, b) =>
-    {
-      const cmp = this.compareHistoryValues(
-        this.historySortValue(a, key),
-        this.historySortValue(b, key),
-      );
-      if (cmp !== 0) return cmp * dir;
-      return this.compareHistoryValues(this.reportTimeMs(a), this.reportTimeMs(b)) * -1;
-    });
-  }
-
-  updateHistorySortHeaders()
-  {
-    document.querySelectorAll('#history-table .sort-header').forEach(btn =>
-    {
-      const active = btn.dataset.sort === this.historySortKey;
-      btn.classList.toggle('active', active);
-      const ind = btn.querySelector('.sort-indicator');
-      if (ind) ind.textContent = active ? (this.historySortDir === 'asc' ? '↑' : '↓') : '';
-    });
-  }
-
-  toggleHistoryExpand(runId)
-  {
-    if (this._historyExpanded.has(runId)) this._historyExpanded.delete(runId);
-    else this._historyExpanded.add(runId);
-    this.renderHistoryTable();
-  }
-
-  toggleHistorySelect(runId, selected)
-  {
-    if (selected) this._historySelected.add(runId);
-    else this._historySelected.delete(runId);
-    this.updateHistoryBulkUi();
-  }
-
-  setAllHistorySelected(selected)
-  {
-    this._historySelected.clear();
-    if (selected)
-    {
-      for (const report of this._historyReports)
-      {
-        this._historySelected.add(report.runId);
-      }
-    }
-    this.renderHistoryTable();
-  }
-
-  getSelectedHistoryIds()
-  {
-    return [...this._historySelected];
-  }
-
-  updateHistoryBulkUi()
-  {
-    const count = this._historySelected.size;
-    const archiveBtn = document.getElementById('history-archive-btn');
-    const deleteBtn = document.getElementById('history-delete-btn');
-    const countEl = document.getElementById('history-selection-count');
-    const selectAll = document.getElementById('history-select-all');
-    if (archiveBtn) archiveBtn.disabled = count === 0;
-    if (deleteBtn) deleteBtn.disabled = count === 0;
-    if (countEl) countEl.textContent = `${count} selected`;
-    if (selectAll)
-    {
-      const visible = this._historyReports.length;
-      selectAll.checked = visible > 0 && count === visible;
-      selectAll.indeterminate = count > 0 && count < visible;
-    }
-  }
-
-  async archiveSelectedHistory()
-  {
-    const runIds = this.getSelectedHistoryIds();
-    if (!runIds.length) return;
-    const archived = await batchReportStore.archiveReports(runIds);
-    for (const runId of runIds)
-    {
-      this._historySelected.delete(runId);
-      this._historyExpanded.delete(runId);
-    }
-    await this.refreshHistory();
-    this.setStatus(`Archived ${archived} run${archived === 1 ? '' : 's'}.`, true);
-  }
-
-  async deleteSelectedHistory()
-  {
-    const runIds = this.getSelectedHistoryIds();
-    if (!runIds.length) return;
-    const noun = runIds.length === 1 ? 'this run' : `${runIds.length} runs`;
-    if (!window.confirm(`Permanently delete ${noun} from history? This cannot be undone.`)) return;
-    await batchReportStore.deleteReports(runIds);
-    for (const runId of runIds)
-    {
-      this._historySelected.delete(runId);
-      this._historyExpanded.delete(runId);
-    }
-    await this.refreshHistory();
-    this.setStatus(`Deleted ${runIds.length} run${runIds.length === 1 ? '' : 's'}.`, true);
   }
 
   loadBalanceFromReport(report)
@@ -279,6 +111,7 @@ class BatchTestApp
       behaviorLibraryOverrides: balance.behaviorLibraryOverrides || {},
       behaviorSpeciesOverrides: balance.behaviorSpeciesOverrides || {},
     });
+    this.setStatus('Balance config loaded into designer.', true);
   }
 
   applyRecommendedConfig(recommendations)
@@ -320,113 +153,9 @@ class BatchTestApp
     }
   }
 
-  renderHistoryTable()
-  {
-    this.updateHistorySortHeaders();
-
-    const tbody = document.querySelector('#history-table tbody');
-    tbody.innerHTML = '';
-    const sorted = this.sortHistoryReports(this._historyReports);
-    for (const report of sorted)
-    {
-      const expanded = this._historyExpanded.has(report.runId);
-      const selected = this._historySelected.has(report.runId);
-      const tr = document.createElement('tr');
-      tr.className = 'history-row'
-        + (expanded ? ' expanded' : '')
-        + (selected ? ' selected' : '');
-
-      const checkTd = document.createElement('td');
-      checkTd.className = 'history-check-col';
-      const checkbox = document.createElement('input');
-      checkbox.type = 'checkbox';
-      checkbox.className = 'history-check';
-      checkbox.checked = selected;
-      checkbox.setAttribute('aria-label', `Select ${report.runId}`);
-      checkbox.addEventListener('click', (e) => e.stopPropagation());
-      checkbox.addEventListener('change', (e) =>
-      {
-        e.stopPropagation();
-        this.toggleHistorySelect(report.runId, e.target.checked);
-        tr.classList.toggle('selected', e.target.checked);
-      });
-      checkTd.appendChild(checkbox);
-      tr.appendChild(checkTd);
-
-      const toggleTd = document.createElement('td');
-      const toggle = document.createElement('button');
-      toggle.type = 'button';
-      toggle.className = 'expand-btn btn';
-      toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
-      toggle.setAttribute('aria-label', expanded ? 'Collapse run details' : 'Expand run details');
-      toggle.textContent = expanded ? '▼' : '▶';
-      toggle.addEventListener('click', (e) =>
-      {
-        e.stopPropagation();
-        this.toggleHistoryExpand(report.runId);
-      });
-      toggleTd.appendChild(toggle);
-      tr.appendChild(toggleTd);
-
-      const cells = [
-        report.runId,
-        this.formatReportTime(report),
-        report.outcome,
-        report.summary?.finalPop ?? 0,
-        report.summary?.generationMax ?? 0,
-        report.config?.simBackend ?? 'cpu',
-        `${(report.wallMs / 1000).toFixed(1)}s`,
-      ];
-      for (const text of cells)
-      {
-        const td = document.createElement('td');
-        td.textContent = String(text);
-        tr.appendChild(td);
-      }
-
-      const actionsTd = document.createElement('td');
-      const dl = document.createElement('button');
-      dl.type = 'button';
-      dl.className = 'btn';
-      dl.textContent = 'JSON';
-      dl.addEventListener('click', (e) =>
-      {
-        e.stopPropagation();
-        const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = `${report.runId}.json`;
-        a.click();
-      });
-      actionsTd.appendChild(dl);
-      tr.appendChild(actionsTd);
-
-      tr.addEventListener('click', (e) =>
-      {
-        if (e.target.closest('button, input, label, a')) return;
-        this.toggleHistoryExpand(report.runId);
-      });
-      tbody.appendChild(tr);
-
-      if (expanded)
-      {
-        const detailTr = document.createElement('tr');
-        detailTr.className = 'history-detail-row';
-        const detailTd = document.createElement('td');
-        detailTd.colSpan = 10;
-        detailTd.appendChild(buildHistoryDetailElement(report, {
-          onLoadBalance: (r) => this.loadBalanceFromReport(r),
-        }));
-        detailTr.appendChild(detailTd);
-        tbody.appendChild(detailTr);
-      }
-    }
-    this.updateHistoryBulkUi();
-  }
-
   addHistoryRow(report)
   {
-    this.upsertHistoryReport(report);
+    this.balanceRunsTable?.upsertReport(report);
   }
 
   readParamsFromForm()
@@ -464,7 +193,45 @@ class BatchTestApp
     if (done && window.__BATCH_PROGRESS__)
     {
       window.__BATCH_PROGRESS__.phase = 'done';
+      this.hideCampaignProgress();
     }
+  }
+
+  hideCampaignProgress()
+  {
+    const wrap = document.getElementById('campaign-fuzz-progress');
+    if (!wrap) return;
+    wrap.classList.add('hidden');
+    wrap.setAttribute('aria-hidden', 'true');
+  }
+
+  updateCampaignProgress(prog)
+  {
+    const wrap = document.getElementById('campaign-fuzz-progress');
+    const textEl = document.getElementById('campaign-fuzz-progress-text');
+    const track = document.getElementById('campaign-fuzz-progress-track');
+    const fill = document.getElementById('campaign-fuzz-progress-fill');
+    if (!wrap || !textEl || !track || !fill) return;
+
+    if (prog.mode !== 'fuzz')
+    {
+      this.hideCampaignProgress();
+      return;
+    }
+
+    const trialTotal = Math.max(1, prog.trialTotal ?? 1);
+    const trialIndex = Math.max(0, prog.trialIndex ?? 0);
+    const targetDays = Math.max(1, prog.targetDays ?? 1);
+    const day = Math.max(0, prog.day ?? 0);
+    const trialFrac = (trialIndex + day / targetDays) / trialTotal;
+    const pct = Math.min(100, Math.max(0, trialFrac * 100));
+
+    wrap.classList.remove('hidden');
+    wrap.setAttribute('aria-hidden', 'false');
+    textEl.textContent = `Trial ${trialIndex + 1}/${trialTotal} · Day ${day}/${targetDays} · Pop ${prog.totalAlive ?? 0}`;
+    fill.style.width = `${pct.toFixed(1)}%`;
+    track.setAttribute('aria-valuenow', String(Math.round(pct)));
+    track.setAttribute('aria-label', `Fuzz campaign progress: ${Math.round(pct)} percent`);
   }
 
   updateProgress(prog)
@@ -484,6 +251,7 @@ class BatchTestApp
     if (prog.simBackend === 'gpu') parts.push('GPU');
     parts.push(`${(prog.wallMs / 1000).toFixed(1)}s`);
     this.setStatus(parts.join(' · '));
+    this.updateCampaignProgress(prog);
 
     window.__BATCH_PROGRESS__ = {
       phase: 'running',
@@ -522,6 +290,21 @@ class BatchTestApp
     window.__BATCH_COMPLETE__ = null;
     window.__FUZZ_CAMPAIGN_COMPLETE__ = null;
     this.setStatus('Starting…');
+    if (params.fuzz)
+    {
+      this.updateCampaignProgress({
+        mode: 'fuzz',
+        trialIndex: 0,
+        trialTotal: params.fuzzTrials,
+        day: 0,
+        targetDays: params.days,
+        totalAlive: 0,
+      });
+    }
+    else
+    {
+      this.hideCampaignProgress();
+    }
     document.getElementById('run-btn').disabled = true;
     try
     {
@@ -532,6 +315,7 @@ class BatchTestApp
     {
       console.error(err);
       if (window.__BATCH_PROGRESS__) window.__BATCH_PROGRESS__.phase = 'error';
+      this.hideCampaignProgress();
       this.setStatus(`Error: ${err.message}`, true);
     }
     finally
@@ -549,6 +333,7 @@ class BatchTestApp
   onCampaignComplete(campaign)
   {
     this._campaign = campaign;
+    this.hideCampaignProgress();
     const top = campaign.ranked[0];
     this.setStatus(
       `Fuzz done — ${campaign.histogram.stable} stable / ${campaign.fuzzTrials} trials` +
@@ -716,6 +501,7 @@ class BatchTestApp
             behaviorLibraryOverrides: row.balanceConfig.behaviorLibraryOverrides || {},
             behaviorSpeciesOverrides: row.balanceConfig.behaviorSpeciesOverrides || {},
           });
+          this.balanceUi.showTab('designer');
         }
       });
       actionsTd.appendChild(btn);
@@ -750,40 +536,8 @@ class BatchTestApp
 
   async refreshHistory()
   {
-    this._historyReports = await batchReportStore.listReports(30);
-    const visible = new Set(this._historyReports.map(r => r.runId));
-    for (const runId of this._historySelected)
-    {
-      if (!visible.has(runId)) this._historySelected.delete(runId);
-    }
-    this.renderHistoryTable();
-  }
-
-  async exportCsv()
-  {
-    const reports = await batchReportStore.listReports(200);
-    const lines = ['runId,startedAt,outcome,score,finalPop,generationMax,seed,hungerGraze,rabbitLifespan'];
-    for (const r of reports)
-    {
-      const hg = r.balanceConfig?.effective?.behavior?.rabbit?.thresholds?.hungerGraze ?? '';
-      const life = r.balanceConfig?.effective?.species?.rabbit?.base?.lifespan ?? '';
-      lines.push([
-        r.runId,
-        r.startedAt || '',
-        r.outcome,
-        r.score ?? '',
-        r.summary?.finalPop ?? '',
-        r.summary?.generationMax ?? '',
-        r.config?.seed ?? '',
-        hg,
-        life,
-      ].join(','));
-    }
-    const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'batch-reports.csv';
-    a.click();
+    const reports = await batchReportStore.listReports(100);
+    this.balanceRunsTable?.setReports(reports);
   }
 }
 

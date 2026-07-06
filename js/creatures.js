@@ -1,5 +1,5 @@
 import { rng, ri, rf, gauss, clamp, lerp, expSmoothT } from './utils.js';
-import { B, SPECIES, SP_KEYS, GENE_KEYS, GENE_RANGE, isWater } from './data.js';
+import { B, SPECIES, SP_KEYS, GENE_KEYS, GENE_RANGE, isWater, speciesCanSwim } from './data.js';
 import { state, MAX_POP, idx, inB, gkey, CELL } from './state.js';
 import {
   atWaterEdge,
@@ -10,6 +10,7 @@ import { quality } from './render/quality.js';
 import { lifeStory } from './life-story.js';
 import { behaviorTree } from './behavior/index.js';
 import { perfProfiler } from './perf-profiler.js';
+import { gpuThrottleDisablesExtrapolation } from '../gpu-throttle.js';
 
 export class CreatureSystem
 {
@@ -74,14 +75,36 @@ export class CreatureSystem
     return g;
   }
 
+  tileHasAdjacentWater(x, y)
+  {
+    for (let dy = -1; dy <= 1; dy++)
+    {
+      for (let dx = -1; dx <= 1; dx++)
+      {
+        if (!dx && !dy) continue;
+        const nx = x + dx;
+        const ny = y + dy;
+        if (!inB(nx, ny)) continue;
+        if (isWater(state.biome[idx(nx, ny)])) return true;
+      }
+    }
+    return false;
+  }
+
   findSpawnTile(sp)
   {
-    for (let tries = 0; tries < 300; tries++)
+    const nearWater = SPECIES[sp]?.spawnNearWater === true;
+    const maxTries = nearWater ? 450 : 300;
+    const nearWaterTries = nearWater ? 150 : 0;
+
+    for (let tries = 0; tries < maxTries; tries++)
     {
-      const x = ri(2, state.W - 3), y = ri(2, state.H - 3);
+      const x = ri(2, state.W - 3);
+      const y = ri(2, state.H - 3);
       const b = state.biome[idx(x, y)];
       if (isWater(b)) continue;
       if (b === B.PEAK) continue;
+      if (tries < nearWaterTries && !this.tileHasAdjacentWater(x, y)) continue;
       return { x: x + rf(-0.3, 0.3), y: y + rf(-0.3, 0.3) };
     }
     return null;
@@ -190,7 +213,8 @@ export class CreatureSystem
     const scrubbing = state.scrubActive;
     const t = expSmoothT(scrubbing ? 10 : 16, dt);
     const onGpu = state.simBackend === 'gpu' && state.gpuSimEnabled && !scrubbing;
-    const extrapolateGpu = onGpu && state.speed > 0 && state.gpuDisplayExtrapolate !== false;
+    const extrapolateGpu = onGpu && state.speed > 0 && state.gpuDisplayExtrapolate !== false
+      && !gpuThrottleDisablesExtrapolation();
     const sinceReadback = extrapolateGpu && state.gpuPosSyncAt
       ? (performance.now() - state.gpuPosSyncAt) / 1000
       : 0;
@@ -382,7 +406,7 @@ export class CreatureSystem
 
   wander(c)
   {
-    const canSwim = SPECIES[c.sp].shape === 'bird';
+    const canSwim = speciesCanSwim(SPECIES[c.sp]);
     if (Math.hypot(c.tx - c.x, c.ty - c.y) < 0.6 || rng() < 0.02)
     {
       const t = pickRandomWalkableTile(c.x, c.y, 6, canSwim);
@@ -393,7 +417,7 @@ export class CreatureSystem
 
   moveTowardGoal(c, goalX, goalY, speed, dt, opts = {})
   {
-    const canSwim = SPECIES[c.sp].shape === 'bird';
+    const canSwim = speciesCanSwim(SPECIES[c.sp]);
     const navR = quality.config().navRadius;
     if (c.state === 'thirst' && atWaterEdge(c.x, c.y))
     {

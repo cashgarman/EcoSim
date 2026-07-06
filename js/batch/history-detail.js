@@ -197,6 +197,14 @@ function buildSpeciesBody(body, sp, { summary, speciesSnap, behaviorSnap, specie
     addKvGrid(body, geneRows);
 
     addSubheading(body, 'Life cycle');
+    const traitRows = [];
+    if (speciesSnap.traits && typeof speciesSnap.traits === 'object')
+    {
+      for (const [k, v] of Object.entries(speciesSnap.traits))
+      {
+        traitRows.push([k, formatValue(v)]);
+      }
+    }
     addKvGrid(body, [
       ['Diet', dietLabel(speciesSnap.diet)],
       ['Stock weight', speciesSnap.stockWeight],
@@ -205,6 +213,11 @@ function buildSpeciesBody(body, sp, { summary, speciesSnap, behaviorSnap, specie
       ['Hunts', speciesSnap.hunts?.length ? speciesSnap.hunts.join(', ') : null],
       ['Prey of', speciesSnap.preyOf?.length ? speciesSnap.preyOf.join(', ') : null],
     ]);
+    if (traitRows.length)
+    {
+      addSubheading(body, 'Traits');
+      addKvGrid(body, traitRows);
+    }
   }
 
   if (behaviorSnap)

@@ -83,6 +83,15 @@ const ACTION_TOOLTIPS = {
   Wander: 'Speed multiplier while idle wandering.',
 };
 
+const TRAIT_TOOLTIPS = {
+  herbivore: 'Graze-only diet. Creature ignores prey and seeks vegetation when hungry (diet 0).',
+  carnivore: 'Meat-only diet. Hunts listed prey species; stalks when no prey is visible (diet 1).',
+  omnivore: 'Flexible diet. Hunts when prey is nearby, otherwise grazes (diet 2).',
+  canSwim: 'When wired to sim: may traverse water tiles instead of pathing around lakes and ocean.',
+  canFly: 'When wired to sim: may ignore terrain obstacles and move over land/water at flight speed.',
+  matesForLife: 'When wired to sim: prefers the same partner after first mating and widens mate cooldown pairing.',
+};
+
 export function getSimFieldTooltip(name)
 {
   return SIM_FIELD_TOOLTIPS[name] || '';
@@ -106,6 +115,11 @@ export function getBalanceThresholdTooltip(key)
 export function getBalanceActionTooltip(key)
 {
   return ACTION_TOOLTIPS[key] || `Movement speed multiplier for the ${key} behavior action. 1 = default, <1 slower, >1 faster.`;
+}
+
+export function getBalanceTraitTooltip(key)
+{
+  return TRAIT_TOOLTIPS[key] || '';
 }
 
 const VIEWPORT_PAD = 8;

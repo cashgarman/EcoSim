@@ -88,6 +88,7 @@ export const state = {
   gpuSimLastReadbackAt: 0,
   gpuPosSyncAt: 0,
   gpuDisplayExtrapolate: true,
+  gpuThrottleLevel: 0,
   gpuSimDirtyFromCpu: false,
   gpuSimInitReason: '',
   gpuSimMirror: [],

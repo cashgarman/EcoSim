@@ -65,6 +65,11 @@
   .topbar-row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
   .topbar-row .stat { display:flex; gap:5px; align-items:center; color:var(--gold); }
   .topbar-row .stat span { color:var(--text); }
+  .gpu-throttlectl select {
+    font-family:inherit; font-size:calc(6px * var(--text-scale)); color:var(--text);
+    background:var(--panel-darker); border:2px solid var(--edge); border-radius:4px;
+    min-height:calc(22px * var(--text-scale)); padding:4px 6px 3px; max-width:9em;
+  }
   .topbar-row .div { width:2px; height:14px; background:var(--edge); flex:none; }
   .topbar-sub { font-size:calc(6px * var(--text-scale)); color:var(--dim); line-height:1.6; }
 
@@ -139,6 +144,29 @@
     background:rgba(0,0,0,.14);
   }
   .panel-head h2 { font-size:calc(10px * var(--text-scale)); color:var(--gold); }
+  .panel-head-sub {
+    display:block; font-size:calc(6px * var(--text-scale)); color:var(--dim);
+    margin-top:2px; font-weight:400;
+  }
+  .panel-head-campaign .panel-head-row {
+    display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+  }
+  .panel-head-campaign h2 { flex:none; margin:0; }
+  .campaign-fuzz-progress {
+    flex:1; min-width:140px; display:flex; flex-direction:column; gap:4px;
+  }
+  .campaign-fuzz-progress.hidden { display:none !important; }
+  .campaign-fuzz-progress-text {
+    font-size:calc(5px * var(--text-scale)); color:var(--dim); text-align:right; line-height:1.4;
+  }
+  .campaign-fuzz-progress-track {
+    height:calc(10px * var(--text-scale)); background:var(--panel-darker);
+    border:2px solid var(--edge); border-radius:3px; overflow:hidden;
+  }
+  .campaign-fuzz-progress-fill {
+    height:100%; width:0%; background:linear-gradient(90deg, var(--gold), #c89428);
+    transition:width 0.12s ease-out;
+  }
   .panel-body { font-size:calc(7px * var(--text-scale)); }
 
   .field { margin-bottom:8px; }
@@ -249,12 +277,113 @@
     margin-bottom:8px; padding:6px 8px; border:1px solid var(--gold); border-radius:4px;
     font-size:calc(6px * var(--text-scale)); color:var(--gold); background:rgba(216,194,58,.08);
   }
+  .balance-designer-split {
+    display:grid; grid-template-columns:minmax(0, 1fr) minmax(0, 1fr); gap:8px;
+    min-height:0; margin-top:4px;
+  }
+  .balance-pane {
+    min-width:0; max-height:min(52vh, 520px); overflow-y:auto; overflow-x:hidden;
+    border:2px solid var(--edge); border-radius:4px; background:rgba(0,0,0,.1); padding:6px;
+  }
+  .balance-pane-title {
+    font-size:calc(7px * var(--text-scale)); color:var(--gold); margin:0 0 6px;
+    text-shadow:1px 1px 0 #000;
+  }
+  .balance-species-picker-label {
+    font-size:calc(6px * var(--text-scale)); color:var(--dim); margin:8px 0 4px;
+  }
+  .balance-species-picker {
+    display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:4px;
+  }
+  .balance-species-chip {
+    display:flex; align-items:center; gap:4px; padding:4px 6px;
+    background:var(--panel-darker); border:2px solid var(--edge); border-radius:4px;
+    cursor:pointer; font-size:calc(6px * var(--text-scale)); color:var(--text);
+    text-align:left; font-family:inherit; min-width:0;
+  }
+  .balance-species-chip:hover { border-color:var(--gold); }
+  .balance-species-chip.active {
+    outline:2px solid var(--gold); outline-offset:-2px; color:var(--gold);
+  }
+  .balance-species-chip.changed { background:rgba(216,194,58,.1); }
+  .balance-designer-head {
+    display:flex; align-items:center; gap:6px; margin-bottom:8px;
+    font-size:calc(8px * var(--text-scale)); color:var(--gold);
+  }
+  .balance-designer-section { margin-bottom:8px; }
+  .balance-designer-section h4 {
+    font-size:calc(6px * var(--text-scale)); color:var(--dim); margin:0 0 4px; font-weight:400;
+  }
+  .balance-diet-group {
+    display:flex; flex-wrap:wrap; gap:4px 8px; margin-bottom:4px;
+  }
+  .balance-diet-option {
+    display:inline-flex; align-items:center; gap:4px;
+    font-size:calc(6px * var(--text-scale)); color:var(--text); cursor:pointer;
+  }
+  .balance-diet-option input { margin:0; accent-color:var(--gold); }
+  .balance-trait-grid {
+    display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:4px;
+  }
+  .balance-trait-cell {
+    display:flex; align-items:center; gap:4px; padding:3px 4px;
+    background:rgba(20,26,16,.85); border:2px solid var(--edge); border-radius:3px;
+    font-size:calc(6px * var(--text-scale)); color:var(--text); cursor:pointer; min-width:0;
+  }
+  .balance-trait-cell.changed { outline:1px solid var(--gold); outline-offset:-1px; }
+  .balance-trait-cell input { margin:0; flex:none; accent-color:var(--gold); }
+  .balance-trait-cell span { flex:1; min-width:0; line-height:1.3; }
+  #balance-panel details.balance-pane-details { margin-bottom:6px; }
+
+  .balance-tabs {
+    display:flex; gap:4px; margin-bottom:8px;
+  }
+  .balance-tabs .balance-tab {
+    flex:1; padding:5px 6px; font-size:calc(6px * var(--text-scale));
+  }
+  .balance-tabs .balance-tab.active {
+    outline:2px solid var(--gold); background:var(--panel-darker);
+  }
+  .balance-tab-panel.hidden { display:none !important; }
+  .balance-runs-host {
+    display:flex; flex-direction:column; min-height:0; flex:1;
+  }
+  .balance-runs-toolbar {
+    display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-bottom:8px; flex:none;
+  }
+  .balance-runs-toolbar .btn { font-size:calc(6px * var(--text-scale)); padding:5px 6px; }
+  .balance-runs-selection-count {
+    font-size:calc(6px * var(--text-scale)); color:var(--dim); margin-left:auto;
+  }
+  .balance-runs-table-wrap {
+    flex:1; min-height:min(280px, 40vh); max-height:min(52vh, 520px);
+  }
+  .balance-runs-actions { display:flex; flex-wrap:wrap; gap:4px; }
+  .balance-runs-actions .btn { font-size:calc(5px * var(--text-scale)); padding:3px 5px; }
+  .balance-runs-empty {
+    padding:12px 8px; color:var(--dim); font-style:normal; text-align:center;
+  }
+  #balance-runs-table .history-check { width:12px; height:12px; cursor:pointer; accent-color:var(--gold); }
+  #balance-runs-table th.history-check-col, #balance-runs-table td.history-check-col { width:22px; text-align:center; }
+  #balance-panel.panel-scroll-body,
+  #balance-panel { display:flex; flex-direction:column; min-height:0; }
 
   /* campaign + history tables */
   .batch-table-wrap {
     overflow:auto; background:var(--panel-darker); border:2px solid var(--edge); border-radius:4px;
   }
-  #campaign-results { min-height:0; overflow:auto; }
+  .main-col.resize-stack { height:100%; }
+  .panel-campaign { flex:1; min-height:0; }
+  .panel-campaign .panel-body {
+    display:flex; flex-direction:column; min-height:0;
+  }
+  #campaign-results {
+    flex:1; min-height:0; overflow:auto;
+    display:flex; flex-direction:column;
+  }
+  #campaign-results .empty { flex:none; }
+  #campaign-results .batch-table-wrap,
+  #campaign-results .campaign-table-wrap { flex:1; min-height:0; }
   table { width:100%; border-collapse:collapse; font-size:calc(6px * var(--text-scale)); }
   th, td { text-align:left; padding:5px 6px; border-bottom:2px solid var(--edge); vertical-align:middle; }
   th { color:var(--dim); font-weight:400; }
@@ -299,8 +428,10 @@
   .history-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-bottom:8px; flex:none; }
   .history-toolbar .btn { font-size:calc(6px * var(--text-scale)); padding:5px 6px; }
   .history-toolbar .history-selection-count { font-size:calc(6px * var(--text-scale)); color:var(--dim); margin-left:auto; }
-  #history-table .history-check { width:12px; height:12px; cursor:pointer; accent-color:var(--gold); }
-  #history-table th.history-check-col, #history-table td.history-check-col { width:22px; text-align:center; }
+  #history-table .history-check,
+  #balance-runs-table .history-check { width:12px; height:12px; cursor:pointer; accent-color:var(--gold); }
+  #history-table th.history-check-col, #history-table td.history-check-col,
+  #balance-runs-table th.history-check-col, #balance-runs-table td.history-check-col { width:22px; text-align:center; }
 
   #campaign-results h3 { font-size:calc(7px * var(--text-scale)); color:var(--gold); margin-bottom:6px; }
   #campaign-results .empty { font-size:calc(6px * var(--text-scale)); color:var(--dim); }
@@ -364,6 +495,11 @@
 <div id="batch-topbar" class="stone">
   <div class="topbar-row">
     <div class="stat">⚗ <span>BATCH RUNNER</span></div>
+    <div class="div"></div>
+    <div class="stat gpu-throttlectl" title="Reduce GPU readback/render load to prevent UI freezes (shared with sandbox)">
+      <span>GPU</span>
+      <select data-gpu-throttle-select aria-label="GPU throttle level"></select>
+    </div>
     <div class="div"></div>
     <a href="wildlands-ecosim.html" class="btn">Open Game</a>
   </div>
@@ -474,7 +610,7 @@
 
   <div class="main-col resize-stack" data-resize-stack="main">
     <section class="stone ui-panel panel-balance resize-pane">
-      <div class="panel-head"><h2>Balance Tuning</h2></div>
+      <div class="panel-head"><h2>Balance Tuning</h2><span class="panel-head-sub">Designer · Saved Runs</span></div>
       <div class="panel-body panel-scroll">
         <div id="balance-panel"></div>
       </div>
@@ -483,40 +619,26 @@
     <div class="resize-handle resize-handle-h" role="separator" aria-orientation="horizontal" aria-label="Resize Balance and Campaign panels" tabindex="0"></div>
 
     <section class="stone ui-panel panel-campaign resize-pane">
-      <div class="panel-head"><h2>Campaign Results</h2></div>
+      <div class="panel-head panel-head-campaign">
+        <div class="panel-head-row">
+          <h2>Campaign Results</h2>
+          <div id="campaign-fuzz-progress" class="campaign-fuzz-progress hidden" aria-hidden="true">
+            <div id="campaign-fuzz-progress-text" class="campaign-fuzz-progress-text"></div>
+            <div
+              id="campaign-fuzz-progress-track"
+              class="campaign-fuzz-progress-track"
+              role="progressbar"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              aria-valuenow="0"
+            >
+              <div id="campaign-fuzz-progress-fill" class="campaign-fuzz-progress-fill"></div>
+            </div>
+          </div>
+        </div>
+      </div>
       <div class="panel-body panel-scroll">
         <div id="campaign-results"><p class="empty">Fuzz campaign rankings appear here.</p></div>
-      </div>
-    </section>
-
-    <div class="resize-handle resize-handle-h" role="separator" aria-orientation="horizontal" aria-label="Resize Campaign and History panels" tabindex="0"></div>
-
-    <section class="stone ui-panel panel-history resize-pane">
-      <div class="panel-head"><h2>History</h2></div>
-      <div class="panel-body panel-stack">
-        <div class="history-toolbar">
-          <button type="button" id="history-archive-btn" class="btn" disabled>Archive</button>
-          <button type="button" id="history-delete-btn" class="btn danger" disabled>Delete</button>
-          <button type="button" id="export-csv-btn" class="btn">Export CSV</button>
-          <span id="history-selection-count" class="history-selection-count">0 selected</span>
-        </div>
-        <div class="batch-table-wrap">
-          <table id="history-table">
-            <thead><tr>
-              <th class="history-check-col"><input type="checkbox" id="history-select-all" class="history-check" aria-label="Select all history entries"></th>
-              <th aria-label="Expand"></th>
-              <th><button type="button" class="sort-header" data-sort="runId">Run ID <span class="sort-indicator"></span></button></th>
-              <th><button type="button" class="sort-header active" data-sort="time">Time <span class="sort-indicator">↓</span></button></th>
-              <th><button type="button" class="sort-header" data-sort="outcome">Outcome <span class="sort-indicator"></span></button></th>
-              <th><button type="button" class="sort-header" data-sort="pop">Pop <span class="sort-indicator"></span></button></th>
-              <th><button type="button" class="sort-header" data-sort="gen">Gen <span class="sort-indicator"></span></button></th>
-              <th><button type="button" class="sort-header" data-sort="sim">Sim <span class="sort-indicator"></span></button></th>
-              <th><button type="button" class="sort-header" data-sort="wall">Wall <span class="sort-indicator"></span></button></th>
-              <th></th>
-            </tr></thead>
-            <tbody></tbody>
-          </table>
-        </div>
       </div>
     </section>
   </div>

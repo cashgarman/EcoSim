@@ -53,6 +53,11 @@
   #topbar .div{width:2px;height:15px;background:var(--edge);}
   #topbar .stat-ms{color:var(--dim);font-size:calc(6px * var(--text-scale));}
   .speedctl{display:flex;align-items:center;gap:6px;padding:0 2px;}
+  .gpu-throttlectl select{
+    font-family:inherit;font-size:calc(6px * var(--text-scale));color:var(--text);
+    background:var(--panel-darker);border:2px solid var(--edge);border-radius:4px;
+    min-height:calc(22px * var(--text-scale));padding:4px 6px 3px;max-width:9em;
+  }
   #speed-slider{width:130px;height:12px;}
   #speed-label{min-width:26px;text-align:center;color:var(--gold);}
   .top-scrubctl{width:100%;justify-content:center;}
@@ -496,6 +501,10 @@
       <span class="stat">⏱</span>
       <input type="range" id="speed-slider" min="0" max="10" step="1" value="1" title="Simulation speed">
       <span id="speed-label">1×</span>
+    </div>
+    <div class="speedctl gpu-throttlectl" title="Reduce GPU readback/render load to prevent UI freezes (shared with Test Runner)">
+      <span class="stat">🎮</span>
+      <select data-gpu-throttle-select aria-label="GPU throttle level"></select>
     </div>
     <button class="btn" id="follow-btn" title="Follow selected animal (F or double-click)">Follow</button>
     <button class="btn" id="profiler-toggle-btn" type="button" title="Frame profiler (F2)">📊 Profiler</button>

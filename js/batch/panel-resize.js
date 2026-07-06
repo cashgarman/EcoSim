@@ -7,7 +7,7 @@ const MAX_SIDEBAR_RATIO = 0.48;
 const DEFAULTS = {
   sidebarWidth: 300,
   sidebar: [1, 1, 0.4],
-  main: [1.6, 0.35, 0.55],
+  main: [0.55, 0.45],
 };
 
 function loadLayout()
@@ -30,7 +30,20 @@ function loadLayout()
 
 function normalizeFrs(value, fallback)
 {
-  if (!Array.isArray(value) || value.length !== fallback.length) return [...fallback];
+  if (!Array.isArray(value) || value.length !== fallback.length)
+  {
+    // Migrate legacy 3-pane main stack (balance / campaign / history) → 2-pane
+    if (fallback.length === 2 && value.length === 3)
+    {
+      const merged = [
+        Math.max(MIN_FR, Number(value[0]) || MIN_FR),
+        Math.max(MIN_FR, (Number(value[1]) || MIN_FR) + (Number(value[2]) || MIN_FR)),
+      ];
+      const sum = merged.reduce((a, b) => a + b, 0);
+      return merged.map(v => v / sum);
+    }
+    return [...fallback];
+  }
   const out = value.map(v => Math.max(MIN_FR, Number(v) || MIN_FR));
   const sum = out.reduce((a, b) => a + b, 0);
   return out.map(v => v / sum);
@@ -164,4 +177,15 @@ export function initPanelResize()
   if (sidebarStack) initVerticalStack(sidebarStack, 'sidebar', layout);
   if (mainStack) initVerticalStack(mainStack, 'main', layout);
   if (sidebarHandle) initSidebarWidthHandle(sidebarHandle, layout);
+
+  // Persist migrated 2-pane main layout if upgrading from legacy 3-pane storage
+  try
+  {
+    const raw = JSON.parse(localStorage.getItem(LAYOUT_KEY));
+    if (raw?.main?.length === 3)
+    {
+      saveLayout(layout);
+    }
+  }
+  catch { /* ignore */ }
 }

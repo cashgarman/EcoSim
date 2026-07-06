@@ -1,0 +1,9 @@
+{
+  "extends": "omnivore",
+  "thresholds": {
+    "restEnergy": 14
+  },
+  "actions": {
+    "Wander": { "speedMult": 0.6 }
+  }
+}

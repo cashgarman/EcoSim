@@ -1,0 +1,9 @@
+{
+  "extends": "herbivore_prey",
+  "thresholds": {
+    "restEnergy": 22
+  },
+  "actions": {
+    "Flee": { "speedMult": 1.4 }
+  }
+}

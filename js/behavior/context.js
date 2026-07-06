@@ -1,4 +1,4 @@
-import { SPECIES, SPECIES_INDEX } from '../data.js';
+import { SPECIES, SPECIES_INDEX, speciesCanSwim } from '../data.js';
 import { state } from '../state.js';
 
 export function buildBehaviorContext(creature, creatureSystem)
@@ -73,7 +73,7 @@ export function buildBehaviorContext(creature, creatureSystem)
     mate,
     mdist: mdist2 < 1e18 ? Math.sqrt(mdist2) : 1e9,
     senseR,
-    canSwim: S.shape === 'bird',
+    canSwim: speciesCanSwim(S),
     isNight: state.isNight,
     prevState: creature.state,
   };

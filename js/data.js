@@ -143,6 +143,11 @@ export function sexLabel(sex)
   return sex === 'male' ? 'Male' : 'Female';
 }
 
+export function speciesCanSwim(s)
+{
+  return s?.canSwim === true || s?.shape === 'bird';
+}
+
 function speciesMask(speciesList)
 {
   let mask = 0;
@@ -166,7 +171,7 @@ export function buildGpuSpeciesTables()
     const s = SPECIES[sp];
     const huntsMask = speciesMask(s.hunts);
     const preyMask = speciesMask(s.preyOf);
-    const canSwim = s.shape === 'bird' ? 1 : 0;
+    const canSwim = speciesCanSwim(s) ? 1 : 0;
     table[i * stride + 0] = s.diet;
     table[i * stride + 1] = huntsMask;
     table[i * stride + 2] = preyMask;

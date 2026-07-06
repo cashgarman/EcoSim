@@ -24,6 +24,8 @@ import { effectiveSnapshotIntervalSec } from './perf-policy.js';
 import { perfProfiler } from './perf-profiler.js';
 import { initSpeciesStats } from './species-stats.js';
 import { applyPanelLayout } from './panel-layout.js';
+import { initGpuThrottleUi } from './gpu-throttle-ui.js';
+import { shouldSkipGpuRenderFrame } from './gpu-throttle.js';
 import {
   loadBalanceFromStorage,
   applyBalanceOverrides,
@@ -92,6 +94,7 @@ export class GameApp
     ui.initProfilerPanel();
     ui.initTimelineDbViewer();
     ui.initTimeScrubber();
+    initGpuThrottleUi();
     timeScrub.setAfterRestoreCallback(p =>
     {
       simulation.updateDayNight();
@@ -425,8 +428,11 @@ export class GameApp
       if (state.ready)
       {
         const skipDecimationForWebGpu = state.rendererBackend === 'webgpu' && !state.scrubActive;
+        const throttleSkip = skipDecimationForWebGpu && shouldSkipGpuRenderFrame(quality.frameCounter);
         const shouldRender = state.scrubActive
           ? true
+          : throttleSkip
+            ? false
           : skipDecimationForWebGpu
             ? true
             : (quality.frameCounter % quality.renderDecimation) === 0;

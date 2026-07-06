@@ -29,7 +29,7 @@ EcoSim/
 │   ├── time-scrub.test.js  # Snapshot/scrub unit tests (console)
 │   └── timeline-viewport.test.js # Viewport zoom/pan unit tests (console)
 ├── js/
-│   ├── batch/              # Batch harness, metrics, fuzzer, balance UI, history/campaign detail
+│   ├── batch/              # Batch harness, metrics, fuzzer, balance UI, saved-runs table, campaign detail
 │   ├── app.js              # GameApp boot + main loop
 │   ├── state.js            # Shared mutable state + grid helpers
 │   ├── config.js           # loadTimelineConfig() from JSON
@@ -66,6 +66,8 @@ EcoSim/
 │   ├── input.js            # InputManager — canvas/panel/keyboard input
 │   ├── tools.js            # Editor tools (spawn, rain, meteor, cull)
 │   ├── fx.js               # Effects — spark/rain particles
+│   ├── gpu-throttle.js     # Global GPU throttle presets (readback/render pacing)
+│   ├── gpu-throttle-ui.js  # Shared top-bar throttle control
 │   ├── gpu/
 │   │   └── simulation-backend.js # GpuSimulationBackend — compute sim + readback bridge
 │   └── render/
@@ -176,15 +178,17 @@ Sliders in left panel map to these. `SEED` drives `setRngSeed(SEED)` at generati
 
 ### Species (`data/species.json` via [`js/data.js`](js/data.js))
 
-Loaded at boot with `loadSpeciesData()`. Each species entry includes `label`, `emoji`, `diet`, `shape`, `col`, `base` genes, `gestationSec` `[min,max]`, `mateCooldownSec` `[min,max]`, `stockWeight`, plus optional `hunts` / `preyOf`.
+Loaded at boot with `loadSpeciesData()`. Each species entry includes `label`, `emoji`, `diet`, `shape`, `col`, `base` genes, `gestationSec` `[min,max]`, `mateCooldownSec` `[min,max]`, `stockWeight`, plus optional `hunts` / `preyOf`, `canSwim`, and `spawnNearWater`.
 
-Helpers: `sampleGestation(sp)`, `sampleMateCooldown(sp)`, `sexSymbol(sex)`, `sexLabel(sex)`.
+Helpers: `sampleGestation(sp)`, `sampleMateCooldown(sp)`, `sexSymbol(sex)`, `sexLabel(sex)`, `speciesCanSwim(s)` (`canSwim: true` or `shape: bird`).
 
 | Key | Diet | Hunts | Prey of | Shape |
 |-----|------|-------|---------|-------|
-| rabbit, deer | 0 herbivore | — | fox,wolf / wolf | small/tall |
-| boar | 2 omnivore | — | wolf | stocky |
-| fox, wolf, hawk | 1 carnivore | see data | — | small/tall/bird |
+| rabbit, mouse | 0 herbivore | — | fox,wolf,hawk,owl,bear / fox,hawk,wolf,owl | small |
+| deer, elk | 0 herbivore | — | wolf,bear | tall |
+| beaver | 0 herbivore | — | wolf,bear | stocky (canSwim) |
+| boar, bear | 2 omnivore | see data | wolf,bear / — | stocky |
+| fox, wolf, hawk, owl | 1 carnivore | see data | — | small/tall/bird |
 
 **Diet semantics:** `0` graze only · `1` hunt · `2` graze if no prey, else hunt/search
 
@@ -768,7 +772,7 @@ Headless balance/ecology testing without render or timeline overhead.
 
 | Item | Value |
 |------|-------|
-| UI | [`batch-test.html`](batch-test.html) — resizable sidebar, balance overrides panel, campaign/history detail views |
+| UI | [`batch-test.html`](batch-test.html) — resizable sidebar, Balance Tuning (Designer + **Saved Runs** tab), campaign results |
 | Entry | [`js/batch/app.js`](js/batch/app.js) |
 | Harness | [`js/batch/harness.js`](js/batch/harness.js) — CPU/GPU sim fast-forward |
 | GPU setup | [`js/batch/gpu-setup.js`](js/batch/gpu-setup.js) |
@@ -788,6 +792,10 @@ Headless balance/ecology testing without render or timeline overhead.
 **Recommendations workflow:** fuzz completes → campaign panel shows **Recommended balance tweaks** card (confidence, summary, grouped tweak bullets) → **Apply recommended config** writes overrides to balance panel + `localStorage` (`ecosim-batch-balance`) → **Apply & validate** runs a single confirmation batch. Per-trial expanded rows show tweaks vs baseline. Rankings sort by `balanceScore` then stability `score`.
 
 **Balance overrides:** in-memory via [`js/batch/balance-config.js`](js/batch/balance-config.js); hooks in [`js/data.js`](js/data.js) (`applySpeciesOverrides`) and [`js/behavior/loader.js`](js/behavior/loader.js) (`setBehaviorOverrides`, `recompileAllBehaviors`). Persisted in `localStorage` key `ecosim-batch-balance`. **Sandbox:** [`js/app.js`](js/app.js) loads `?balance=` URL param or localStorage on boot and before each `doGenerate()`; gen panel shows **Balance tuning active** banner with reset ([`js/ui.js`](js/ui.js)).
+
+**Saved Runs tab:** [`js/batch/balance-runs-table.js`](js/batch/balance-runs-table.js) in Balance Tuning panel — sortable table of up to 100 recent batch reports from IndexedDB with global **Rank** (by `balanceScore`), stability/balance scores, expand-to-detail ([`js/batch/history-detail.js`](js/batch/history-detail.js)), **Load config** (switches to Designer tab), archive/delete bulk actions, and CSV export. Replaces the former bottom History panel.
+
+**GPU throttle:** [`js/gpu-throttle.js`](js/gpu-throttle.js) + [`js/gpu-throttle-ui.js`](js/gpu-throttle-ui.js) — top-bar preset (`Off` → `Eco`) persisted in `localStorage` key `ecosim-gpu-throttle`; scales readback intervals ([`perf-policy.js`](js/perf-policy.js)), render skip (sandbox WebGPU), quality tier floor, batch GPU sync cadence ([`js/batch/harness.js`](js/batch/harness.js)), and optional display extrapolation off at Heavy/Eco.
 
 ---
 

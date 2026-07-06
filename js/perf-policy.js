@@ -1,4 +1,5 @@
 import { state } from './state.js';
+import { gpuThrottleReadbackMul } from './gpu-throttle.js';
 
 const MILESTONE_EVENT_KINDS = new Set([
   'appeared',
@@ -38,7 +39,8 @@ export function effectiveReadbackEveryMs(baseMs)
   const speed = Math.max(1, state.speed || 1);
   const tier = state.gpuTelemetry?.qualityTier ?? 0;
   const tierMul = tier >= 3 ? 1.8 : tier >= 2 ? 1.35 : 1;
-  return baseMs * Math.max(1, speed / 3) * tierMul;
+  const throttleMul = gpuThrottleReadbackMul();
+  return baseMs * Math.max(1, speed / 3) * tierMul * throttleMul;
 }
 
 export function effectiveScrubTickRefreshMs()

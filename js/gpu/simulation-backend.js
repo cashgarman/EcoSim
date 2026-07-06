@@ -5,6 +5,7 @@ import { quality } from '../render/quality.js';
 import { lifeStory } from '../life-story.js';
 import { refineDeathCause, inferKillerId } from '../creature-notify.js';
 import { effectiveReadbackEveryMs } from '../perf-policy.js';
+import { gpuThrottleReadbackTickMod } from '../gpu-throttle.js';
 import { perfProfiler } from '../perf-profiler.js';
 
 const CELL_CAP = 64;
@@ -1274,7 +1275,8 @@ export class GpuSimulationBackend
     if (now - state.gpuSimLastReadbackAt < this.creatureReadbackIntervalMs()) return false;
     if (state.selected && !state.selected.dead) return true;
     if (state.followSelected) return true;
-    return (this.tickCounter % 30) === 0;
+    const mod = gpuThrottleReadbackTickMod();
+    return (this.tickCounter % mod) === 0;
   }
 
   recoverStalledReadback(now)

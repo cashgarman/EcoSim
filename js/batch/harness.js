@@ -17,6 +17,7 @@ import {
   syncBatchGpuState,
   teardownBatchGpu,
 } from './gpu-setup.js';
+import { batchGpuSyncEveryTicks } from '../gpu-throttle.js';
 
 export class BatchHarness
 {
@@ -28,6 +29,16 @@ export class BatchHarness
     this._abort = false;
     this._gpuRequested = false;
     this._gpuFailReason = null;
+    this._ticksSinceGpuSync = 0;
+  }
+
+  async maybeSyncGpuMetrics(force = false)
+  {
+    if (!state.gpuSimEnabled) return;
+    this._ticksSinceGpuSync++;
+    if (!force && this._ticksSinceGpuSync < batchGpuSyncEveryTicks()) return;
+    await this.syncGpuMetrics();
+    this._ticksSinceGpuSync = 0;
   }
 
   abort()
@@ -130,6 +141,7 @@ export class BatchHarness
 
     let ticksSinceYield = 0;
     const yieldEvery = onGpu ? 20 : 40;
+    this._ticksSinceGpuSync = 0;
 
     while (state.day < targetDays && !this._abort)
     {
@@ -137,7 +149,14 @@ export class BatchHarness
       simulation.tick(tickDt);
       state.day = Math.floor(state.tGlobal / 40);
 
-      if (onGpu) await this.syncGpuMetrics();
+      const willSparseSample = sparseMode && this.metrics.shouldSampleSparse(state.day, targetDays);
+      let willRegularSample = false;
+      if (!sparseMode)
+      {
+        const last = this.metrics.samples[this.metrics.samples.length - 1];
+        willRegularSample = !last || state.day - last.day >= sampleEveryDays;
+      }
+      await this.maybeSyncGpuMetrics(willSparseSample || willRegularSample);
 
       if (sparseMode)
       {
@@ -181,7 +200,7 @@ export class BatchHarness
       }
     }
 
-    if (onGpu) await this.syncGpuMetrics();
+    if (onGpu) await this.maybeSyncGpuMetrics(true);
     this.metrics.captureSample(true);
     const earlyStop = earlyStopDay != null && state.day < targetDays && this.metrics.aliveCounts().totalAlive === 0;
     const timedOut = performance.now() - this.metrics.wallStart > maxWallMs && state.day < targetDays;

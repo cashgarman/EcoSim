@@ -24,7 +24,21 @@ import {
   getBalanceSpeciesFieldTooltip,
   getBalanceThresholdTooltip,
   getBalanceActionTooltip,
+  getBalanceTraitTooltip,
 } from './field-help.js';
+import {
+  BOOLEAN_TRAITS,
+  DIET_OPTIONS,
+  getEffectiveDiet,
+  getEffectiveTraits,
+  loadSelectedSpecies,
+  saveSelectedSpecies,
+  setDietOverride,
+  setTraitOverride,
+  speciesHasDesignerOverrides,
+  isTraitChanged,
+  isDietChanged,
+} from './species-traits.js';
 
 export class BalanceUi
 {
@@ -36,7 +50,30 @@ export class BalanceUi
       species: getBaseSpeciesData(),
       library: getBehaviorLibraryDefaults(),
     };
+    this.selectedSpecies = loadSelectedSpecies(SP_KEYS[0] || null);
+    this.activeTab = 'designer';
     this._onChange = null;
+    this._shellBuilt = false;
+    this._designerRoot = null;
+    this._runsRoot = null;
+    this._runsTable = null;
+  }
+
+  setRunsTable(table)
+  {
+    this._runsTable = table;
+  }
+
+  getRunsRoot()
+  {
+    return this._runsRoot;
+  }
+
+  showTab(tab)
+  {
+    if (tab !== 'designer' && tab !== 'runs') return;
+    this.activeTab = tab;
+    this._updateTabVisibility();
   }
 
   onChange(fn)
@@ -96,7 +133,23 @@ export class BalanceUi
     {
       return this.overrides.behaviorSpeciesOverrides?.[sp]?.actions?.[key]?.speedMult !== undefined;
     }
+    if (category === 'speciesTrait')
+    {
+      return isTraitChanged(sp, key, this.overrides);
+    }
+    if (category === 'speciesDiet')
+    {
+      return isDietChanged(sp, this.overrides);
+    }
     return false;
+  }
+
+  selectSpecies(sp)
+  {
+    if (!SPECIES[sp]) return;
+    this.selectedSpecies = sp;
+    saveSelectedSpecies(sp);
+    this.render();
   }
 
   _valueChanged(cur, defaultVal)
@@ -113,27 +166,130 @@ export class BalanceUi
     return this.defaults.species?.[sp] || SPECIES[sp];
   }
 
-  render()
+  _buildShell()
   {
-    if (!this.root) return;
     this.root.innerHTML = '';
+
+    const tabs = document.createElement('div');
+    tabs.className = 'balance-tabs';
+    const designerTab = document.createElement('button');
+    designerTab.type = 'button';
+    designerTab.className = 'btn balance-tab active';
+    designerTab.dataset.balanceTab = 'designer';
+    designerTab.textContent = 'Designer';
+    designerTab.addEventListener('click', () => this.showTab('designer'));
+
+    const runsTab = document.createElement('button');
+    runsTab.type = 'button';
+    runsTab.className = 'btn balance-tab';
+    runsTab.dataset.balanceTab = 'runs';
+    runsTab.textContent = 'Saved Runs';
+    runsTab.addEventListener('click', () => this.showTab('runs'));
+
+    tabs.appendChild(designerTab);
+    tabs.appendChild(runsTab);
+    this.root.appendChild(tabs);
+    this._tabButtons = { designer: designerTab, runs: runsTab };
+
+    this._designerRoot = document.createElement('div');
+    this._designerRoot.id = 'balance-designer-root';
+    this._designerRoot.className = 'balance-tab-panel';
+    this.root.appendChild(this._designerRoot);
+
+    this._runsRoot = document.createElement('div');
+    this._runsRoot.id = 'balance-runs-root';
+    this._runsRoot.className = 'balance-tab-panel hidden';
+    this.root.appendChild(this._runsRoot);
+
+    this._shellBuilt = true;
+  }
+
+  _updateTabVisibility()
+  {
+    if (!this._tabButtons) return;
+    const isDesigner = this.activeTab === 'designer';
+    this._tabButtons.designer.classList.toggle('active', isDesigner);
+    this._tabButtons.runs.classList.toggle('active', !isDesigner);
+    if (this._designerRoot) this._designerRoot.classList.toggle('hidden', !isDesigner);
+    if (this._runsRoot) this._runsRoot.classList.toggle('hidden', isDesigner);
+  }
+
+  _renderDesignerContent()
+  {
+    if (!this._designerRoot) return;
+    this._designerRoot.innerHTML = '';
+
+    if (!this.selectedSpecies || !SPECIES[this.selectedSpecies])
+    {
+      this.selectedSpecies = SP_KEYS[0] || null;
+    }
 
     if (hasActiveOverrides(this.overrides))
     {
       const banner = document.createElement('p');
       banner.className = 'balance-active-banner';
       const nSp = Object.keys(this.overrides.speciesOverrides || {}).length;
-      const nLib = Object.keys(this.overrides.behaviorLibraryOverrides || {}).length ? 1 : 0;
+      const nLib = Object.keys(this.overrides.behaviorLibraryOverrides?.thresholds || {}).length
+        || Object.keys(this.overrides.behaviorLibraryOverrides?.actions || {}).length ? 1 : 0;
       const nBehSp = Object.keys(this.overrides.behaviorSpeciesOverrides || {}).length;
       banner.textContent = `Active tuning profile — ${nSp} species, ${nLib ? 'global behavior, ' : ''}${nBehSp} behavior overrides`;
-      this.root.appendChild(banner);
+      this._designerRoot.appendChild(banner);
     }
 
+    const tools = document.createElement('div');
+    tools.className = 'balance-tools';
+    const copyBtn = document.createElement('button');
+    copyBtn.type = 'button';
+    copyBtn.className = 'btn';
+    copyBtn.textContent = 'Copy overrides JSON';
+    copyBtn.addEventListener('click', () =>
+    {
+      navigator.clipboard.writeText(JSON.stringify(this.overrides, null, 2));
+    });
+    const resetBtn = document.createElement('button');
+    resetBtn.type = 'button';
+    resetBtn.className = 'btn';
+    resetBtn.textContent = 'Reset to defaults';
+    resetBtn.addEventListener('click', () => this.resetDefaults());
+    tools.appendChild(copyBtn);
+    tools.appendChild(resetBtn);
+    this._designerRoot.appendChild(tools);
+
+    const split = document.createElement('div');
+    split.className = 'balance-designer-split';
+    split.appendChild(this._renderLeftPane());
+    split.appendChild(this._renderRightPane());
+    this._designerRoot.appendChild(split);
+  }
+
+  render()
+  {
+    if (!this.root) return;
+    if (!this._shellBuilt)
+    {
+      this._buildShell();
+    }
+    this._updateTabVisibility();
+    this._renderDesignerContent();
+  }
+
+  _renderLeftPane()
+  {
+    const pane = document.createElement('div');
+    pane.className = 'balance-pane';
+
+    const title = document.createElement('p');
+    title.className = 'balance-pane-title';
+    title.textContent = 'Global + species';
+    pane.appendChild(title);
+
+    const lib = this.defaults.library;
+
     const globalSec = document.createElement('details');
+    globalSec.className = 'balance-pane-details';
     globalSec.innerHTML = '<summary>Global Behavior Thresholds</summary>';
     const globalBody = document.createElement('div');
     globalBody.className = 'balance-grid balance-grid-dense';
-    const lib = this.defaults.library;
     if (lib?.thresholds)
     {
       for (const key of getBehaviorThresholdKeys())
@@ -162,9 +318,10 @@ export class BalanceUi
       }
     }
     globalSec.appendChild(globalBody);
-    this.root.appendChild(globalSec);
+    pane.appendChild(globalSec);
 
     const actionsSec = document.createElement('details');
+    actionsSec.className = 'balance-pane-details';
     actionsSec.innerHTML = '<summary>Global Action speedMult</summary>';
     const actionsBody = document.createElement('div');
     actionsBody.className = 'balance-grid balance-grid-dense';
@@ -191,146 +348,264 @@ export class BalanceUi
       ));
     }
     actionsSec.appendChild(actionsBody);
-    this.root.appendChild(actionsSec);
+    pane.appendChild(actionsSec);
 
-    const speciesSec = document.createElement('details');
-    speciesSec.open = true;
-    speciesSec.innerHTML = '<summary>Species Stats</summary>';
+    const pickerLabel = document.createElement('p');
+    pickerLabel.className = 'balance-species-picker-label';
+    pickerLabel.textContent = 'Select species';
+    pane.appendChild(pickerLabel);
+
+    const picker = document.createElement('div');
+    picker.className = 'balance-species-picker';
     for (const sp of SP_KEYS)
     {
-      const det = document.createElement('details');
       const S = SPECIES[sp];
-      det.innerHTML = `<summary>${S.emoji} ${S.label}</summary>`;
-      const defSp = this._defaultSpecies(sp);
-      const body = document.createElement('div');
-      body.className = 'balance-grid balance-grid-species';
-      for (const gene of GENE_KEYS)
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'balance-species-chip';
+      if (sp === this.selectedSpecies) chip.classList.add('active');
+      if (speciesHasDesignerOverrides(sp, this.overrides, this.overrides.behaviorSpeciesOverrides))
       {
-        if (gene === 'hue') continue;
-        const range = GENE_RANGE[gene];
-        const baseVal = defSp.base[gene];
-        const cur = this.overrides.speciesOverrides?.[sp]?.base?.[gene] ?? baseVal;
-        body.appendChild(this._numberRow(
-          `${sp}-${gene}`,
-          GENE_LABEL[gene] || gene,
-          cur,
-          baseVal,
-          range[0],
-          range[1],
-          val =>
-          {
-            if (!this.overrides.speciesOverrides[sp]) this.overrides.speciesOverrides[sp] = { base: {} };
-            if (!this.overrides.speciesOverrides[sp].base) this.overrides.speciesOverrides[sp].base = {};
-            this.overrides.speciesOverrides[sp].base[gene] = val;
-            this.emitChange();
-          },
-          this.isChanged('speciesGene', sp, gene) || this._valueChanged(cur, baseVal),
-          getBalanceGeneTooltip(gene),
-        ));
+        chip.classList.add('changed');
       }
-      body.appendChild(this._rangeRow(`${sp}-gest`, 'gestationSec', sp, 'gestationSec', defSp.gestationSec, 1, 12));
-      body.appendChild(this._rangeRow(`${sp}-mate`, 'mateCooldownSec', sp, 'mateCooldownSec', defSp.mateCooldownSec, 1, 15));
+      chip.innerHTML = `<span>${S.emoji}</span><span>${S.label}</span>`;
+      chip.addEventListener('click', () => this.selectSpecies(sp));
+      picker.appendChild(chip);
+    }
+    pane.appendChild(picker);
+
+    return pane;
+  }
+
+  _renderRightPane()
+  {
+    const pane = document.createElement('div');
+    pane.className = 'balance-pane';
+
+    const sp = this.selectedSpecies;
+    if (!sp || !SPECIES[sp])
+    {
+      const empty = document.createElement('p');
+      empty.className = 'balance-pane-title';
+      empty.textContent = 'Select a species';
+      pane.appendChild(empty);
+      return pane;
+    }
+
+    const S = SPECIES[sp];
+    const head = document.createElement('div');
+    head.className = 'balance-designer-head';
+    head.textContent = `${S.emoji} ${S.label}`;
+    pane.appendChild(head);
+
+    pane.appendChild(this._renderAttributesSection(sp));
+    pane.appendChild(this._renderSpeciesStatsSection(sp));
+    pane.appendChild(this._renderSpeciesBehaviorSection(sp));
+
+    return pane;
+  }
+
+  _renderAttributesSection(sp)
+  {
+    const section = document.createElement('div');
+    section.className = 'balance-designer-section';
+
+    const h = document.createElement('h4');
+    h.textContent = 'Attributes';
+    section.appendChild(h);
+
+    const dietSec = document.createElement('div');
+    dietSec.className = 'balance-diet-group';
+    const effectiveDiet = getEffectiveDiet(sp, this.overrides);
+    const dietChanged = isDietChanged(sp, this.overrides);
+
+    for (const opt of DIET_OPTIONS)
+    {
+      const label = document.createElement('label');
+      label.className = 'balance-diet-option';
+      if (dietChanged) label.style.color = 'var(--gold)';
+      const input = document.createElement('input');
+      input.type = 'radio';
+      input.name = `balance-diet-${sp}`;
+      input.value = String(opt.diet);
+      input.checked = effectiveDiet === opt.diet;
+      input.addEventListener('change', () =>
+      {
+        if (input.checked)
+        {
+          setDietOverride(this.overrides, sp, opt.diet);
+          this.emitChange();
+          this.render();
+        }
+      });
+      label.appendChild(input);
+      const text = document.createElement('span');
+      text.textContent = opt.label;
+      label.appendChild(text);
+      const tip = getBalanceTraitTooltip(opt.key);
+      if (tip) label.title = tip;
+      dietSec.appendChild(label);
+    }
+    section.appendChild(dietSec);
+
+    const traitGrid = document.createElement('div');
+    traitGrid.className = 'balance-trait-grid';
+    const traits = getEffectiveTraits(sp, this.overrides);
+
+    for (const def of BOOLEAN_TRAITS)
+    {
+      const cell = document.createElement('label');
+      cell.className = 'balance-trait-cell';
+      if (isTraitChanged(sp, def.key, this.overrides))
+      {
+        cell.classList.add('changed');
+      }
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.checked = !!traits[def.key];
+      input.addEventListener('change', () =>
+      {
+        setTraitOverride(this.overrides, sp, def.key, input.checked);
+        this.emitChange();
+        this.render();
+      });
+      cell.appendChild(input);
+      const span = document.createElement('span');
+      span.textContent = def.label;
+      cell.appendChild(span);
+      const tip = getBalanceTraitTooltip(def.key);
+      if (tip) cell.title = tip;
+      traitGrid.appendChild(cell);
+    }
+    section.appendChild(traitGrid);
+
+    return section;
+  }
+
+  _renderSpeciesStatsSection(sp)
+  {
+    const section = document.createElement('div');
+    section.className = 'balance-designer-section';
+
+    const h = document.createElement('h4');
+    h.textContent = 'Stats';
+    section.appendChild(h);
+
+    const defSp = this._defaultSpecies(sp);
+    const body = document.createElement('div');
+    body.className = 'balance-grid balance-grid-species';
+
+    for (const gene of GENE_KEYS)
+    {
+      if (gene === 'hue') continue;
+      const range = GENE_RANGE[gene];
+      const baseVal = defSp.base[gene];
+      const cur = this.overrides.speciesOverrides?.[sp]?.base?.[gene] ?? baseVal;
       body.appendChild(this._numberRow(
-        `${sp}-stock`,
-        'stockWeight',
-        this.overrides.speciesOverrides?.[sp]?.stockWeight ?? defSp.stockWeight,
-        defSp.stockWeight,
-        0.01,
-        0.6,
+        `${sp}-${gene}`,
+        GENE_LABEL[gene] || gene,
+        cur,
+        baseVal,
+        range[0],
+        range[1],
         val =>
         {
-          if (!this.overrides.speciesOverrides[sp]) this.overrides.speciesOverrides[sp] = {};
-          this.overrides.speciesOverrides[sp].stockWeight = val;
+          if (!this.overrides.speciesOverrides[sp]) this.overrides.speciesOverrides[sp] = { base: {} };
+          if (!this.overrides.speciesOverrides[sp].base) this.overrides.speciesOverrides[sp].base = {};
+          this.overrides.speciesOverrides[sp].base[gene] = val;
           this.emitChange();
         },
-        this.isChanged('speciesField', sp, 'stockWeight') ||
-          this._valueChanged(this.overrides.speciesOverrides?.[sp]?.stockWeight ?? defSp.stockWeight, defSp.stockWeight),
-        getBalanceSpeciesFieldTooltip('stockWeight'),
+        this.isChanged('speciesGene', sp, gene) || this._valueChanged(cur, baseVal),
+        getBalanceGeneTooltip(gene),
       ));
-      det.appendChild(body);
-      speciesSec.appendChild(det);
     }
-    this.root.appendChild(speciesSec);
+    body.appendChild(this._rangeRow(`${sp}-gest`, 'gestationSec', sp, 'gestationSec', defSp.gestationSec, 1, 12));
+    body.appendChild(this._rangeRow(`${sp}-mate`, 'mateCooldownSec', sp, 'mateCooldownSec', defSp.mateCooldownSec, 1, 15));
+    body.appendChild(this._numberRow(
+      `${sp}-stock`,
+      'stockWeight',
+      this.overrides.speciesOverrides?.[sp]?.stockWeight ?? defSp.stockWeight,
+      defSp.stockWeight,
+      0.01,
+      0.6,
+      val =>
+      {
+        if (!this.overrides.speciesOverrides[sp]) this.overrides.speciesOverrides[sp] = {};
+        this.overrides.speciesOverrides[sp].stockWeight = val;
+        this.emitChange();
+      },
+      this.isChanged('speciesField', sp, 'stockWeight') ||
+        this._valueChanged(this.overrides.speciesOverrides?.[sp]?.stockWeight ?? defSp.stockWeight, defSp.stockWeight),
+      getBalanceSpeciesFieldTooltip('stockWeight'),
+    ));
 
-    const behSec = document.createElement('details');
-    behSec.innerHTML = '<summary>Species Behavior Overrides</summary>';
-    for (const sp of SP_KEYS)
+    section.appendChild(body);
+    return section;
+  }
+
+  _renderSpeciesBehaviorSection(sp)
+  {
+    const section = document.createElement('div');
+    section.className = 'balance-designer-section';
+
+    const h = document.createElement('h4');
+    h.textContent = 'Behavior overrides';
+    section.appendChild(h);
+
+    const body = document.createElement('div');
+    body.className = 'balance-grid balance-grid-species';
+
+    for (const key of getBehaviorThresholdKeys())
     {
-      const det = document.createElement('details');
-      det.innerHTML = `<summary>${SPECIES[sp].label} behavior</summary>`;
-      const body = document.createElement('div');
-      body.className = 'balance-grid balance-grid-species';
-      for (const key of getBehaviorThresholdKeys())
-      {
-        const resolved = SPECIES[sp]?.behaviorConfig?.thresholds?.[key];
-        const cur = this.overrides.behaviorSpeciesOverrides?.[sp]?.thresholds?.[key];
-        if (resolved == null && cur == null) continue;
-        const display = cur ?? resolved;
-        body.appendChild(this._numberRow(
-          `${sp}-bth-${key}`,
-          key,
-          display,
-          resolved,
-          5,
-          95,
-          val =>
-          {
-            if (!this.overrides.behaviorSpeciesOverrides[sp]) this.overrides.behaviorSpeciesOverrides[sp] = {};
-            if (!this.overrides.behaviorSpeciesOverrides[sp].thresholds) this.overrides.behaviorSpeciesOverrides[sp].thresholds = {};
-            this.overrides.behaviorSpeciesOverrides[sp].thresholds[key] = val;
-            this.emitChange();
-          },
-          this.isChanged('speciesBehThreshold', sp, key) || this._valueChanged(display, resolved),
-          getBalanceThresholdTooltip(key),
-        ));
-      }
-      for (const key of getBehaviorActionKeys())
-      {
-        const resolved = SPECIES[sp]?.behaviorConfig?.actions?.[key]?.speedMult;
-        const cur = this.overrides.behaviorSpeciesOverrides?.[sp]?.actions?.[key]?.speedMult;
-        const display = cur ?? resolved;
-        body.appendChild(this._numberRow(
-          `${sp}-bact-${key}`,
-          `${key} speedMult`,
-          display,
-          resolved,
-          0.3,
-          2,
-          val =>
-          {
-            if (!this.overrides.behaviorSpeciesOverrides[sp]) this.overrides.behaviorSpeciesOverrides[sp] = {};
-            if (!this.overrides.behaviorSpeciesOverrides[sp].actions) this.overrides.behaviorSpeciesOverrides[sp].actions = {};
-            if (!this.overrides.behaviorSpeciesOverrides[sp].actions[key]) this.overrides.behaviorSpeciesOverrides[sp].actions[key] = {};
-            this.overrides.behaviorSpeciesOverrides[sp].actions[key].speedMult = val;
-            this.emitChange();
-          },
-          this.isChanged('speciesBehAction', sp, key) || this._valueChanged(display, resolved),
-          getBalanceActionTooltip(key),
-        ));
-      }
-      det.appendChild(body);
-      behSec.appendChild(det);
+      const resolved = SPECIES[sp]?.behaviorConfig?.thresholds?.[key];
+      const cur = this.overrides.behaviorSpeciesOverrides?.[sp]?.thresholds?.[key];
+      if (resolved == null && cur == null) continue;
+      const display = cur ?? resolved;
+      body.appendChild(this._numberRow(
+        `${sp}-bth-${key}`,
+        key,
+        display,
+        resolved,
+        5,
+        95,
+        val =>
+        {
+          if (!this.overrides.behaviorSpeciesOverrides[sp]) this.overrides.behaviorSpeciesOverrides[sp] = {};
+          if (!this.overrides.behaviorSpeciesOverrides[sp].thresholds) this.overrides.behaviorSpeciesOverrides[sp].thresholds = {};
+          this.overrides.behaviorSpeciesOverrides[sp].thresholds[key] = val;
+          this.emitChange();
+        },
+        this.isChanged('speciesBehThreshold', sp, key) || this._valueChanged(display, resolved),
+        getBalanceThresholdTooltip(key),
+      ));
     }
-    this.root.appendChild(behSec);
-
-    const tools = document.createElement('div');
-    tools.className = 'balance-tools';
-    const copyBtn = document.createElement('button');
-    copyBtn.type = 'button';
-    copyBtn.className = 'btn';
-    copyBtn.textContent = 'Copy overrides JSON';
-    copyBtn.addEventListener('click', () =>
+    for (const key of getBehaviorActionKeys())
     {
-      navigator.clipboard.writeText(JSON.stringify(this.overrides, null, 2));
-    });
-    const resetBtn = document.createElement('button');
-    resetBtn.type = 'button';
-    resetBtn.className = 'btn';
-    resetBtn.textContent = 'Reset to defaults';
-    resetBtn.addEventListener('click', () => this.resetDefaults());
-    tools.appendChild(copyBtn);
-    tools.appendChild(resetBtn);
-    this.root.appendChild(tools);
+      const resolved = SPECIES[sp]?.behaviorConfig?.actions?.[key]?.speedMult;
+      const cur = this.overrides.behaviorSpeciesOverrides?.[sp]?.actions?.[key]?.speedMult;
+      const display = cur ?? resolved;
+      body.appendChild(this._numberRow(
+        `${sp}-bact-${key}`,
+        `${key} speedMult`,
+        display,
+        resolved,
+        0.3,
+        2,
+        val =>
+        {
+          if (!this.overrides.behaviorSpeciesOverrides[sp]) this.overrides.behaviorSpeciesOverrides[sp] = {};
+          if (!this.overrides.behaviorSpeciesOverrides[sp].actions) this.overrides.behaviorSpeciesOverrides[sp].actions = {};
+          if (!this.overrides.behaviorSpeciesOverrides[sp].actions[key]) this.overrides.behaviorSpeciesOverrides[sp].actions[key] = {};
+          this.overrides.behaviorSpeciesOverrides[sp].actions[key].speedMult = val;
+          this.emitChange();
+        },
+        this.isChanged('speciesBehAction', sp, key) || this._valueChanged(display, resolved),
+        getBalanceActionTooltip(key),
+      ));
+    }
+
+    section.appendChild(body);
+    return section;
   }
 
   _appendCellHelp(labelRow, tipText)

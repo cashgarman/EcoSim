@@ -32,7 +32,7 @@
       "diet": 0,
       "shape": "small",
       "col": [200, 180, 150],
-      "preyOf": ["fox", "wolf", "hawk"],
+      "preyOf": ["fox", "wolf", "hawk", "owl", "bear"],
       "base": {
         "size": 0.6,
         "speed": 1.6,
@@ -47,7 +47,31 @@
       },
       "gestationSec": [2.5, 3.5],
       "mateCooldownSec": [3, 5],
-      "stockWeight": 0.34
+      "stockWeight": 0.20
+    },
+    "mouse": {
+      "behavior": "mouse",
+      "label": "Mouse",
+      "emoji": "🐭",
+      "diet": 0,
+      "shape": "small",
+      "col": [140, 130, 118],
+      "preyOf": ["fox", "hawk", "wolf", "owl"],
+      "base": {
+        "size": 0.45,
+        "speed": 1.85,
+        "sense": 6,
+        "metab": 1.15,
+        "litter": 4.5,
+        "lifespan": 6,
+        "temp": 0.55,
+        "tol": 0.28,
+        "hue": 28,
+        "agg": 0
+      },
+      "gestationSec": [2.0, 2.8],
+      "mateCooldownSec": [2, 4],
+      "stockWeight": 0.12
     },
     "deer": {
       "behavior": "deer",
@@ -56,7 +80,7 @@
       "diet": 0,
       "shape": "tall",
       "col": [168, 120, 72],
-      "preyOf": ["wolf"],
+      "preyOf": ["wolf", "bear"],
       "base": {
         "size": 1.2,
         "speed": 1.5,
@@ -71,7 +95,57 @@
       },
       "gestationSec": [4.0, 6.0],
       "mateCooldownSec": [4, 7],
-      "stockWeight": 0.22
+      "stockWeight": 0.12
+    },
+    "elk": {
+      "behavior": "elk",
+      "label": "Elk",
+      "emoji": "🫎",
+      "diet": 0,
+      "shape": "tall",
+      "col": [142, 108, 68],
+      "preyOf": ["wolf", "bear"],
+      "base": {
+        "size": 1.45,
+        "speed": 1.35,
+        "sense": 10,
+        "metab": 1.15,
+        "litter": 1.2,
+        "lifespan": 18,
+        "temp": 0.48,
+        "tol": 0.38,
+        "hue": 24,
+        "agg": 0
+      },
+      "gestationSec": [5.0, 7.0],
+      "mateCooldownSec": [5, 8],
+      "stockWeight": 0.08
+    },
+    "beaver": {
+      "behavior": "beaver",
+      "label": "Beaver",
+      "emoji": "🦫",
+      "diet": 0,
+      "shape": "stocky",
+      "canSwim": true,
+      "spawnNearWater": true,
+      "col": [92, 72, 58],
+      "preyOf": ["wolf", "bear"],
+      "base": {
+        "size": 0.95,
+        "speed": 1.05,
+        "sense": 7,
+        "metab": 1.05,
+        "litter": 2.4,
+        "lifespan": 13,
+        "temp": 0.5,
+        "tol": 0.42,
+        "hue": 18,
+        "agg": 0.1
+      },
+      "gestationSec": [3.5, 5.0],
+      "mateCooldownSec": [4, 6],
+      "stockWeight": 0.06
     },
     "boar": {
       "behavior": "boar",
@@ -80,7 +154,7 @@
       "diet": 2,
       "shape": "stocky",
       "col": [110, 86, 72],
-      "preyOf": ["wolf"],
+      "preyOf": ["wolf", "bear"],
       "base": {
         "size": 1.1,
         "speed": 1.1,
@@ -95,7 +169,7 @@
       },
       "gestationSec": [3.5, 5.0],
       "mateCooldownSec": [4, 6],
-      "stockWeight": 0.12
+      "stockWeight": 0.08
     },
     "fox": {
       "behavior": "fox",
@@ -104,7 +178,7 @@
       "diet": 1,
       "shape": "small",
       "col": [214, 110, 50],
-      "hunts": ["rabbit"],
+      "hunts": ["rabbit", "mouse"],
       "base": {
         "size": 0.7,
         "speed": 1.7,
@@ -119,7 +193,7 @@
       },
       "gestationSec": [3.5, 5.5],
       "mateCooldownSec": [6, 10],
-      "stockWeight": 0.12
+      "stockWeight": 0.08
     },
     "wolf": {
       "behavior": "wolf",
@@ -128,7 +202,7 @@
       "diet": 1,
       "shape": "tall",
       "col": [130, 132, 140],
-      "hunts": ["rabbit", "deer", "boar"],
+      "hunts": ["rabbit", "deer", "boar", "elk", "beaver", "mouse"],
       "base": {
         "size": 1.15,
         "speed": 1.55,
@@ -143,7 +217,7 @@
       },
       "gestationSec": [4.0, 6.0],
       "mateCooldownSec": [6, 10],
-      "stockWeight": 0.1
+      "stockWeight": 0.06
     },
     "hawk": {
       "behavior": "hawk",
@@ -152,7 +226,7 @@
       "diet": 1,
       "shape": "bird",
       "col": [150, 110, 70],
-      "hunts": ["rabbit"],
+      "hunts": ["rabbit", "mouse"],
       "base": {
         "size": 0.55,
         "speed": 2.1,
@@ -167,7 +241,55 @@
       },
       "gestationSec": [3.0, 4.5],
       "mateCooldownSec": [6, 10],
-      "stockWeight": 0.1
+      "stockWeight": 0.06
+    },
+    "owl": {
+      "behavior": "owl",
+      "label": "Owl",
+      "emoji": "🦉",
+      "diet": 1,
+      "shape": "bird",
+      "col": [118, 108, 92],
+      "hunts": ["mouse", "rabbit"],
+      "base": {
+        "size": 0.5,
+        "speed": 1.85,
+        "sense": 18,
+        "metab": 0.95,
+        "litter": 1.6,
+        "lifespan": 14,
+        "temp": 0.5,
+        "tol": 0.48,
+        "hue": 32,
+        "agg": 0.72
+      },
+      "gestationSec": [3.0, 4.5],
+      "mateCooldownSec": [6, 10],
+      "stockWeight": 0.07
+    },
+    "bear": {
+      "behavior": "bear",
+      "label": "Bear",
+      "emoji": "🐻",
+      "diet": 2,
+      "shape": "stocky",
+      "col": [98, 78, 58],
+      "hunts": ["rabbit", "deer", "boar", "mouse", "beaver"],
+      "base": {
+        "size": 1.5,
+        "speed": 1.0,
+        "sense": 9,
+        "metab": 1.1,
+        "litter": 1.8,
+        "lifespan": 20,
+        "temp": 0.48,
+        "tol": 0.45,
+        "hue": 16,
+        "agg": 0.55
+      },
+      "gestationSec": [5.0, 7.0],
+      "mateCooldownSec": [8, 12],
+      "stockWeight": 0.07
     }
   }
 }
