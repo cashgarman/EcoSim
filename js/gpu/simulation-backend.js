@@ -1065,6 +1065,34 @@ fn composeRenderData(@builtin(global_invocation_id) gid: vec3<u32>)
 `;
 }
 
+const APPLY_BEHAVIOR_BATCH_SHADER = `
+const CREATURE_STRIDE: u32 = ${CREATURE_STRIDE_VEC4}u;
+
+@group(0) @binding(0) var<storage, read_write> creatures: array<vec4<f32>>;
+@group(0) @binding(1) var<storage, read> behaviorBatch: array<f32>;
+
+@compute @workgroup_size(128)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>)
+{
+  let i = gid.x;
+  let base = i * 4u;
+  if (base + 3u >= arrayLength(&behaviorBatch)) { return; }
+  let tx = behaviorBatch[base + 0u];
+  let ty = behaviorBatch[base + 1u];
+  let targetSlot = behaviorBatch[base + 2u];
+  let stateCode = behaviorBatch[base + 3u];
+  let b = i * CREATURE_STRIDE;
+  var tv = creatures[b + 3u];
+  tv.z = targetSlot;
+  tv.w = stateCode;
+  creatures[b + 3u] = tv;
+  var sv = creatures[b + 6u];
+  sv.x = tx;
+  sv.y = ty;
+  creatures[b + 6u] = sv;
+}
+`;
+
 function createStorageBuffer(device, size, usage)
 {
   return device.createBuffer({ size, usage });
@@ -1201,6 +1229,8 @@ export class GpuSimulationBackend
     this._decisionQuad = new Float32Array(4);
     this._goalPair = new Float32Array(2);
     this._targetPair = new Float32Array(2);
+    this._behaviorBatchCpu = null;
+    this._behaviorBatchCount = 0;
     this._paramsScratch = new Float32Array(PARAM_FLOATS);
     this._readbackBootUntil = 0;
     this._readbackPendingSince = 0;
@@ -1318,6 +1348,19 @@ export class GpuSimulationBackend
         growVegetation: dev.createComputePipeline({ layout, compute: { module: mod, entryPoint: 'growVegetation' } }),
         composeRenderData: dev.createComputePipeline({ layout, compute: { module: mod, entryPoint: 'composeRenderData' } }),
       };
+
+      const behaviorBatchLayout = dev.createBindGroupLayout({
+        entries: [
+          { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+          { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+        ],
+      });
+      const behaviorBatchMod = dev.createShaderModule({ code: APPLY_BEHAVIOR_BATCH_SHADER });
+      state.gpuSimPipelines.applyBehaviorBatch = dev.createComputePipeline({
+        layout: dev.createPipelineLayout({ bindGroupLayouts: [behaviorBatchLayout] }),
+        compute: { module: behaviorBatchMod, entryPoint: 'main' },
+      });
+      state.gpuSimBehaviorBatchLayout = behaviorBatchLayout;
       this.initialized = true;
       state.gpuSimInitReason = '';
       return true;
@@ -1352,6 +1395,7 @@ export class GpuSimulationBackend
     const simListsBytes = this.maxCreatures * 3 * 4;
     const speciesBytes = Math.max(1, SP_KEYS.length) * 12 * 4;
     const renderBytes = this.maxCreatures * 8 * 4;
+    const behaviorBatchBytes = this.maxCreatures * 4 * 4;
 
     state.gpuWorldBuffers = {
       worldData: createStorageBuffer(dev, worldBytes, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC),
@@ -1368,6 +1412,7 @@ export class GpuSimulationBackend
       renderReadback: createStorageBuffer(dev, roundUp(renderBytes, 256), GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ),
       countersReadback: createStorageBuffer(dev, 256, GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ),
       selectedReadback: createStorageBuffer(dev, 256, GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ),
+      behaviorBatch: createStorageBuffer(dev, behaviorBatchBytes, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST),
     };
     state.gpuCreatureBuffer = state.gpuSimBuffers.renderData;
     state.gpuSimParamBuffer = dev.createBuffer({
@@ -1405,6 +1450,13 @@ export class GpuSimulationBackend
           { binding: 8, resource: { buffer: state.gpuSimParamBuffer } },
         ],
       }),
+      behaviorBatch: dev.createBindGroup({
+        layout: state.gpuSimBehaviorBatchLayout,
+        entries: [
+          { binding: 0, resource: { buffer: state.gpuSimBuffers.creatures } },
+          { binding: 1, resource: { buffer: state.gpuSimBuffers.behaviorBatch } },
+        ],
+      }),
     };
     return true;
   }
@@ -1431,36 +1483,48 @@ export class GpuSimulationBackend
   uploadBehaviorDecisions()
   {
     if (!state.gpuSimBuffers || !state.gpuDevice) return;
-    const bytesPerCreature = CREATURE_STRIDE_FLOATS * 4;
-    const goalPair = this._goalPair;
-    const targetPair = this._targetPair;
+    if (!this._behaviorBatchCpu || this._behaviorBatchCpu.length < this.maxCreatures * 4)
+    {
+      this._behaviorBatchCpu = new Float32Array(this.maxCreatures * 4);
+    }
+    const batch = this._behaviorBatchCpu;
     const source = this.aliveCreaturesForDecisions();
+    let poolCount = 0;
     for (let i = 0; i < source.length; i++)
     {
       const c = source[i];
       if (!c || c.dead) continue;
       const slot = creatureSlot(c, i);
       if (slot < 0 || slot >= this.maxCreatures) continue;
-      const baseByte = slot * bytesPerCreature;
-      goalPair[0] = c.tx;
-      goalPair[1] = c.ty;
-      state.gpuDevice.queue.writeBuffer(
-        state.gpuSimBuffers.creatures,
-        baseByte + 24 * 4,
-        goalPair.buffer,
-        goalPair.byteOffset,
-        8,
-      );
-      targetPair[0] = typeof c.gpuTargetSlot === 'number' ? c.gpuTargetSlot : -1;
-      targetPair[1] = typeof c.gpuStateCode === 'number' ? c.gpuStateCode : 0;
-      state.gpuDevice.queue.writeBuffer(
-        state.gpuSimBuffers.creatures,
-        baseByte + 14 * 4,
-        targetPair.buffer,
-        targetPair.byteOffset,
-        8,
-      );
+      const base = slot * 4;
+      batch[base] = c.tx;
+      batch[base + 1] = c.ty;
+      batch[base + 2] = typeof c.gpuTargetSlot === 'number' ? c.gpuTargetSlot : -1;
+      batch[base + 3] = typeof c.gpuStateCode === 'number' ? c.gpuStateCode : 0;
+      poolCount = Math.max(poolCount, slot + 1);
     }
+    this._behaviorBatchCount = poolCount;
+    if (poolCount <= 0) return;
+    state.gpuDevice.queue.writeBuffer(
+      state.gpuSimBuffers.behaviorBatch,
+      0,
+      batch.buffer,
+      batch.byteOffset,
+      poolCount * 16,
+    );
+  }
+
+  applyBehaviorBatch(encoder)
+  {
+    const count = this._behaviorBatchCount;
+    if (!count || !state.gpuSimPipelines?.applyBehaviorBatch || !state.gpuSimBindGroups?.behaviorBatch) return;
+    const pass = encoder.beginComputePass();
+    pass.setPipeline(state.gpuSimPipelines.applyBehaviorBatch);
+    pass.setBindGroup(0, state.gpuSimBindGroups.behaviorBatch);
+    pass.dispatchWorkgroups(Math.ceil(count / 128));
+    pass.end();
+    perfProfiler.recordGpuDispatch();
+    this._behaviorBatchCount = 0;
   }
 
   uploadCreaturesFromCpu()
@@ -1641,6 +1705,7 @@ export class GpuSimulationBackend
     const speciesTriples = Math.max(1, speciesSumLen());
     perfProfiler.begin('gpu.encode');
     const encoder = dev.createCommandEncoder();
+    this.applyBehaviorBatch(encoder);
     this.runComputePasses(encoder, creatureCount, tileCount, cellCount, speciesTriples);
 
     const now = performance.now();
