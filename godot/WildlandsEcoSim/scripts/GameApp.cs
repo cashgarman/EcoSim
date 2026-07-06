@@ -63,6 +63,23 @@ public partial class GameApp : Node
         UI.PerfProfiler.Instance.RecordFrame(frameMs, simMs, frameMs * 0.35, frameMs * 0.15);
     }
 
+    public override void _PhysicsProcess(double delta)
+    {
+        if (Engine.IsEditorHint()) return;
+        var session = _host.Session;
+        if (session == null || !session.State.Ready) return;
+
+        bool scrubbing = _scrub?.ScrubActive ?? false;
+        if (!Paused && !scrubbing && session.State.Speed > 0)
+        {
+            session.Creatures.AdvanceDisplayPositions(delta, scrubbing);
+        }
+        else if (scrubbing)
+        {
+            session.Creatures.AdvanceDisplayPositions(delta, scrubbing: true);
+        }
+    }
+
     public void TogglePause()
     {
         var session = _host.Session;

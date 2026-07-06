@@ -10,6 +10,12 @@ public partial class EcosystemPanel : DraggablePanel
     public delegate void SpeciesLockedEventHandler(string speciesKey);
 
     [Signal]
+    public delegate void SpeciesHoveredEventHandler(string speciesKey);
+
+    [Signal]
+    public delegate void SpeciesFollowEventHandler(string speciesKey);
+
+    [Signal]
     public delegate void SpeciesGodMenuEventHandler(string speciesKey, Vector2 globalPos);
 
     private PopGraph _graph = null!;
@@ -20,6 +26,7 @@ public partial class EcosystemPanel : DraggablePanel
     private readonly Dictionary<string, int> _prevCounts = new(StringComparer.Ordinal);
 
     public string? LockedSpecies => _lockedSpecies;
+    public string? HoveredSpecies => _hoveredSpecies;
 
     public override void _Ready()
     {
@@ -87,12 +94,14 @@ public partial class EcosystemPanel : DraggablePanel
             _hoveredSpecies = sp;
             UpdateRowStyles();
             _graph.SetHighlight(_lockedSpecies ?? _hoveredSpecies);
+            EmitSignal(SignalName.SpeciesHovered, sp);
         };
         row.MouseExited += () =>
         {
             if (_hoveredSpecies == sp) _hoveredSpecies = null;
             UpdateRowStyles();
             _graph.SetHighlight(_lockedSpecies ?? _hoveredSpecies);
+            EmitSignal(SignalName.SpeciesHovered, _hoveredSpecies ?? "");
         };
         row.GuiInput += e => OnRowInput(e, sp, row);
         return row;
@@ -173,6 +182,15 @@ public partial class EcosystemPanel : DraggablePanel
         {
             if (mb.ButtonIndex == MouseButton.Left)
             {
+                if (mb.DoubleClick)
+                {
+                    _lockedSpecies = sp;
+                    EmitSignal(SignalName.SpeciesLocked, sp);
+                    EmitSignal(SignalName.SpeciesFollow, sp);
+                    UpdateRowStyles();
+                    return;
+                }
+
                 _lockedSpecies = _lockedSpecies == sp ? null : sp;
                 EmitSignal(SignalName.SpeciesLocked, _lockedSpecies ?? "");
             }

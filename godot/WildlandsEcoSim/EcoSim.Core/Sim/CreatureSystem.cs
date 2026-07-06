@@ -79,6 +79,34 @@ public sealed class CreatureSystem
 
     public (double X, double Y) SimPos(Creature c) => (c.X, c.Y);
 
+    public static double ExpSmoothT(double rate, double dt) => 1 - Math.Exp(-rate * dt);
+
+    public void AdvanceDisplayPositions(double dt, bool scrubbing = false)
+    {
+        if (dt <= 0) return;
+        double t = ExpSmoothT(scrubbing ? 10 : 16, dt);
+        foreach (var c in _state.Creatures)
+        {
+            if (c.Dead) continue;
+            c.Rx += (c.X - c.Rx) * t;
+            c.Ry += (c.Y - c.Ry) * t;
+            if (scrubbing)
+            {
+                c.Walk += dt * 7;
+            }
+        }
+    }
+
+    public void SnapAllDisplayPositions()
+    {
+        foreach (var c in _state.Creatures)
+        {
+            if (c.Dead) continue;
+            c.Rx = c.X;
+            c.Ry = c.Y;
+        }
+    }
+
     public void RebuildGrid()
     {
         _state.Grid.Clear();
@@ -259,6 +287,7 @@ public sealed class CreatureSystem
         var partner = c.MatePartner ?? c.Genome;
         int? fatherId = c.MatePartnerId;
         int born = 0;
+        LifeStory?.Record(c, _state, "gaveBirth", detail: q.ToString());
         for (int i = 0; i < q; i++)
         {
             if (AliveCount() >= SimConstants.MaxPop) break;
@@ -270,6 +299,7 @@ public sealed class CreatureSystem
             baby.Thirst = 70;
             baby.Energy = 80;
             LinkBirthParents(baby, c, fatherId);
+            LifeStory?.Record(baby, _state, "born");
             born++;
         }
         c.MatePartnerId = null;
@@ -294,7 +324,7 @@ public sealed class CreatureSystem
         if (cause != null) c.Cause = cause;
         c.Dead = true;
         RemoveFromGrid(c);
-        string deathKey = string.IsNullOrEmpty(c.Cause) ? "unknown" : c.Cause;
+        string deathKey = CreatureNotify.RefineDeathCause(c);
         SpeciesStats?.RecordDeath(c.Sp, deathKey);
         LifeStory?.Record(c, _state, "died", detail: deathKey);
         int ti = GridHelpers.Idx(_state,
@@ -402,7 +432,7 @@ public sealed class CreatureSystem
         return null;
     }
 
-    private bool TryPickSpawnPosition(int tileX, int tileY, bool canSwim, out double x, out double y)
+    public bool TryPickSpawnPosition(int tileX, int tileY, bool canSwim, out double x, out double y)
     {
         x = tileX + GlobalRng.Rf(-0.3, 0.3);
         y = tileY + GlobalRng.Rf(-0.3, 0.3);

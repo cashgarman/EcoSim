@@ -9,6 +9,8 @@ public partial class InspectorPanel : DraggablePanel
     private Label _header = null!;
     private VBoxContainer _statsTab = null!;
     private VBoxContainer _storyTab = null!;
+    private Button _statsTabBtn = null!;
+    private Button _storyTabBtn = null!;
     private Label _hpVal = null!;
     private Label _hunVal = null!;
     private Label _thiVal = null!;
@@ -26,35 +28,44 @@ public partial class InspectorPanel : DraggablePanel
     {
         LayoutKey = "inspect";
         Visible = false;
-        NormalizeInspectorLayout();
         base._Ready();
-        _header = GetNode<Label>("%InspectHeader");
-        _statsTab = GetNode<VBoxContainer>("%StatsTab");
-        _storyTab = GetNode<VBoxContainer>("%StoryTab");
-        _hpVal = GetNode<Label>("%HpVal");
-        _hunVal = GetNode<Label>("%HunVal");
-        _thiVal = GetNode<Label>("%ThiVal");
-        _eneVal = GetNode<Label>("%EneVal");
-        _hp = GetNode<ProgressBar>("%HpBar");
-        _hunger = GetNode<ProgressBar>("%HungerBar");
-        _thirst = GetNode<ProgressBar>("%ThirstBar");
-        _energy = GetNode<ProgressBar>("%EnergyBar");
-        _genes = GetNode<GridContainer>("%GeneGrid");
-        _storyLog = GetNode<RichTextLabel>("%LifeStoryLog");
+        _header = Req<Label>("InspectHeader");
+        _statsTab = Req<VBoxContainer>("StatsTab");
+        _storyTab = Req<VBoxContainer>("StoryTab");
+        _statsTabBtn = Req<Button>("StatsTabBtn");
+        _storyTabBtn = Req<Button>("StoryTabBtn");
+        _hpVal = Req<Label>("HpVal");
+        _hunVal = Req<Label>("HunVal");
+        _thiVal = Req<Label>("ThiVal");
+        _eneVal = Req<Label>("EneVal");
+        _hp = Req<ProgressBar>("HpBar");
+        _hunger = Req<ProgressBar>("HungerBar");
+        _thirst = Req<ProgressBar>("ThirstBar");
+        _energy = Req<ProgressBar>("EnergyBar");
+        _genes = Req<GridContainer>("GeneGrid");
+        _storyLog = Req<RichTextLabel>("LifeStoryLog");
         EcoSimThemeBuilder.StyleNeedBar(_hp, EcoSimThemeBuilder.Hp);
         EcoSimThemeBuilder.StyleNeedBar(_hunger, EcoSimThemeBuilder.Hunger);
         EcoSimThemeBuilder.StyleNeedBar(_thirst, EcoSimThemeBuilder.Thirst);
         EcoSimThemeBuilder.StyleNeedBar(_energy, EcoSimThemeBuilder.Energy);
-        GetNode<Button>("%StatsTabBtn").Pressed += () => SetTab(false);
-        GetNode<Button>("%StoryTabBtn").Pressed += () => SetTab(true);
+        _statsTabBtn.Pressed += () => SetTab(false);
+        _storyTabBtn.Pressed += () => SetTab(true);
         EcoSimFonts.StylePanelTitle(_header, EcoSimFonts.InspectorTitle);
         _header.HorizontalAlignment = HorizontalAlignment.Center;
         EcoSimFonts.ApplyFont(_storyLog, EcoSimFonts.Scaled6);
         StyleNeedLabels(_statsTab);
-        EcoSimFonts.StyleTabButton(GetNode<Button>("%StatsTabBtn"));
-        EcoSimFonts.StyleTabButton(GetNode<Button>("%StoryTabBtn"));
+        EcoSimFonts.StyleTabButton(_statsTabBtn);
+        EcoSimFonts.StyleTabButton(_storyTabBtn);
         SetTab(false);
     }
+
+    private static T Req<T>(Node root, string name) where T : Node
+    {
+        return root.FindChild(name, true, false) as T
+            ?? throw new InvalidOperationException($"Missing node: {name}");
+    }
+
+    private T Req<T>(string name) where T : Node => Req<T>(this, name);
 
     private static void StyleNeedLabels(VBoxContainer statsTab)
     {
@@ -76,38 +87,8 @@ public partial class InspectorPanel : DraggablePanel
         _storyMode = story;
         _statsTab.Visible = !story;
         _storyTab.Visible = story;
-        GetNode<Button>("%StatsTabBtn").Modulate = story ? Colors.White : EcoSimThemeBuilder.Gold;
-        GetNode<Button>("%StoryTabBtn").Modulate = story ? EcoSimThemeBuilder.Gold : Colors.White;
-    }
-
-    private void NormalizeInspectorLayout()
-    {
-        var vbox = GetNode<VBoxContainer>("VBox");
-        var panelHead = vbox.GetNode<HBoxContainer>("PanelHead");
-        var inspectHeader = GetNode<Label>("%InspectHeader");
-        if (inspectHeader.GetParent() != panelHead)
-        {
-            inspectHeader.Reparent(panelHead);
-            panelHead.MoveChild(inspectHeader, 0);
-        }
-
-        inspectHeader.SizeFlagsHorizontal = SizeFlags.ExpandFill;
-
-        if (vbox.GetNodeOrNull("PanelBody") != null) return;
-
-        var body = new VBoxContainer
-        {
-            Name = "PanelBody",
-            SizeFlagsVertical = SizeFlags.ExpandFill,
-        };
-        int insertIdx = panelHead.GetIndex() + 1;
-        vbox.AddChild(body);
-        vbox.MoveChild(body, insertIdx);
-
-        foreach (string name in new[] { "TabRow", "StatsTab", "StoryTab" })
-        {
-            vbox.GetNodeOrNull(name)?.Reparent(body);
-        }
+        _statsTabBtn.Modulate = story ? Colors.White : EcoSimThemeBuilder.Gold;
+        _storyTabBtn.Modulate = story ? EcoSimThemeBuilder.Gold : Colors.White;
     }
 
     public void Bind(SpeciesCatalog catalog)

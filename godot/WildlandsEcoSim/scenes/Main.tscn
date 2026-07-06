@@ -373,116 +373,125 @@ layout_mode = 2
 [node name="PanelHead" type="HBoxContainer" parent="Hud/InspectorPanel/VBox" unique_id=1177006415]
 layout_mode = 2
 
-[node name="InspectHeader" type="Label" parent="Hud/InspectorPanel/VBox" unique_id=1711678139]
+[node name="InspectHeader" type="Label" parent="Hud/InspectorPanel/VBox/PanelHead" unique_id=1711678139]
 unique_name_in_owner = true
 layout_mode = 2
+size_flags_horizontal = 3
 text = "Inspector"
 
-[node name="TabRow" type="HBoxContainer" parent="Hud/InspectorPanel/VBox" unique_id=519882904]
+[node name="CollapseBtn" type="Button" parent="Hud/InspectorPanel/VBox/PanelHead" unique_id=2847193051]
+layout_mode = 2
+text = "▼"
+
+[node name="PanelBody" type="VBoxContainer" parent="Hud/InspectorPanel/VBox" unique_id=3847291056]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="TabRow" type="HBoxContainer" parent="Hud/InspectorPanel/VBox/PanelBody" unique_id=519882904]
 layout_mode = 2
 
-[node name="StatsTabBtn" type="Button" parent="Hud/InspectorPanel/VBox/TabRow" unique_id=2100429673]
+[node name="StatsTabBtn" type="Button" parent="Hud/InspectorPanel/VBox/PanelBody/TabRow" unique_id=2100429673]
 unique_name_in_owner = true
 layout_mode = 2
 text = "Stats"
 
-[node name="StoryTabBtn" type="Button" parent="Hud/InspectorPanel/VBox/TabRow" unique_id=392513298]
+[node name="StoryTabBtn" type="Button" parent="Hud/InspectorPanel/VBox/PanelBody/TabRow" unique_id=392513298]
 unique_name_in_owner = true
 layout_mode = 2
 text = "Life Story"
 
-[node name="StatsTab" type="VBoxContainer" parent="Hud/InspectorPanel/VBox" unique_id=20718046]
+[node name="StatsTab" type="VBoxContainer" parent="Hud/InspectorPanel/VBox/PanelBody" unique_id=20718046]
 unique_name_in_owner = true
 layout_mode = 2
 
-[node name="HpRow" type="HBoxContainer" parent="Hud/InspectorPanel/VBox/StatsTab" unique_id=1007969239]
+[node name="HpRow" type="HBoxContainer" parent="Hud/InspectorPanel/VBox/PanelBody/StatsTab" unique_id=1007969239]
 layout_mode = 2
 
-[node name="HpLabel" type="Label" parent="Hud/InspectorPanel/VBox/StatsTab/HpRow" unique_id=2073013115]
+[node name="HpLabel" type="Label" parent="Hud/InspectorPanel/VBox/PanelBody/StatsTab/HpRow" unique_id=2073013115]
 layout_mode = 2
 text = "❤️ Health"
 
-[node name="HpVal" type="Label" parent="Hud/InspectorPanel/VBox/StatsTab/HpRow" unique_id=686305107]
+[node name="HpVal" type="Label" parent="Hud/InspectorPanel/VBox/PanelBody/StatsTab/HpRow" unique_id=686305107]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
 text = "—"
 horizontal_alignment = 2
 
-[node name="HpBar" type="ProgressBar" parent="Hud/InspectorPanel/VBox/StatsTab" unique_id=1226837221]
+[node name="HpBar" type="ProgressBar" parent="Hud/InspectorPanel/VBox/PanelBody/StatsTab" unique_id=1226837221]
 unique_name_in_owner = true
 layout_mode = 2
 show_percentage = false
 
-[node name="HunRow" type="HBoxContainer" parent="Hud/InspectorPanel/VBox/StatsTab" unique_id=334864135]
+[node name="HunRow" type="HBoxContainer" parent="Hud/InspectorPanel/VBox/PanelBody/StatsTab" unique_id=334864135]
 layout_mode = 2
 
-[node name="HunLabel" type="Label" parent="Hud/InspectorPanel/VBox/StatsTab/HunRow" unique_id=1099853846]
+[node name="HunLabel" type="Label" parent="Hud/InspectorPanel/VBox/PanelBody/StatsTab/HunRow" unique_id=1099853846]
 layout_mode = 2
 text = "🍖 Fullness"
 
-[node name="HunVal" type="Label" parent="Hud/InspectorPanel/VBox/StatsTab/HunRow" unique_id=1862951243]
+[node name="HunVal" type="Label" parent="Hud/InspectorPanel/VBox/PanelBody/StatsTab/HunRow" unique_id=1862951243]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
 text = "—"
 horizontal_alignment = 2
 
-[node name="HungerBar" type="ProgressBar" parent="Hud/InspectorPanel/VBox/StatsTab" unique_id=610824961]
+[node name="HungerBar" type="ProgressBar" parent="Hud/InspectorPanel/VBox/PanelBody/StatsTab" unique_id=610824961]
 unique_name_in_owner = true
 layout_mode = 2
 show_percentage = false
 
-[node name="ThiRow" type="HBoxContainer" parent="Hud/InspectorPanel/VBox/StatsTab" unique_id=930431799]
+[node name="ThiRow" type="HBoxContainer" parent="Hud/InspectorPanel/VBox/PanelBody/StatsTab" unique_id=930431799]
 layout_mode = 2
 
-[node name="ThiLabel" type="Label" parent="Hud/InspectorPanel/VBox/StatsTab/ThiRow" unique_id=613589305]
+[node name="ThiLabel" type="Label" parent="Hud/InspectorPanel/VBox/PanelBody/StatsTab/ThiRow" unique_id=613589305]
 layout_mode = 2
 text = "💧 Hydration"
 
-[node name="ThiVal" type="Label" parent="Hud/InspectorPanel/VBox/StatsTab/ThiRow" unique_id=2124551256]
+[node name="ThiVal" type="Label" parent="Hud/InspectorPanel/VBox/PanelBody/StatsTab/ThiRow" unique_id=2124551256]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
 text = "—"
 horizontal_alignment = 2
 
-[node name="ThirstBar" type="ProgressBar" parent="Hud/InspectorPanel/VBox/StatsTab" unique_id=1221486203]
+[node name="ThirstBar" type="ProgressBar" parent="Hud/InspectorPanel/VBox/PanelBody/StatsTab" unique_id=1221486203]
 unique_name_in_owner = true
 layout_mode = 2
 show_percentage = false
 
-[node name="EneRow" type="HBoxContainer" parent="Hud/InspectorPanel/VBox/StatsTab" unique_id=812611674]
+[node name="EneRow" type="HBoxContainer" parent="Hud/InspectorPanel/VBox/PanelBody/StatsTab" unique_id=812611674]
 layout_mode = 2
 
-[node name="EneLabel" type="Label" parent="Hud/InspectorPanel/VBox/StatsTab/EneRow" unique_id=551488575]
+[node name="EneLabel" type="Label" parent="Hud/InspectorPanel/VBox/PanelBody/StatsTab/EneRow" unique_id=551488575]
 layout_mode = 2
 text = "⚡ Energy"
 
-[node name="EneVal" type="Label" parent="Hud/InspectorPanel/VBox/StatsTab/EneRow" unique_id=1867764431]
+[node name="EneVal" type="Label" parent="Hud/InspectorPanel/VBox/PanelBody/StatsTab/EneRow" unique_id=1867764431]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
 text = "—"
 horizontal_alignment = 2
 
-[node name="EnergyBar" type="ProgressBar" parent="Hud/InspectorPanel/VBox/StatsTab" unique_id=1349352189]
+[node name="EnergyBar" type="ProgressBar" parent="Hud/InspectorPanel/VBox/PanelBody/StatsTab" unique_id=1349352189]
 unique_name_in_owner = true
 layout_mode = 2
 show_percentage = false
 
-[node name="GeneGrid" type="GridContainer" parent="Hud/InspectorPanel/VBox/StatsTab" unique_id=1641440189]
+[node name="GeneGrid" type="GridContainer" parent="Hud/InspectorPanel/VBox/PanelBody/StatsTab" unique_id=1641440189]
 unique_name_in_owner = true
 layout_mode = 2
 columns = 2
 
-[node name="StoryTab" type="VBoxContainer" parent="Hud/InspectorPanel/VBox" unique_id=776097622]
+[node name="StoryTab" type="VBoxContainer" parent="Hud/InspectorPanel/VBox/PanelBody" unique_id=776097622]
 unique_name_in_owner = true
 visible = false
 layout_mode = 2
 size_flags_vertical = 3
 
-[node name="LifeStoryLog" type="RichTextLabel" parent="Hud/InspectorPanel/VBox/StoryTab" unique_id=482590560]
+[node name="LifeStoryLog" type="RichTextLabel" parent="Hud/InspectorPanel/VBox/PanelBody/StoryTab" unique_id=482590560]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_vertical = 3

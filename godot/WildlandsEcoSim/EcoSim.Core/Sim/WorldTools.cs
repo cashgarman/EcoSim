@@ -68,4 +68,19 @@ public static class WorldTools
             if (d < radius) creatures.Die(c, "removed");
         }
     }
+
+    public static bool TrySpawn(CreatureSystem creatures, SpeciesCatalog catalog, string sp, double wx, double wy)
+    {
+        int tx = (int)Math.Round(wx);
+        int ty = (int)Math.Round(wy);
+        var def = catalog.Get(sp);
+        bool canSwim = def.CanSwim || def.Shape == "bird";
+        if (!creatures.TryPickSpawnPosition(tx, ty, canSwim, out double px, out double py))
+        {
+            return false;
+        }
+
+        creatures.MakeCreature(sp, px, py);
+        return true;
+    }
 }

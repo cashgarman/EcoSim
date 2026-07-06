@@ -13,13 +13,21 @@ public partial class WorldRenderer : Node2D
     private Sprite2D _terrain = null!;
     private Sprite2D _veg = null!;
     private Sprite2D _water = null!;
+    private CreaturePedigreeOverlay _pedigree = null!;
     private CreatureRenderer _creatures = null!;
+    private CreatureHighlightOverlay _highlights = null!;
+    private ToolFxOverlay _toolFx = null!;
     private CanvasModulate _dayNight = null!;
     private SimSession? _session;
     private Func<string>? _activeTool;
     private Action<double, double>? _toolApply;
+    private bool _painting;
     private int _vegRefreshCounter;
     private double _waterAnim;
+    private string? _lockedSpecies;
+    private string? _hoveredSpecies;
+    private double _lastClickTime;
+    private Vector2 _lastClickTile;
 
     public override void _Ready()
     {
@@ -32,19 +40,25 @@ public partial class WorldRenderer : Node2D
         AddChild(_oceanBg);
 
         _dayNight = new CanvasModulate();
-        var layer = new Node2D();
+        var terrainLayer = new Node2D();
         AddChild(_dayNight);
-        _dayNight.AddChild(layer);
+        _dayNight.AddChild(terrainLayer);
 
         _terrain = new Sprite2D { Centered = false, TextureFilter = CanvasItem.TextureFilterEnum.Nearest };
         _veg = new Sprite2D { Centered = false, TextureFilter = CanvasItem.TextureFilterEnum.Nearest };
         _water = new Sprite2D { Centered = false, TextureFilter = CanvasItem.TextureFilterEnum.Nearest };
-        _creatures = new CreatureRenderer();
+        terrainLayer.AddChild(_terrain);
+        terrainLayer.AddChild(_veg);
+        terrainLayer.AddChild(_water);
 
-        layer.AddChild(_terrain);
-        layer.AddChild(_veg);
-        layer.AddChild(_water);
-        layer.AddChild(_creatures);
+        _pedigree = new CreaturePedigreeOverlay();
+        _creatures = new CreatureRenderer();
+        _highlights = new CreatureHighlightOverlay();
+        _toolFx = new ToolFxOverlay();
+        AddChild(_pedigree);
+        AddChild(_creatures);
+        AddChild(_highlights);
+        AddChild(_toolFx);
 
         var gameApp = GetNode<GameApp>("/root/GameApp");
         gameApp.SimTicked += OnSimTicked;
@@ -56,7 +70,43 @@ public partial class WorldRenderer : Node2D
         if (_session != null && _session.State.Ready)
         {
             RefreshWater();
+            UpdateRenderContext();
+            UpdateToolFx();
+            if (_painting && Input.IsMouseButtonPressed(MouseButton.Left))
+            {
+                ApplyToolAtMouse();
+            }
         }
+    }
+
+    private void UpdateToolFx()
+    {
+        string tool = _activeTool?.Invoke() ?? "inspect";
+        var camera = GetNode<WorldCamera>("Camera2D");
+        Vector2 mouse = GetViewport().GetMousePosition();
+        Vector2 worldPos = camera.GetCanvasTransform().AffineInverse() * mouse;
+        Vector2 tilePos = WorldToTile(worldPos);
+        bool show = GetViewport().GetMousePosition() != Vector2.Zero;
+        _toolFx.SetTool(tool, show, tilePos);
+    }
+
+    private void ApplyToolAtMouse()
+    {
+        var camera = GetNode<WorldCamera>("Camera2D");
+        Vector2 mouse = GetViewport().GetMousePosition();
+        Vector2 worldPos = camera.GetCanvasTransform().AffineInverse() * mouse;
+        Vector2 tilePos = WorldToTile(worldPos);
+        _toolApply?.Invoke(tilePos.X, tilePos.Y);
+    }
+
+    private void UpdateRenderContext()
+    {
+        var camera = GetNode<WorldCamera>("Camera2D");
+        float zoom = camera.Zoom.X;
+        _creatures.SetCameraZoom(zoom);
+        _highlights.SetCameraZoom(zoom);
+        _pedigree.SetCameraZoom(zoom);
+        _highlights.SetSpeciesFocus(_lockedSpecies, _hoveredSpecies);
     }
 
     public void BindInput(Func<string> activeTool, Action<double, double> toolApply)
@@ -74,32 +124,71 @@ public partial class WorldRenderer : Node2D
             return;
         }
 
-        if (@event is not InputEventMouseButton mb || !mb.Pressed || mb.ButtonIndex != MouseButton.Left)
+        if (@event is InputEventMouseButton mb && mb.ButtonIndex == MouseButton.Left)
         {
+            if (_session == null) return;
+
+            Vector2 mouse = GetViewport().GetMousePosition();
+            Vector2 worldPos = camera.GetCanvasTransform().AffineInverse() * mouse;
+            Vector2 tilePos = WorldToTile(worldPos);
+            string tool = _activeTool?.Invoke() ?? "inspect";
+
+            if (mb.Pressed)
+            {
+                double now = Time.GetTicksMsec() * 0.001;
+                bool dblClick = now - _lastClickTime < 0.35
+                    && tilePos.DistanceTo(_lastClickTile) < 0.5;
+                _lastClickTime = now;
+                _lastClickTile = tilePos;
+
+                if (dblClick && tool == "inspect")
+                {
+                    Creature? best = PickCreature(tilePos);
+                    if (best != null)
+                    {
+                        _session.State.Selected = best;
+                        camera.FollowEnabled = true;
+                        float minZoom = 3f;
+                        if (camera.Zoom.X < minZoom)
+                        {
+                            camera.Zoom = new Vector2(minZoom, minZoom);
+                        }
+                    }
+
+                    GetViewport().SetInputAsHandled();
+                    return;
+                }
+
+                if (tool != "inspect")
+                {
+                    _painting = true;
+                    _toolApply?.Invoke(tilePos.X, tilePos.Y);
+                    GetViewport().SetInputAsHandled();
+                    return;
+                }
+
+                _session.State.Selected = PickCreature(tilePos);
+                GetViewport().SetInputAsHandled();
+            }
+            else
+            {
+                _painting = false;
+            }
+
             return;
         }
+    }
 
-        if (_session == null) return;
-
-        Vector2 mouse = GetViewport().GetMousePosition();
-        Vector2 worldPos = camera.GetCanvasTransform().AffineInverse() * mouse;
-        Vector2 tilePos = WorldToTile(worldPos);
-
-        string tool = _activeTool?.Invoke() ?? "inspect";
-        if (tool != "inspect")
-        {
-            _toolApply?.Invoke(tilePos.X, tilePos.Y);
-            GetViewport().SetInputAsHandled();
-            return;
-        }
-
+    private Creature? PickCreature(Vector2 tilePos)
+    {
+        if (_session == null) return null;
         Creature? best = null;
         double bestDist = 2.5;
         foreach (var c in _session.State.Creatures)
         {
             if (c.Dead) continue;
-            double dx = c.X - tilePos.X;
-            double dy = c.Y - tilePos.Y;
+            double dx = c.Rx - tilePos.X;
+            double dy = c.Ry - tilePos.Y;
             double d = Math.Sqrt(dx * dx + dy * dy);
             if (d < bestDist)
             {
@@ -108,8 +197,7 @@ public partial class WorldRenderer : Node2D
             }
         }
 
-        _session.State.Selected = best;
-        GetViewport().SetInputAsHandled();
+        return best;
     }
 
     public void BindWorld(SimSession session, SpeciesCatalog catalog)
@@ -126,14 +214,24 @@ public partial class WorldRenderer : Node2D
 
         RefreshWater(force: true);
         _creatures.Bind(session, catalog);
-        _creatures.Refresh();
+        _pedigree.Bind(session);
+        _highlights.Bind(session);
+        session.Creatures.SnapAllDisplayPositions();
         UpdateDayNight();
+        UpdateRenderContext();
     }
 
     public void SetLockedSpecies(string? speciesKey)
     {
+        _lockedSpecies = speciesKey;
         _creatures.SetLockedSpecies(speciesKey);
-        _creatures.Refresh();
+        UpdateRenderContext();
+    }
+
+    public void SetHoveredSpecies(string? speciesKey)
+    {
+        _hoveredSpecies = speciesKey;
+        UpdateRenderContext();
     }
 
     public void RefreshVegIfDirty()
@@ -157,9 +255,9 @@ public partial class WorldRenderer : Node2D
 
     private void OnSimTicked()
     {
-        _creatures.Refresh();
         RefreshVegIfDirty();
         UpdateDayNight();
+        UpdateRenderContext();
     }
 
     private void UpdateDayNight()
@@ -169,8 +267,5 @@ public partial class WorldRenderer : Node2D
         _dayNight.Color = new Color(light, light, light * 0.95f);
     }
 
-    public Vector2 WorldToTile(Vector2 worldPos)
-    {
-        return worldPos / TilePixels;
-    }
+    public Vector2 WorldToTile(Vector2 worldPos) => worldPos / TilePixels;
 }

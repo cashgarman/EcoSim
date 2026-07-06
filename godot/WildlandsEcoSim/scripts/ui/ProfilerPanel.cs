@@ -111,7 +111,7 @@ public partial class ProfilerPanel : DraggablePanel
         {
             var sparkRect = new Rect2(_sparkline.GlobalPosition - GlobalPosition, _sparkline.Size);
             DrawStyleBox(UiSliceCatalog.MakeInsetPanel(), sparkRect);
-            DrawSparkline(sparkRect, p.FrameMsAvg);
+            DrawSparkline(sparkRect, p);
         }
     }
 
@@ -121,13 +121,35 @@ public partial class ProfilerPanel : DraggablePanel
         DrawRect(new Rect2(x, drawRect.Position.Y, Math.Max(1, w), drawRect.Size.Y), color);
     }
 
-    private void DrawSparkline(Rect2 rect, double frameMs)
+    private void DrawSparkline(Rect2 rect, PerfProfiler p)
     {
-        var font = EcoSimFonts.GetFont();
-        float y = rect.Position.Y + rect.Size.Y * 0.5f;
-        DrawLine(new Vector2(rect.Position.X + 2, y), new Vector2(rect.Position.X + rect.Size.X - 2, y),
-            EcoSimThemeBuilder.Hunger, 1f);
-        DrawString(font, new Vector2(rect.Position.X + 4, rect.Position.Y + 10),
-            $"{frameMs:F1}ms", HorizontalAlignment.Left, -1, EcoSimFonts.Small, EcoSimThemeBuilder.Dim);
+        DrawStyleBox(UiSliceCatalog.MakeInsetPanel(), rect);
+        float max = 1;
+        foreach (double v in p.FrameRing)
+        {
+            if (v > max) max = (float)v;
+        }
+
+        max = Math.Max(max, 1f);
+        float x0 = rect.Position.X + 2;
+        float y0 = rect.End.Y - 2;
+        float w = rect.Size.X - 4;
+        Vector2 prev = new(x0, y0);
+        for (int i = 0; i < p.FrameRing.Count; i++)
+        {
+            float frac = (i + 1f) / p.FrameRing.Count;
+            float x = x0 + w * frac;
+            float y = y0 - (float)(p.FrameRing[i] / max) * (rect.Size.Y - 4);
+            Vector2 pt = new(x, y);
+            if (i > 0)
+            {
+                DrawLine(prev, pt, EcoSimThemeBuilder.Hunger, 1f);
+            }
+
+            prev = pt;
+        }
+
+        DrawString(EcoSimFonts.GetFont(), new Vector2(rect.Position.X + 4, rect.Position.Y + 10),
+            $"{p.FrameMsAvg:F1}ms", HorizontalAlignment.Left, -1, EcoSimFonts.Small, EcoSimThemeBuilder.Dim);
     }
 }

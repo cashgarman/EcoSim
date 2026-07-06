@@ -26,23 +26,29 @@ public partial class SpeciesStatsPanel : DraggablePanel
         LayoutKey = "speciestats";
         Visible = false;
         base._Ready();
-        _title = GetNode<Label>("%SpeciesStatsTitle");
-        _graph = GetNode<PopGraph>("%SpeciesStatsGraph");
-        _hpVal = GetNode<Label>("%SsHpVal");
-        _hunVal = GetNode<Label>("%SsHunVal");
-        _thiVal = GetNode<Label>("%SsThiVal");
-        _eneVal = GetNode<Label>("%SsEneVal");
-        _hpBar = GetNode<ProgressBar>("%SsHpBar");
-        _hunBar = GetNode<ProgressBar>("%SsHunBar");
-        _thiBar = GetNode<ProgressBar>("%SsThiBar");
-        _eneBar = GetNode<ProgressBar>("%SsEneBar");
-        _summary = GetNode<Label>("%SpeciesStatsSummary");
-        _deaths = GetNode<VBoxContainer>("%SpeciesStatsDeaths");
+        _title = Req<Label>("SpeciesStatsTitle");
+        _graph = Req<PopGraph>("SpeciesStatsGraph");
+        _hpVal = Req<Label>("SsHpVal");
+        _hunVal = Req<Label>("SsHunVal");
+        _thiVal = Req<Label>("SsThiVal");
+        _eneVal = Req<Label>("SsEneVal");
+        _hpBar = Req<ProgressBar>("SsHpBar");
+        _hunBar = Req<ProgressBar>("SsHunBar");
+        _thiBar = Req<ProgressBar>("SsThiBar");
+        _eneBar = Req<ProgressBar>("SsEneBar");
+        _summary = Req<Label>("SpeciesStatsSummary");
+        _deaths = Req<VBoxContainer>("SpeciesStatsDeaths");
         EcoSimThemeBuilder.StyleNeedBar(_hpBar, EcoSimThemeBuilder.Hp);
         EcoSimThemeBuilder.StyleNeedBar(_hunBar, EcoSimThemeBuilder.Hunger);
         EcoSimThemeBuilder.StyleNeedBar(_thiBar, EcoSimThemeBuilder.Thirst);
         EcoSimThemeBuilder.StyleNeedBar(_eneBar, EcoSimThemeBuilder.Energy);
         EcoSimFonts.ApplyFont(_summary, EcoSimFonts.Scaled6, EcoSimThemeBuilder.Dim);
+    }
+
+    private T Req<T>(string name) where T : Node
+    {
+        return FindChild(name, true, false) as T
+            ?? throw new InvalidOperationException($"Missing node: {name}");
     }
 
     public void Bind(SpeciesCatalog catalog)

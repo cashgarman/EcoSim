@@ -1,3 +1,4 @@
+using EcoSim.Core.Data;
 using EcoSim.Core.Sim;
 using Godot;
 
@@ -9,6 +10,8 @@ public partial class WorldStoryTracker : Control
     private readonly HashSet<int> _reportedDeaths = new();
     private readonly List<string> _lines = [];
     private VBoxContainer _list = null!;
+    private TimelineDb? _timelineDb;
+    private SpeciesCatalog? _catalog;
     private const int MaxLines = 80;
 
     public override void _Ready()
@@ -20,6 +23,12 @@ public partial class WorldStoryTracker : Control
         _list.AddThemeConstantOverride("separation", 4);
         Resized += OnResized;
         UpdateListWidth();
+    }
+
+    public void Bind(SpeciesCatalog catalog, TimelineDb? db)
+    {
+        _catalog = catalog;
+        _timelineDb = db;
     }
 
     private void OnResized()
@@ -50,8 +59,10 @@ public partial class WorldStoryTracker : Control
             {
                 if (_knownAlive.Contains(c.Id) && _reportedDeaths.Add(c.Id))
                 {
-                    string cause = string.IsNullOrEmpty(c.Cause) ? "unknown" : c.Cause;
-                    AddLine($"Day {session.State.Day}: {c.Sp} #{c.Id} died ({cause})");
+                    string line = _catalog != null
+                        ? CreatureNotify.FormatDiedEvent(_catalog, c, CreatureNotify.InferKillerId(c, session.State), session.State)
+                        : $"Day {session.State.Day}: {c.Sp} #{c.Id} died";
+                    AddLine(line, session);
                 }
                 continue;
             }
@@ -59,22 +70,31 @@ public partial class WorldStoryTracker : Control
             aliveNow.Add(c.Id);
             if (_knownAlive.Add(c.Id))
             {
-                AddLine($"Day {session.State.Day}: {c.Sp} #{c.Id} appeared");
+                var def = _catalog?.Get(c.Sp);
+                string line = def != null
+                    ? $"Day {session.State.Day}: {def.Emoji} {def.Label} #{c.Id} appeared"
+                    : $"Day {session.State.Day}: {c.Sp} #{c.Id} appeared";
+                AddLine(line, session);
             }
         }
 
         _knownAlive.RemoveWhere(id => !aliveNow.Contains(id));
     }
 
-    public void LogGodAction(string text)
+    public void LogGodAction(string text, SimSession? session = null)
     {
-        AddLine(text);
+        AddLine(text, session);
     }
 
-    private void AddLine(string line)
+    private void AddLine(string line, SimSession? session)
     {
         _lines.Insert(0, line);
         if (_lines.Count > MaxLines) _lines.RemoveAt(_lines.Count - 1);
+        if (session != null)
+        {
+            _timelineDb?.AppendWorldEvent(session.State.TGlobal, session.State.Day, line);
+        }
+
         Render();
     }
 

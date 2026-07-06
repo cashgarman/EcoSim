@@ -11,6 +11,8 @@ int sampleEvery = 10;
 string? reportDir = null;
 string? balanceFile = null;
 bool autoMigration = false;
+bool fuzz = false;
+int fuzzTrials = 5;
 double maxWallMs = 120_000;
 
 for (int i = 0; i < args.Length; i++)
@@ -41,6 +43,12 @@ for (int i = 0; i < args.Length; i++)
         case "--auto-migration":
             autoMigration = true;
             break;
+        case "--fuzz":
+            fuzz = true;
+            break;
+        case "--fuzz-trials" when i + 1 < args.Length:
+            fuzzTrials = int.Parse(args[++i]);
+            break;
         case "--max-wall-ms" when i + 1 < args.Length:
             maxWallMs = double.Parse(args[++i]);
             break;
@@ -69,18 +77,70 @@ harness.Init(new BatchRunConfig
     AutoMigration = autoMigration,
 });
 
-int initialPop = harness.GenerateWorld();
-Console.WriteLine($"Seeded {initialPop} creatures (world {session.State.W}x{session.State.H})");
+BatchRunResult result = new();
+BatchReport report = new();
+string runId = "";
 
-var result = harness.Run(new BatchRunOptions
+if (fuzz)
 {
-    TargetDays = days,
-    SampleEveryDays = sampleEvery,
-    MaxWallMs = maxWallMs,
-});
-string runId = $"batch-{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}-{Random.Shared.Next(100000, 999999)}";
-var report = harness.GetReport(runId, result);
-harness.Teardown();
+    double bestScore = double.MinValue;
+    string bestOutcome = "";
+    for (int trial = 0; trial < fuzzTrials; trial++)
+    {
+        var trialSession = SimSession.Create(dataRoot, (uint)(seed ?? 1) + (uint)trial);
+        if (!string.IsNullOrEmpty(balanceFile))
+        {
+            var overrides = BalanceConfigLoader.LoadFromFile(balanceFile);
+            BalanceConfigLoader.Apply(trialSession, overrides);
+        }
+
+        var trialHarness = new BatchHarness(trialSession);
+        trialHarness.Init(new BatchRunConfig
+        {
+            Seed = (uint)(seed ?? 1) + (uint)trial,
+            Size = size,
+            TargetDays = days,
+            SampleEveryDays = sampleEvery,
+            AutoMigration = autoMigration,
+        });
+        trialHarness.GenerateWorld();
+        var trialResult = trialHarness.Run(new BatchRunOptions
+        {
+            TargetDays = days,
+            SampleEveryDays = sampleEvery,
+            MaxWallMs = maxWallMs,
+        });
+        string trialRunId = $"fuzz-{trial}-{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}";
+        var trialReport = trialHarness.GetReport(trialRunId, trialResult);
+        trialHarness.Teardown();
+        Console.WriteLine($"Fuzz trial {trial + 1}/{fuzzTrials}: outcome={trialReport.Outcome} score={trialReport.Score:F2}");
+        if (trialReport.Score > bestScore)
+        {
+            bestScore = trialReport.Score;
+            bestOutcome = trialReport.Outcome;
+            report = trialReport;
+            runId = trialRunId;
+            result = trialResult;
+        }
+    }
+
+    Console.WriteLine($"Fuzz best: outcome={bestOutcome} score={bestScore:F2}");
+}
+else
+{
+    int initialPop = harness.GenerateWorld();
+    Console.WriteLine($"Seeded {initialPop} creatures (world {session.State.W}x{session.State.H})");
+
+    result = harness.Run(new BatchRunOptions
+    {
+        TargetDays = days,
+        SampleEveryDays = sampleEvery,
+        MaxWallMs = maxWallMs,
+    });
+    runId = $"batch-{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}-{Random.Shared.Next(100000, 999999)}";
+    report = harness.GetReport(runId, result);
+    harness.Teardown();
+}
 
 Console.WriteLine($"Outcome: {report.Outcome}  score={report.Score:F2}  finalPop={report.Summary.FinalPop}  day={report.Summary.FinalDay}");
 

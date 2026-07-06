@@ -89,6 +89,73 @@ public sealed class TimelineDb : IDisposable
             "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
             "runId TEXT, t REAL, day INTEGER, html TEXT)");
         Execute("CREATE INDEX IF NOT EXISTS idx_world_run_t ON worldEvents(runId, t)");
+        Execute(
+            "CREATE TABLE IF NOT EXISTS heartbeats(" +
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+            "runId TEXT, t REAL, day INTEGER, json TEXT)");
+        Execute(
+            "CREATE TABLE IF NOT EXISTS creatureEvents(" +
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+            "runId TEXT, creatureId INTEGER, t REAL, day INTEGER, kind TEXT, json TEXT)");
+        Execute("CREATE INDEX IF NOT EXISTS idx_creature_run ON creatureEvents(runId, creatureId)");
+    }
+
+    public void SaveMeta(string key, string value)
+    {
+        Execute("INSERT OR REPLACE INTO meta(key, value) VALUES($k, $v)", ("$k", key), ("$v", value));
+    }
+
+    public string? LoadMeta(string key)
+    {
+        if (_conn == null) return null;
+        using var cmd = _conn.CreateCommand();
+        cmd.CommandText = "SELECT value FROM meta WHERE key = $k";
+        cmd.Parameters.AddWithValue("$k", key);
+        return cmd.ExecuteScalar() as string;
+    }
+
+    public void AppendHeartbeat(double t, int day, string json)
+    {
+        if (_conn == null || string.IsNullOrEmpty(_runId)) return;
+        Execute(
+            "INSERT INTO heartbeats(runId, t, day, json) VALUES($r, $t, $d, $j)",
+            ("$r", _runId), ("$t", t), ("$d", day), ("$j", json));
+    }
+
+    public void AppendCreatureEvent(int creatureId, double t, int day, string kind, string json)
+    {
+        if (_conn == null || string.IsNullOrEmpty(_runId)) return;
+        Execute(
+            "INSERT INTO creatureEvents(runId, creatureId, t, day, kind, json) VALUES($r, $c, $t, $d, $k, $j)",
+            ("$r", _runId), ("$c", creatureId), ("$t", t), ("$d", day), ("$k", kind), ("$j", json));
+    }
+
+    public List<(string Store, double T, int Day, string Text)> ListRows(string store, int offset, int limit)
+    {
+        var rows = new List<(string, double, int, string)>();
+        if (_conn == null || string.IsNullOrEmpty(_runId)) return rows;
+
+        string sql = store switch
+        {
+            "world" => "SELECT t, day, html FROM worldEvents WHERE runId = $r ORDER BY t DESC LIMIT $l OFFSET $o",
+            "creature" => "SELECT t, day, kind || ' ' || json FROM creatureEvents WHERE runId = $r ORDER BY t DESC LIMIT $l OFFSET $o",
+            "heartbeat" => "SELECT t, day, json FROM heartbeats WHERE runId = $r ORDER BY t DESC LIMIT $l OFFSET $o",
+            _ => "",
+        };
+        if (sql.Length == 0) return rows;
+
+        using var cmd = _conn.CreateCommand();
+        cmd.CommandText = sql;
+        cmd.Parameters.AddWithValue("$r", _runId);
+        cmd.Parameters.AddWithValue("$l", limit);
+        cmd.Parameters.AddWithValue("$o", offset);
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            rows.Add((store, reader.GetDouble(0), reader.GetInt32(1), reader.GetString(2)));
+        }
+
+        return rows;
     }
 
     private void Execute(string sql, params (string Name, object Value)[] args)

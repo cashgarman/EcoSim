@@ -1,12 +1,13 @@
+using EcoSim.Core.Data;
 using EcoSim.Core.Sim;
 using Godot;
 
 namespace WildlandsEcoSim.UI;
 
-/// <summary>Steward intervention tools — inspect + weather/disaster; no manual spawning.</summary>
 public partial class ToolsController : HBoxContainer
 {
     private string _activeTool = "inspect";
+    private SpeciesCatalog? _catalog;
 
     public string ActiveTool => _activeTool;
 
@@ -15,10 +16,25 @@ public partial class ToolsController : HBoxContainer
         BuildToolbar();
     }
 
+    public void Bind(SpeciesCatalog catalog)
+    {
+        _catalog = catalog;
+        BuildToolbar();
+    }
+
     private void BuildToolbar()
     {
         GetChildren().ToList().ForEach(c => c.QueueFree());
         AddTool("inspect", "🔍", "Inspect creature");
+        if (_catalog != null)
+        {
+            foreach (string sp in _catalog.SpeciesKeys)
+            {
+                var def = _catalog.Get(sp);
+                AddTool($"spawn-{sp}", def.Emoji, $"Spawn {def.Label}");
+            }
+        }
+
         AddTool("rain", "🌧", "Rain — refill vegetation");
         AddTool("drought", "☀", "Drought — strip vegetation");
         AddTool("meteor", "☄", "Meteor — scorch area");
@@ -51,9 +67,18 @@ public partial class ToolsController : HBoxContainer
         }
     }
 
-    public void ApplyAt(SimSession session, double wx, double wy)
+    public bool IsPaintTool => _activeTool is "rain" or "drought" or "meteor" or "cull";
+
+    public void ApplyAt(SimSession session, SpeciesCatalog catalog, double wx, double wy)
     {
         if (_activeTool == "inspect") return;
+
+        if (_activeTool.StartsWith("spawn-", StringComparison.Ordinal))
+        {
+            string sp = _activeTool["spawn-".Length..];
+            WorldTools.TrySpawn(session.Creatures, catalog, sp, wx, wy);
+            return;
+        }
 
         int cx = (int)Math.Round(wx), cy = (int)Math.Round(wy);
         switch (_activeTool)

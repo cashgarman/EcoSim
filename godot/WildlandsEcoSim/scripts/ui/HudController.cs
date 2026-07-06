@@ -35,8 +35,12 @@ public partial class HudController : CanvasLayer
     private Label _terrainTip = null!;
     private Label _creatureTip = null!;
 
+    private TimelineDbPanel? _timelineDbPanel;
+    private ProfilerDetailPanel? _profilerDetail;
     private TimelineDb? _timelineDb;
     private TimeScrubController? _scrub;
+    private double _heartbeatIntervalSec = 5;
+    private long _lastHeartbeatBucket = -1;
     private DraggablePanel[] _panels = [];
 
     public override void _Ready()
@@ -94,12 +98,19 @@ public partial class HudController : CanvasLayer
         _world = viewport.GetNode<WorldRenderer>("WorldRoot");
         _camera = viewport.GetNode<WorldCamera>("WorldRoot/Camera2D");
 
-        _panels = [_gen, _ecosystem, _inspector, GetNode<StoryPanel>("%StoryPanel"), _speciesStats, _profiler];
+        _profilerDetail = new ProfilerDetailPanel();
+        AddChild(_profilerDetail);
+        _timelineDbPanel = new TimelineDbPanel();
+        AddChild(_timelineDbPanel);
+
+        _panels = [_gen, _ecosystem, _inspector, GetNode<StoryPanel>("%StoryPanel"), _speciesStats, _profiler, _timelineDbPanel];
 
         _gen.GenerateRequested += OnGenerate;
         _gen.RestockRequested += OnRestock;
         _speedSlider.ValueChanged += OnSpeedChanged;
         _ecosystem.SpeciesLocked += OnSpeciesLocked;
+        _ecosystem.SpeciesHovered += OnSpeciesHovered;
+        _ecosystem.SpeciesFollow += OnSpeciesFollow;
         _ecosystem.SpeciesGodMenu += OnSpeciesGodMenu;
         _godMenu.KillAllRequested += OnKillAll;
         _gameApp.SimTicked += OnSimTicked;
@@ -108,14 +119,34 @@ public partial class HudController : CanvasLayer
 
         GetNode<Button>("%FollowBtn").Pressed += () => _camera.FollowEnabled = !_camera.FollowEnabled;
         GetNode<Button>("%ProfilerBtn").Pressed += OnProfilerToggled;
-        GetNode<Button>("%TestRunnerBtn").Disabled = true;
-        GetNode<Button>("%TestRunnerBtn").TooltipText = "Coming in Phase 6";
+        GetNode<Button>("%TestRunnerBtn").Disabled = false;
+        GetNode<Button>("%TestRunnerBtn").TooltipText = "Open batch test runner";
+        GetNode<Button>("%TestRunnerBtn").Pressed += () => GetTree().ChangeSceneToFile("res://scenes/BatchTest.tscn");
         GetNode<Button>("%PresentBtn").Pressed += OnTimelinePresent;
+
+        var cpuGpuBtn = new Button { Text = "CPU/GPU" };
+        cpuGpuBtn.Pressed += () =>
+        {
+            _profilerDetail.PanelOpen = !_profilerDetail.PanelOpen;
+            PerfProfiler.Instance.DetailEnabled = _profilerDetail.PanelOpen;
+            _profilerDetail.Refresh();
+        };
+        GetNode<HBoxContainer>("TopBar/VBox/Row1").AddChild(cpuGpuBtn);
+
+        var gpuThrottle = new OptionButton();
+        gpuThrottle.AddItem("GPU throttle: Off");
+        gpuThrottle.AddItem("Light");
+        gpuThrottle.AddItem("Medium");
+        gpuThrottle.AddItem("Heavy");
+        gpuThrottle.AddItem("Eco");
+        gpuThrottle.ItemSelected += idx => WildlandsEcoSim.Gpu.GpuThrottle.Preset = (WildlandsEcoSim.Gpu.GpuThrottlePreset)idx;
+        GetNode<HBoxContainer>("TopBar/VBox/Row1").AddChild(gpuThrottle);
 
         _world.BindInput(() => _tools.ActiveTool, OnToolApply);
 
         _host.BootstrapIfNeeded();
         _ecosystem.Bind(_host.Species!);
+        _tools.Bind(_host.Species!);
         _inspector.Bind(_host.Species!);
         _speciesStats.Bind(_host.Species!);
 
@@ -142,7 +173,14 @@ public partial class HudController : CanvasLayer
         _timelineDb.BeginRun(runId);
 
         var session = _host.EnsureSession();
-        _scrub = new TimeScrubController(session, _timelineDb);
+        _story.Bind(_host.Species!, _timelineDb);
+        _timelineDbPanel.Bind(_timelineDb);
+        var timelineCfg = TimelineConfigLoader.Load(DataPaths.RepoRoot);
+        _heartbeatIntervalSec = timelineCfg.HeartbeatIntervalSec;
+        _scrub = new TimeScrubController(session, _timelineDb)
+        {
+            SnapshotIntervalSec = PerfPolicy.EffectiveSnapshotIntervalSec(timelineCfg.SnapshotIntervalSec),
+        };
         _gameApp.SetScrubController(_scrub);
     }
 
@@ -181,6 +219,7 @@ public partial class HudController : CanvasLayer
     {
         UpdateTooltips();
         _profiler.Refresh();
+        _profilerDetail.Refresh();
         RefreshTimelineStrip();
     }
 
@@ -191,6 +230,7 @@ public partial class HudController : CanvasLayer
         _host.GenerateWorld(cfg, seed);
         var session = _host.Session!;
         session.State.Speed = _speedSlider.Value;
+        session.State.AutoMigrationEnabled = _gen.AutoMigrationEnabled;
         _gameApp.Paused = false;
 
         _scrub?.ResetBaseline();
@@ -203,7 +243,7 @@ public partial class HudController : CanvasLayer
         _world.BindWorld(session, _host.Species!);
         _camera.CenterOnWorld();
         _story.Reset();
-        _story.LogGodAction($"Day 0: World generated ({cfg.Size}, seed {seed})");
+        _story.LogGodAction($"Day 0: World generated ({cfg.Size}, seed {seed})", session);
         RefreshHud();
     }
 
@@ -213,7 +253,7 @@ public partial class HudController : CanvasLayer
         if (session == null) return;
         _scrub?.OnMutatingAction();
         session.Creatures.StockLife();
-        _story.LogGodAction($"Day {session.State.Day}: Restocked life");
+        _story.LogGodAction($"Day {session.State.Day}: Restocked life", session);
         RefreshHud();
     }
 
@@ -235,6 +275,11 @@ public partial class HudController : CanvasLayer
             _host.Session!.SpeciesStats);
     }
 
+    private void OnSpeciesHovered(string speciesKey)
+    {
+        _world.SetHoveredSpecies(string.IsNullOrEmpty(speciesKey) ? null : speciesKey);
+    }
+
     private void OnSpeciesGodMenu(string speciesKey, Vector2 globalPos)
     {
         _godMenu.OpenFor(speciesKey, _host.Species!, globalPos);
@@ -247,17 +292,50 @@ public partial class HudController : CanvasLayer
         _scrub?.OnMutatingAction();
         int n = session.Creatures.KillAllBySpecies(speciesKey);
         var def = _host.Species!.Get(speciesKey);
-        _story.LogGodAction($"Day {session.State.Day}: Killed all {def.Label} ({n})");
+        _story.LogGodAction($"Day {session.State.Day}: Killed all {def.Label} ({n})", session);
         RefreshHud();
+    }
+
+    private void OnSpeciesFollow(string speciesKey)
+    {
+        var session = _host.Session;
+        if (session == null || string.IsNullOrEmpty(speciesKey)) return;
+
+        Creature? nearest = null;
+        double best = double.MaxValue;
+        Vector2 center = _camera.Position;
+        foreach (var c in session.State.Creatures)
+        {
+            if (c.Dead || c.Sp != speciesKey) continue;
+            double d = (c.X - center.X) * (c.X - center.X) + (c.Y - center.Y) * (c.Y - center.Y);
+            if (d < best)
+            {
+                best = d;
+                nearest = c;
+            }
+        }
+
+        if (nearest == null) return;
+        session.State.Selected = nearest;
+        _camera.FollowEnabled = true;
+        _camera.Position = new Vector2((float)nearest.X, (float)nearest.Y);
+        if (_camera.Zoom.X < 3f)
+        {
+            _camera.Zoom = new Vector2(3f, 3f);
+        }
     }
 
     private void OnToolApply(double wx, double wy)
     {
         var session = _host.Session;
-        if (session == null) return;
+        if (session == null || _host.Species == null) return;
         _scrub?.OnMutatingAction();
-        _tools.ApplyAt(session, wx, wy);
-        _world.BindWorld(session, _host.Species!);
+        _tools.ApplyAt(session, _host.Species, wx, wy);
+        if (session.State.VegDirty)
+        {
+            _world.RefreshVegIfDirty();
+        }
+
         RefreshHud();
     }
 
@@ -283,6 +361,7 @@ public partial class HudController : CanvasLayer
     {
         var session = _host.Session;
         if (session == null) return;
+        CaptureHeartbeatIfDue(session);
         _story.OnSimTicked(session);
         RefreshHud();
     }
@@ -291,6 +370,21 @@ public partial class HudController : CanvasLayer
     {
         _profiler.PanelOpen = !_profiler.PanelOpen;
         EcoSimThemeBuilder.StyleActiveButton(GetNode<Button>("%ProfilerBtn"), _profiler.PanelOpen);
+        if (_profiler.PanelOpen)
+        {
+            _profilerDetail.Refresh();
+        }
+    }
+
+    private void CaptureHeartbeatIfDue(SimSession session)
+    {
+        if (_timelineDb == null) return;
+        double interval = PerfPolicy.EffectiveHeartbeatIntervalSec(_heartbeatIntervalSec, session.State.Speed);
+        long bucket = (long)Math.Floor(session.State.TGlobal / interval);
+        if (bucket == _lastHeartbeatBucket) return;
+        _lastHeartbeatBucket = bucket;
+        string json = $"{{\"pop\":{session.Creatures.AliveCount()},\"day\":{session.State.Day}}}";
+        _timelineDb.AppendHeartbeat(session.State.TGlobal, session.State.Day, json);
     }
 
     private void RefreshHud()
@@ -376,9 +470,16 @@ public partial class HudController : CanvasLayer
         }
 
         var sel = session.State.Selected;
-        if (sel != null && !sel.Dead)
+        Creature? hover = sel;
+        if (hover == null || hover.Dead)
         {
-            _creatureTip.Text = $"{sel.Sp} · {sel.State}";
+            hover = PickHoverCreature(session, tile);
+        }
+
+        if (hover != null && !hover.Dead && _host.Species != null)
+        {
+            var def = _host.Species.Get(hover.Sp);
+            _creatureTip.Text = $"{def.Emoji} {def.Label} · {hover.State}";
             _creatureTip.GlobalPosition = GetViewport().GetMousePosition() + new Vector2(16, -28);
             _creatureTip.Visible = true;
         }
@@ -386,5 +487,25 @@ public partial class HudController : CanvasLayer
         {
             _creatureTip.Visible = false;
         }
+    }
+
+    private static Creature? PickHoverCreature(SimSession session, Vector2 tile)
+    {
+        Creature? best = null;
+        double bestDist = 2.5;
+        foreach (var c in session.State.Creatures)
+        {
+            if (c.Dead) continue;
+            double dx = c.Rx - tile.X;
+            double dy = c.Ry - tile.Y;
+            double d = Math.Sqrt(dx * dx + dy * dy);
+            if (d < bestDist)
+            {
+                bestDist = d;
+                best = c;
+            }
+        }
+
+        return best;
     }
 }

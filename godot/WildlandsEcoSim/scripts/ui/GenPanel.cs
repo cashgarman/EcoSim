@@ -25,6 +25,7 @@ public partial class GenPanel : DraggablePanel
     private Label _moistVal = null!;
     private Label _reliefVal = null!;
     private Label _animVal = null!;
+    private CheckBox? _migrationToggle;
     private string _size = "s";
     private readonly Dictionary<string, Button> _sizeButtons = new(StringComparer.Ordinal);
 
@@ -56,6 +57,9 @@ public partial class GenPanel : DraggablePanel
         GetNode<Button>("%RandSeedBtn").Pressed += () => _seed.Value = GlobalRng.Ri(1, 999999);
         GetNode<Button>("%GenerateWorldBtn").Pressed += () => EmitSignal(SignalName.GenerateRequested);
         GetNode<Button>("%RestockBtn").Pressed += () => EmitSignal(SignalName.RestockRequested);
+        _migrationToggle = new CheckBox { Text = "Auto migration" };
+        EcoSimFonts.ApplyFont(_migrationToggle, EcoSimFonts.Scaled7);
+        GetNode<VBoxContainer>("%PanelBody").AddChild(_migrationToggle);
         StyleFieldLabels();
         UpdateLabels();
     }
@@ -146,6 +150,8 @@ public partial class GenPanel : DraggablePanel
         Relief = _relief.Value,
         Animals = _animals.Value,
     };
+
+    public bool AutoMigrationEnabled => _migrationToggle?.ButtonPressed ?? false;
 
     public uint Seed => (uint)_seed.Value;
 }
