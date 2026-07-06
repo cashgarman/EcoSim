@@ -969,11 +969,10 @@ export class UI
     const overview = $('profiler-overview');
     if (overview)
     {
-      overview.innerHTML = `<span class="profiler-stat"${profilerLabelHelpAttr('fps')}>FPS <b>${snap.overview.fps}</b></span>`
-        + `<span class="profiler-stat"${profilerLabelHelpAttr('frameMs')}>Frame <b>${frameMs.toFixed(2)}ms</b></span>`
-        + `<span class="profiler-stat"${profilerLabelHelpAttr('tier')}>Tier <b>${snap.overview.tier}</b></span>`
+      overview.innerHTML = `<span class="profiler-stat"${profilerLabelHelpAttr('tier')}>Tier <b>${snap.overview.tier}</b></span>`
         + `<span class="profiler-badge"${profilerLabelHelpAttr('badge.sim')}>sim: ${snap.overview.simBackend}</span>`
-        + `<span class="profiler-badge"${profilerLabelHelpAttr('badge.render')}>render: ${snap.overview.rendererBackend}</span>`;
+        + `<span class="profiler-badge"${profilerLabelHelpAttr('badge.render')}>render: ${snap.overview.rendererBackend}</span>`
+        + `<span class="profiler-stat dim"${profilerLabelHelpAttr('frameMs')}>Frame <b>${frameMs.toFixed(2)}ms</b> · ${snap.overview.fps} FPS</span>`;
     }
 
     perfProfiler.drawSparkline($('profiler-sparkline'), 'frameTotal');
@@ -1003,11 +1002,16 @@ export class UI
     const renderMeta = $('profiler-render-meta');
     if (renderMeta)
     {
-      renderMeta.innerHTML = `<div class="profiler-context">`
-        + `<span class="profiler-lbl-wrap"${profilerLabelHelpAttr('meta.branch')}>branch <b>${snap.context.renderBranch}</b></span> · `
-        + `<span class="profiler-lbl-wrap"${profilerLabelHelpAttr('meta.lod')}>LOD <b>${snap.context.lodMode}</b></span> · `
-        + `<span class="profiler-lbl-wrap"${profilerLabelHelpAttr('meta.visible')}>visible <b>${snap.context.visibleCount}</b></span>`
-        + `</div>`;
+      const metaLine = (label, value, helpKey) =>
+        `<span class="profiler-lbl-wrap"${profilerLabelHelpAttr(helpKey)}>${label} <b>${value}</b></span>`;
+      const metaItems = [
+        { label: 'branch', value: snap.context.renderBranch, helpKey: 'meta.branch' },
+        { label: 'LOD', value: snap.context.lodMode, helpKey: 'meta.lod' },
+        { label: 'visible', value: snap.context.visibleCount, helpKey: 'meta.visible' },
+      ].filter((item) => item.value != null && String(item.value).trim() !== '');
+      renderMeta.innerHTML = `<div class="profiler-context"><div class="profiler-context-items">${
+        metaItems.map(item => `<span class="profiler-context-item">${metaLine(item.label, item.value, item.helpKey)}</span>`).join('')
+      }</div></div>`;
     }
     this._fillProfilerRows($('profiler-render-rows'), snap.render, frameMs);
 
@@ -1039,12 +1043,27 @@ export class UI
       const c = snap.context;
       const line = (label, value, helpKey) =>
         `<span class="profiler-lbl-wrap"${profilerLabelHelpAttr(helpKey)}>${label} <b>${value}</b></span>`;
-      ctx.innerHTML = `${line('mode', simulationMode, 'ctx.mode')} · ${line('sim', c.simBackend + (c.gpuSimEnabled ? ' (gpu on)' : ''), 'ctx.sim')}`
-        + ` · ${line('render', c.rendererBackend, 'ctx.render')}<br>`
-        + `${line('world', c.worldTiles, 'ctx.world')} · ${line('speed', `${c.speed}×`, 'ctx.speed')}`
-        + ` · ${line('substeps', c.substepCount, 'ctx.substeps')} · ${line('alive', c.alive, 'ctx.alive')}<br>`
-        + `${line('scrub', c.scrubActive ? 'yes' : 'no', 'ctx.scrub')} · ${line('pause', c.paused ? 'yes' : 'no', 'ctx.pause')}`
-        + ` · ${line('veg bake', `${c.vegBakeInterval.toFixed(2)}s`, 'ctx.vegBake')}`;
+      const contextItems = [
+        { label: 'mode', value: simulationMode, helpKey: 'ctx.mode' },
+        { label: 'sim', value: c.simBackend + (c.gpuSimEnabled ? ' (gpu on)' : ''), helpKey: 'ctx.sim' },
+        { label: 'render', value: c.rendererBackend, helpKey: 'ctx.render' },
+        { label: 'world', value: c.worldTiles, helpKey: 'ctx.world' },
+        { label: 'speed', value: `${c.speed}×`, helpKey: 'ctx.speed' },
+        { label: 'substeps', value: c.substepCount, helpKey: 'ctx.substeps' },
+        { label: 'alive', value: c.alive, helpKey: 'ctx.alive' },
+        { label: 'scrub', value: c.scrubActive ? 'yes' : 'no', helpKey: 'ctx.scrub' },
+        { label: 'pause', value: c.paused ? 'yes' : 'no', helpKey: 'ctx.pause' },
+        { label: 'veg bake', value: `${c.vegBakeInterval.toFixed(2)}s`, helpKey: 'ctx.vegBake' },
+      ].filter((item) =>
+      {
+        const v = item.value;
+        if (v == null) return false;
+        const s = String(v).trim();
+        return s !== '' && s !== '—' && s !== 'undefined';
+      });
+      ctx.innerHTML = `<div class="profiler-context-items">${
+        contextItems.map(item => `<span class="profiler-context-item">${line(item.label, item.value, item.helpKey)}</span>`).join('')
+      }</div>`;
     }
     this._syncProfilerStatTip();
   }
@@ -1636,14 +1655,29 @@ export class UI
     delta.setAttribute('aria-hidden', 'true');
   }
 
+  updateTopbarPerf()
+  {
+    const hud = perfProfiler.getHudMetrics();
+    const simFpsEl = $('s-sim-fps');
+    const simMsEl = $('s-sim-ms');
+    const renderFpsEl = $('s-render-fps');
+    const renderMsEl = $('s-render-ms');
+    if (simFpsEl) simFpsEl.textContent = `${hud.simFps} FPS`;
+    if (simMsEl) simMsEl.textContent = ` · ${hud.simMs.toFixed(1)}ms`;
+    if (renderFpsEl) renderFpsEl.textContent = `${hud.renderFps} FPS`;
+    if (renderMsEl) renderMsEl.textContent = ` · ${hud.renderMs.toFixed(1)}ms`;
+  }
+
   updateUI()
   {
+    const instrument = perfProfiler.isInstrumentationActive();
     const run = () =>
     {
     const alive = state.creatures.filter(c => !c.dead);
     $('s-pop').textContent = alive.length;
     $('s-gen').textContent = 'Gen ' + state.generationMax;
     this.updateDayClock();
+    this.updateTopbarPerf();
 
     let vs = 0, vc = 0;
     for (let i = 0; i < state.veg.length; i += 17)
@@ -1698,10 +1732,10 @@ export class UI
 
     this.syncSpeciesStatsPanel();
     this.syncScrubUI();
-    this.updateProfilerPanel();
+    if (perfProfiler.enabled) this.updateProfilerPanel();
     if (perfProfiler.detailEnabled) this.updateProfilerDetailPanel();
     };
-    if (perfProfiler.detailEnabled) return perfProfiler.scope('ui.update', run);
+    if (instrument) return perfProfiler.scope('ui.update', run);
     return run();
   }
 

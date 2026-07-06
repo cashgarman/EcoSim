@@ -51,6 +51,7 @@
   .day-clock-stat #s-day-clock{min-width:72px;}
   .day-clock-stat .day-clock-day{color:var(--dim);margin-left:2px;}
   #topbar .div{width:2px;height:15px;background:var(--edge);}
+  #topbar .stat-ms{color:var(--dim);font-size:calc(6px * var(--text-scale));}
   .speedctl{display:flex;align-items:center;gap:6px;padding:0 2px;}
   #speed-slider{width:130px;height:12px;}
   #speed-label{min-width:26px;text-align:center;color:var(--gold);}
@@ -372,19 +373,29 @@
   .profiler-section h3{font-size:calc(7px * 1.3);color:var(--gold);margin:0 0 5px;}
   .profiler-overview{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;margin-bottom:6px;font-size:calc(6px * 1.3);}
   .profiler-overview .profiler-stat{color:var(--dim);}
+  .profiler-overview .profiler-stat.dim{color:var(--dim);font-size:calc(6px * var(--text-scale));}
   .profiler-overview .profiler-stat b{color:var(--text);}
   .profiler-badge{padding:2px 5px;border:1px solid var(--edge);border-radius:3px;background:var(--panel-darker);color:var(--gold);font-size:calc(6px * 1.3);}
   #profiler-sparkline{width:100%;height:24px;background:var(--panel-darker);border:2px solid var(--edge);border-radius:4px;display:block;margin-bottom:4px;}
-  .profiler-budget{display:flex;height:10px;border:2px solid var(--edge);border-radius:3px;overflow:hidden;margin-bottom:6px;background:var(--panel-darker);}
+  .profiler-budget{display:flex;height:10px;border:2px solid var(--edge);border-radius:3px;overflow:hidden;margin-bottom:4px;background:var(--panel-darker);}
   .profiler-budget-seg{height:100%;min-width:1px;}
   .profiler-budget-seg.sim{background:#5a9e4a;}
   .profiler-budget-seg.snapshot{background:#9e6b4a;}
-  .profiler-budget-seg.smooth{background:#6a5a9e;}
+  .profiler-budget-seg.displaySmooth{background:#6a5a9e;}
   .profiler-budget-seg.render{background:#4a8a9e;}
   .profiler-budget-seg.ui{background:#9e9a4a;}
   .profiler-budget-seg.other{background:#666;}
+  .profiler-budget-legend{display:flex;flex-wrap:wrap;gap:4px 10px;margin-bottom:8px;font-size:calc(6px * 1.2);color:var(--dim);line-height:1.3;}
+  .profiler-legend-item{display:inline-flex;align-items:center;gap:4px;white-space:nowrap;}
+  .profiler-legend-swatch{width:8px;height:8px;border-radius:2px;flex:none;border:1px solid rgba(0,0,0,.3);}
+  .profiler-legend-swatch.sim{background:#5a9e4a;}
+  .profiler-legend-swatch.snapshot{background:#9e6b4a;}
+  .profiler-legend-swatch.displaySmooth{background:#6a5a9e;}
+  .profiler-legend-swatch.render{background:#4a8a9e;}
+  .profiler-legend-swatch.ui{background:#9e9a4a;}
+  .profiler-legend-swatch.other{background:#666;}
   .profiler-row{display:grid;grid-template-columns:1fr 42px 1fr;gap:5px;align-items:center;margin-bottom:3px;font-size:calc(6px * 1.3);}
-  .profiler-lbl-wrap{display:flex;align-items:center;gap:3px;min-width:0;}
+  .profiler-lbl-wrap{display:inline-flex;align-items:center;gap:3px;min-width:0;}
   .profiler-row .profiler-lbl{color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   [data-profiler-help]{cursor:help;}
   [data-profiler-help]:hover{color:var(--gold);}
@@ -400,6 +411,9 @@
   .profiler-bar-fill{height:100%;background:var(--gold);border-radius:1px;min-width:0;}
   .profiler-context{font-size:calc(6px * 1.3);color:var(--dim);line-height:1.55;}
   .profiler-context b{color:var(--text);font-weight:normal;}
+  .profiler-context-items{display:flex;flex-wrap:wrap;align-items:baseline;column-gap:0;row-gap:2px;}
+  .profiler-context-item{display:inline-flex;align-items:baseline;}
+  .profiler-context-item:not(:last-child)::after{content:' · ';color:var(--dim);}
   #profiler-detail-panel{
     position:absolute;top:92px;width:400px;height:480px;min-width:280px;min-height:200px;
     max-height:calc(100vh - 110px);overflow:hidden;box-sizing:border-box;
@@ -476,6 +490,8 @@
     <div class="stat">🐾 <span id="s-pop">0</span></div><div class="div"></div>
     <div class="stat">🧬 <span id="s-gen">Gen 1</span></div><div class="div"></div>
     <div class="stat">🌱 <span id="s-veg">0%</span></div><div class="div"></div>
+    <div class="stat" title="Simulation step time (EMA)">⚙ <span id="s-sim-fps">—</span><span class="stat-ms" id="s-sim-ms"></span></div><div class="div"></div>
+    <div class="stat" title="Render pass time (EMA)">🖼 <span id="s-render-fps">—</span><span class="stat-ms" id="s-render-ms"></span></div><div class="div"></div>
     <div class="speedctl">
       <span class="stat">⏱</span>
       <input type="range" id="speed-slider" min="0" max="10" step="1" value="1" title="Simulation speed">
@@ -632,6 +648,14 @@
     <div class="profiler-section" id="profiler-frame-section">
       <h3>Frame budget</h3>
       <div class="profiler-budget" id="profiler-budget"></div>
+      <div class="profiler-budget-legend" id="profiler-budget-legend" aria-hidden="true">
+        <span class="profiler-legend-item"><span class="profiler-legend-swatch sim"></span>sim</span>
+        <span class="profiler-legend-item"><span class="profiler-legend-swatch snapshot"></span>snapshot</span>
+        <span class="profiler-legend-item"><span class="profiler-legend-swatch displaySmooth"></span>displaySmooth</span>
+        <span class="profiler-legend-item"><span class="profiler-legend-swatch render"></span>render</span>
+        <span class="profiler-legend-item"><span class="profiler-legend-swatch ui"></span>ui</span>
+        <span class="profiler-legend-item"><span class="profiler-legend-swatch other"></span>other</span>
+      </div>
       <div id="profiler-frame-rows"></div>
     </div>
     <div class="profiler-section" id="profiler-sim-cpu-section">

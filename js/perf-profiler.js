@@ -123,10 +123,32 @@ export class PerfProfiler
     }
   }
 
+  /** Profiler summary and/or CPU/GPU detail panels — enables scoped and detailed bucket timing. */
+  isInstrumentationActive()
+  {
+    return this.enabled || this.detailEnabled;
+  }
+
+  getHudMetrics()
+  {
+    const frameMs = this.get('frameTotal') || this._lastFrameMs;
+    const simMs = this.get('sim');
+    const renderMs = this.get('render');
+    const fpsFrom = (ms) => (ms > 0 ? Math.min(999, Math.round(1000 / ms)) : 0);
+    return {
+      frameMs,
+      frameFps: fpsFrom(frameMs),
+      simMs,
+      simFps: fpsFrom(simMs),
+      renderMs,
+      renderFps: fpsFrom(renderMs),
+    };
+  }
+
   shouldRecord(key)
   {
     if (ALWAYS_KEYS.has(key)) return true;
-    if (!this.enabled) return false;
+    if (!this.isInstrumentationActive()) return false;
     if (key.startsWith('gpu.') && !isGpuSimActive()) return false;
     return true;
   }
@@ -392,15 +414,15 @@ export class PerfProfiler
     this._lastFrameMs = frameTotalMs;
     this.record('frameTotal', frameTotalMs);
 
-    const idx = this._historyIdx % HISTORY_LEN;
-    this._history.frameTotal[idx] = frameTotalMs;
-    this._history.sim[idx] = this.get('sim');
-    this._history.render[idx] = this.get('render');
-    this._historyIdx++;
-    this._historyCount = Math.min(HISTORY_LEN, this._historyCount + 1);
-
     if (this.enabled)
     {
+      const idx = this._historyIdx % HISTORY_LEN;
+      this._history.frameTotal[idx] = frameTotalMs;
+      this._history.sim[idx] = this.get('sim');
+      this._history.render[idx] = this.get('render');
+      this._historyIdx++;
+      this._historyCount = Math.min(HISTORY_LEN, this._historyCount + 1);
+
       const accounted = FRAME_KEYS.reduce((sum, k) => sum + this.get(k), 0);
       this.record('other', Math.max(0, frameTotalMs - accounted));
     }

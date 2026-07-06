@@ -325,8 +325,9 @@ export class GameApp
 
   frame(now)
   {
-    perfProfiler.beginFrame();
-    perfProfiler.begin('frame');
+    const instrument = perfProfiler.isInstrumentationActive();
+    if (instrument) perfProfiler.beginFrame();
+    if (instrument) perfProfiler.begin('frame');
     const frameT0 = performance.now();
     try
     {
@@ -341,20 +342,20 @@ export class GameApp
       {
         state.tGlobal += sdt;
         const steps = Math.min(6, Math.ceil(state.speed));
-        perfProfiler.setMeta('substepCount', steps);
+        if (instrument) perfProfiler.setMeta('substepCount', steps);
         const stepDt = sdt / steps;
-        perfProfiler.begin('frame.sim');
+        if (instrument) perfProfiler.begin('frame.sim');
         const simT0 = performance.now();
         for (let i = 0; i < steps; i++)
         {
           simulation.tick(stepDt, { substep: i, substepCount: steps });
         }
-        perfProfiler.end('frame.sim');
+        if (instrument) perfProfiler.end('frame.sim');
         perfProfiler.record('sim', performance.now() - simT0);
       }
       else
       {
-        perfProfiler.setMeta('substepCount', 0);
+        if (instrument) perfProfiler.setMeta('substepCount', 0);
         perfProfiler.record('sim', 0);
       }
 
@@ -370,8 +371,8 @@ export class GameApp
           if (bucketT > lastAt + 1e-6)
           {
             state.lastSnapshotAt = bucketT;
-            perfProfiler.begin('frame.snapshot');
-            const snapT0 = performance.now();
+            if (instrument) perfProfiler.begin('frame.snapshot');
+            const snapT0 = instrument ? performance.now() : 0;
             try
             {
               const snap = captureSnapshot();
@@ -385,19 +386,25 @@ export class GameApp
             {
               // snapshot capture failure should not break sim
             }
-            perfProfiler.end('frame.snapshot');
-            perfProfiler.record('snapshot', performance.now() - snapT0);
+            if (instrument)
+            {
+              perfProfiler.end('frame.snapshot');
+              perfProfiler.record('snapshot', performance.now() - snapT0);
+            }
           }
         }
       }
 
       if (state.ready)
       {
-        perfProfiler.begin('frame.displaySmooth');
-        const smoothT0 = performance.now();
+        if (instrument) perfProfiler.begin('frame.displaySmooth');
+        const smoothT0 = instrument ? performance.now() : 0;
         creatures.advanceDisplayPositions(dt);
-        perfProfiler.end('frame.displaySmooth');
-        perfProfiler.record('displaySmooth', performance.now() - smoothT0);
+        if (instrument)
+        {
+          perfProfiler.end('frame.displaySmooth');
+          perfProfiler.record('displaySmooth', performance.now() - smoothT0);
+        }
       }
 
       if (state.followSelected)
@@ -413,20 +420,19 @@ export class GameApp
       }
 
       quality.frameCounter++;
-      let shouldRender = false;
-      perfProfiler.begin('frame.render');
+      if (instrument) perfProfiler.begin('frame.render');
       const renderT0 = performance.now();
       if (state.ready)
       {
         const skipDecimationForWebGpu = state.rendererBackend === 'webgpu' && !state.scrubActive;
-        shouldRender = state.scrubActive
+        const shouldRender = state.scrubActive
           ? true
           : skipDecimationForWebGpu
             ? true
             : (quality.frameCounter % quality.renderDecimation) === 0;
         if (shouldRender) renderPipeline.render();
       }
-      perfProfiler.end('frame.render');
+      if (instrument) perfProfiler.end('frame.render');
       perfProfiler.record('render', performance.now() - renderT0);
 
       const q = quality.config();
@@ -437,11 +443,14 @@ export class GameApp
       if (this.uiT > 0.2)
       {
         this.uiT = 0;
-        perfProfiler.begin('frame.ui');
-        const uiT0 = performance.now();
+        if (instrument) perfProfiler.begin('frame.ui');
+        const uiT0 = instrument ? performance.now() : 0;
         ui.updateUI();
-        perfProfiler.end('frame.ui');
-        perfProfiler.record('ui', performance.now() - uiT0);
+        if (instrument)
+        {
+          perfProfiler.end('frame.ui');
+          perfProfiler.record('ui', performance.now() - uiT0);
+        }
       }
     }
     catch (err)
@@ -450,7 +459,7 @@ export class GameApp
     }
     finally
     {
-      perfProfiler.end('frame');
+      if (instrument) perfProfiler.end('frame');
       const frameTotal = performance.now() - frameT0;
       perfProfiler.endFrame(frameTotal);
       quality.updateTier(frameTotal);
