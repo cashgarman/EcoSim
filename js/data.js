@@ -80,6 +80,18 @@ export function applySpeciesOverrides(overrides = {})
     if (!SPECIES[sp]) continue;
     SPECIES[sp] = deepMerge(SPECIES[sp], overrides[sp]);
   }
+  attachSpeciesMasks();
+}
+
+export function attachSpeciesMasks()
+{
+  for (const sp of SP_KEYS)
+  {
+    const s = SPECIES[sp];
+    if (!s) continue;
+    s.huntsMask = speciesMask(s.hunts);
+    s.preyMask = speciesMask(s.preyOf);
+  }
 }
 
 export function snapshotSpeciesConfig()
@@ -186,5 +198,6 @@ export async function loadSpeciesData(url = './data/species.json')
   GENE_KEYS = data.geneKeys;
   GENE_RANGE = data.geneRange;
   GENE_LABEL = data.geneLabel;
+  attachSpeciesMasks();
   return data;
 }

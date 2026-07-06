@@ -17,6 +17,9 @@ export class CreatureSystem
   {
     this._logFn = null;
     this._notifyFn = null;
+    this._nearbyScratch = [];
+    this._posScratch = { x: 0, y: 0 };
+    this._neighborScratch = { x: 0, y: 0 };
   }
 
   setLogger(fn)
@@ -258,7 +261,17 @@ export class CreatureSystem
 
   simPos(c)
   {
-    if (!c) return { x: 0, y: 0 };
+    return this.simPosInto(this._posScratch, c);
+  }
+
+  simPosInto(out, c)
+  {
+    if (!c)
+    {
+      out.x = 0;
+      out.y = 0;
+      return out;
+    }
     let x = c.x;
     let y = c.y;
     if (state.simBackend === 'gpu' && state.gpuSimEnabled && !state.scrubActive && state.gpuPosSyncAt)
@@ -267,7 +280,9 @@ export class CreatureSystem
       x += (c.vx || 0) * since;
       y += (c.vy || 0) * since;
     }
-    return { x, y };
+    out.x = x;
+    out.y = y;
+    return out;
   }
 
   rebuildGrid()
@@ -284,13 +299,16 @@ export class CreatureSystem
     }
   }
 
-  nearby(c, r)
+  nearby(c, r, out)
   {
-    const out = [];
-    const pos = this.simPos(c);
+    const list = out || this._nearbyScratch;
+    list.length = 0;
+    const pos = this.simPosInto(this._posScratch, c);
     const cx = Math.floor(pos.x / CELL);
     const cy = Math.floor(pos.y / CELL);
     const rr = Math.ceil(r / CELL);
+    const r2 = r * r;
+    const npos = this._neighborScratch;
     for (let dy = -rr; dy <= rr; dy++)
     {
       for (let dx = -rr; dx <= rr; dx++)
@@ -301,15 +319,15 @@ export class CreatureSystem
         {
           if (o !== c && !o.dead)
           {
-            const op = this.simPos(o);
-            const ddx = op.x - pos.x;
-            const ddy = op.y - pos.y;
-            if (ddx * ddx + ddy * ddy < r * r) out.push(o);
+            this.simPosInto(npos, o);
+            const ddx = npos.x - pos.x;
+            const ddy = npos.y - pos.y;
+            if (ddx * ddx + ddy * ddy < r2) list.push(o);
           }
         }
       }
     }
-    return out;
+    return list;
   }
 
   wander(c)
