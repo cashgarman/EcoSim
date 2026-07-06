@@ -10,8 +10,9 @@
 | Modules | `js/` — ES module classes (see tree below) |
 | Run | `python serve.py` from repo root → `http://127.0.0.1:8765/wildlands-ecosim.html` |
 | Batch test | `http://127.0.0.1:8765/batch-test.html` — headless ecology/balance runs (CPU default) |
-| Batch CLI | `python scripts/run_batch.py --days 100 --size s` · GPU: `python scripts/run_batch_gpu.py --days 100 --size s` or `--sim gpu` |
+| Batch CLI | `python scripts/run_batch.py --days 100 --size s` · GPU: `python scripts/run_batch_gpu.py --days 100 --size s` or `--sim gpu` · **C#:** `python scripts/run_batch_godot.py --days 100 --size s` |
 | Stack | Vanilla JS ES modules, Canvas 2D + WebGPU compute simulation + WebGPU creature overlay |
+| Godot migration | `EcoSim.sln` — `EcoSim.Core` (pure C# CPU sim) + `EcoSim.BatchCli` + `godot/WildlandsEcoSim/` scaffold; local SDK at `.dotnet/` via `scripts/setup_godot_dev.ps1` |
 | Game design | `GAMEPLAY.md` — player-facing rules and planned Challenge mode |
 
 ```
@@ -24,7 +25,13 @@ EcoSim/
 ├── reports/                # Saved batch/fuzz JSON reports (gitignored *.json)
 ├── scripts/
 │   ├── run_batch.py        # Headless CLI driver (Playwright)
-│   └── run_batch_gpu.py    # GPU-focused batch CLI wrapper
+│   ├── run_batch_gpu.py    # GPU-focused batch CLI wrapper
+│   └── run_batch_godot.py  # C# EcoSim.BatchCli headless batch (no browser)
+├── EcoSim.sln              # C# solution (EcoSim.Core + tests + BatchCli)
+├── EcoSim.BatchCli/         # Headless batch runner → reports/*.json
+├── godot/WildlandsEcoSim/
+│   ├── EcoSim.Core/        # Pure C# sim (world, creatures, BT, batch harness)
+│   └── …                   # Godot 4.3 project scaffold (Phase 0+)
 ├── tests/
 │   ├── time-scrub.test.js  # Snapshot/scrub unit tests (console)
 │   └── timeline-viewport.test.js # Viewport zoom/pan unit tests (console)

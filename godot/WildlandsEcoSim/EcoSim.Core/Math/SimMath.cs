@@ -19,6 +19,11 @@ public static class SimMath
         return a + (b - a) * t;
     }
 
+    public static double Hypot(double x, double y)
+    {
+        return Math.Sqrt(x * x + y * y);
+    }
+
     public static double ExpSmoothT(double rate, double dt)
     {
         return 1.0 - Math.Exp(-rate * dt);
