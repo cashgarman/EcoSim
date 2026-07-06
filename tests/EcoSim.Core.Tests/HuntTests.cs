@@ -46,6 +46,42 @@ public class HuntTests
         Assert.That(rabbit.Hp, Is.LessThan(100).Or.EqualTo(0));
     }
 
+    [Test]
+    public void StockFox_OnSeed42World_DamagesAdjacentRabbit()
+    {
+        var session = SimSession.Create(_repoRoot, 42);
+        session.State.Cfg.Size = "s";
+        session.GenerateWorld();
+        session.State.Creatures.RemoveAll(c => c.Sp != "fox" && c.Sp != "rabbit");
+        session.Creatures.RebuildGrid();
+
+        var fox = session.State.Creatures.First(c => c.Sp == "fox" && !c.Dead);
+        var rabbit = session.State.Creatures.First(c => c.Sp == "rabbit" && !c.Dead);
+        session.State.Creatures.Clear();
+        session.State.Creatures.Add(fox);
+        session.State.Creatures.Add(rabbit);
+        session.Creatures.RebuildGrid();
+        fox.X = 40;
+        fox.Y = 40;
+        rabbit.X = 40.4;
+        rabbit.Y = 40;
+        fox.Hunger = 15;
+        fox.Thirst = 80;
+        fox.Energy = 80;
+        rabbit.Hp = 100;
+
+        session.Creatures.SyncGrid();
+        for (int i = 0; i < 40; i++)
+        {
+            session.Creatures.SyncGrid();
+            session.Simulation.Tick(0.5);
+            if (rabbit.Hp < 100) break;
+        }
+
+        Assert.That(rabbit.Hp, Is.LessThan(100), "adjacent fox should land hunt damage within ~20 sim seconds");
+        Assert.That(rabbit.Cause, Is.EqualTo("predation"));
+    }
+
     private static string FindRepoRoot()
     {
         string? dir = AppContext.BaseDirectory;

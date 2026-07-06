@@ -9,7 +9,7 @@ namespace EcoSim.Core.Tests;
 public class SimRngTests
 {
     [Test]
-    public void LcgSequence_MatchesJsGoldenValues()
+    public void LcgSequence_MatchesRegressionGoldenValues()
     {
         var rng = new SimRng(12345);
         double[] expected =
@@ -61,6 +61,18 @@ public class SpeciesCatalogTests
         Assert.That(catalog.SpeciesKeys.Count, Is.EqualTo(11));
         Assert.That(catalog.Species.ContainsKey("rabbit"), Is.True);
         Assert.That(catalog.GeneKeys.Length, Is.EqualTo(10));
+    }
+
+    [Test]
+    public void SpeciesKeys_PreserveJsonFileOrder()
+    {
+        var catalog = SpeciesCatalog.LoadFromFile();
+        string[] expected =
+        [
+            "rabbit", "mouse", "deer", "elk", "beaver", "boar",
+            "fox", "wolf", "hawk", "owl", "bear",
+        ];
+        Assert.That(catalog.SpeciesKeys, Is.EqualTo(expected));
     }
 
     [Test]

@@ -189,13 +189,19 @@ public static class BehaviorExecutor
                     }
                     else { c.Vx *= 0.25; c.Vy *= 0.25; }
 
+                    pp = creatures.SimPos(ctx.Prey);
+                    pos = creatures.SimPos(c);
+                    pdist = SimMath.Hypot(pp.X - pos.X, pp.Y - pos.Y);
                     if (pdist < strikeR && GlobalRng.Next() < creatures.HuntStrikeChance(c))
                     {
                         ctx.Prey.Hp -= 30 + g.Size * 15;
                         ctx.Prey.Cause = "predation";
-                        if (ctx.Prey.Hp <= 0) creatures.Die(ctx.Prey, "predation");
-                        c.Hunger = Math.Min(100, c.Hunger + 50);
-                        c.Energy = Math.Min(100, c.Energy + 12);
+                        if (ctx.Prey.Hp <= 0)
+                        {
+                            creatures.Die(ctx.Prey, "predation");
+                            c.Hunger = Math.Min(100, c.Hunger + 50);
+                            c.Energy = Math.Min(100, c.Energy + 12);
+                        }
                     }
                 }
                 else creatures.MoveTo(c, moveSpeed, dt);

@@ -32,9 +32,8 @@ public sealed class Simulation
         UpdateDayNight();
         _state.Day = (int)Math.Floor(_state.TGlobal / SimConstants.SimDaySeconds);
 
-        _creatures.RebuildGrid();
-        int creatureCount = _state.Creatures.Count;
-        for (int i = 0; i < creatureCount; i++)
+        _creatures.SyncGrid();
+        for (int i = 0; i < _state.Creatures.Count; i++)
         {
             var c = _state.Creatures[i];
             if (!c.Dead) _creatures.StepCreature(c, dt);
