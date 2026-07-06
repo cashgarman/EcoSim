@@ -1,4 +1,4 @@
-namespace EcoSim.Core.Math;
+namespace EcoSim.Core.Numerics;
 
 public static class SimMath
 {

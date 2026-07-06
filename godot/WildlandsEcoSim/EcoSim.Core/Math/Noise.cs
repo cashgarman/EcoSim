@@ -1,14 +1,29 @@
-namespace EcoSim.Core.Math;
+namespace EcoSim.Core.Numerics;
 
 /// <summary>Procedural noise — ports <c>hashN</c>, <c>vnoise</c>, <c>fbm</c> from <c>js/utils.js</c>.</summary>
 public static class Noise
 {
     public static double HashN(int x, int y, int seed)
     {
-        uint h = unchecked((uint)(x * 374761393 + y * 668265263 + seed * 40499));
-        h = unchecked((h ^ (h >> 13)) * 1274126177);
-        h = h ^ (h >> 16);
+        // JS bitwise ops use ToInt32; >>> 0 uses ToUint32 on the numeric result
+        uint h = JsToUint32(x * 374761393.0 + y * 668265263.0 + seed * 40499.0);
+        int signed = JsToInt32(h);
+        h = JsToUint32((signed ^ (signed >> 13)) * 1274126177.0);
+        signed = JsToInt32(h);
+        h = JsToUint32(signed ^ (signed >> 16));
         return h / 4294967296.0;
+    }
+
+    private static int JsToInt32(uint value)
+    {
+        return unchecked((int)value);
+    }
+
+    private static uint JsToUint32(double value)
+    {
+        double pos = Math.Sign(value) * Math.Floor(Math.Abs(value));
+        pos %= 4294967296.0;
+        return (uint)pos;
     }
 
     public static double VNoise(double x, double y, int seed)

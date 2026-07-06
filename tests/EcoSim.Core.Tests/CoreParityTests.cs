@@ -1,6 +1,7 @@
 using EcoSim.Core.Data;
-using EcoSim.Core.Math;
+using EcoSim.Core.Numerics;
 using EcoSim.Core.Rng;
+using NUnit.Framework;
 
 namespace EcoSim.Core.Tests;
 
