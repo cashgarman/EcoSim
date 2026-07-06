@@ -9,8 +9,8 @@ Each phase is implemented on its own branch. Before starting the next phase: com
 | Phase | Branch | Status |
 |-------|--------|--------|
 | 0 — Profiler scopes | `perf/phase-0-scopes` | Done |
-| 1A — Water distance field | `perf/phase-1a-water-field` | In progress |
-| 1B — Goal replan cache | `perf/phase-1b-goal-cache` | Pending |
+| 1A — Water distance field | `perf/phase-1a-water-field` | Done |
+| 1B — Goal replan cache | `perf/phase-1b-goal-cache` | In progress |
 | 1C — Alloc-free perception | `perf/phase-1c-perception` | Pending |
 | 1D — CPU nav replan | `perf/phase-1d-cpu-nav-replan` | Pending |
 | 2 — Incremental grid | `perf/phase-2-incremental-grid` | Pending |
@@ -52,7 +52,14 @@ Each phase is implemented on its own branch. Before starting the next phase: com
 
 ## Phase 1B — Goal replan cache
 
-*(Pending)*
+**Branch:** `perf/phase-1b-goal-cache`
+
+**Problem:** `resolveGoals` ran every tick even when behavior node and targets were unchanged (especially `wander` / `rest` / stable `graze`).
+
+**Changes:**
+- [`js/behavior/executor.js`](js/behavior/executor.js): `shouldReuseGoals()` skips `resolveGoals` when BT node + state match, targets remain valid, and staggered replan phase (quality `navReplanInterval`) has not fired.
+
+**Acceptance:** Large drop in `behavior.resolveGoals.wander` call cost; hunt/flee/mate still replan on interval or target loss.
 
 ---
 

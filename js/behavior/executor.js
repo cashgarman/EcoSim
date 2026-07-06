@@ -12,6 +12,7 @@ import {
 import { lifeStory } from '../life-story.js';
 import { stateToGpuCode } from './state-codes.js';
 import { perfProfiler } from '../perf-profiler.js';
+import { quality } from '../render/quality.js';
 
 export function resolveGoals(action, ctx, creatureSystem)
 {
@@ -385,15 +386,72 @@ export function tryConsummateMate(creature, ctx, creatureSystem)
   return true;
 }
 
+function shouldReuseGoals(creature, decision, ctx)
+{
+  const { action, nodeId } = decision;
+  if (nodeId !== creature.btNodeId || action.state !== creature.state) return false;
+
+  const replanEvery = quality.config().navReplanInterval;
+  const phase = (Math.floor(state.tGlobal * 24) + (creature.id | 0)) % replanEvery;
+  if (phase === 0) return false;
+
+  const behaviorState = action.state;
+  if (behaviorState === 'flee')
+  {
+    if (!ctx.threat || ctx.threat.dead) return false;
+    return creature.target === ctx.threat.id;
+  }
+  if (behaviorState === 'hunt')
+  {
+    if (!ctx.prey || ctx.prey.dead) return false;
+    return creature.target === ctx.prey.id;
+  }
+  if (behaviorState === 'huntSearch') return true;
+  if (behaviorState === 'mate')
+  {
+    if (!ctx.mate || ctx.mate.dead) return false;
+    return creature.target === ctx.mate.id;
+  }
+  if (behaviorState === 'thirst')
+  {
+    if (atWaterEdge(creature.x, creature.y)) return false;
+    return Number.isFinite(creature.tx) && Number.isFinite(creature.ty);
+  }
+  if (behaviorState === 'graze')
+  {
+    const ti = idx(
+      clamp(Math.round(creature.x), 0, state.W - 1),
+      clamp(Math.round(creature.y), 0, state.H - 1),
+    );
+    return state.veg[ti] > 0.04;
+  }
+  if (behaviorState === 'rest' || behaviorState === 'wander') return true;
+  return false;
+}
+
 export function applyDecisionWithContext(creature, decision, ctx, creatureSystem)
 {
   perfProfiler.scope('behavior.applyDecision', () =>
   {
     const { action, nodeId } = decision;
+    let goals;
+    if (shouldReuseGoals(creature, decision, ctx))
+    {
+      goals = {
+        goalX: creature.tx,
+        goalY: creature.ty,
+        targetId: creature.target,
+        targetSlot: creature.gpuTargetSlot ?? -1,
+      };
+    }
+    else
+    {
+      goals = resolveGoals(action, ctx, creatureSystem);
+    }
+
     creature.state = action.state;
     creature.btNodeId = nodeId;
     creature.gpuStateCode = stateToGpuCode(action.state);
-    const goals = resolveGoals(action, ctx, creatureSystem);
     creature.tx = goals.goalX;
     creature.ty = goals.goalY;
     creature.target = goals.targetId;
