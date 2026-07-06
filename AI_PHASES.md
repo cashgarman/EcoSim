@@ -12,11 +12,13 @@ Each phase is implemented on its own branch. Before starting the next phase: com
 | 1A — Water distance field | `perf/phase-1a-water-field` | Done |
 | 1B — Goal replan cache | `perf/phase-1b-goal-cache` | Done |
 | 1C — Alloc-free perception | `perf/phase-1c-perception` | Done |
-| 1D — CPU nav replan | `perf/phase-1d-cpu-nav-replan` | In progress |
-| 2 — Incremental grid | `perf/phase-2-incremental-grid` | Pending |
-| 3A — Batch GPU upload | `perf/phase-3a-batch-upload` | Pending |
-| 3B — GPU perception | `perf/phase-3b-gpu-perception` | Pending |
-| Validation | `perf/validation` | Pending |
+| 1D — CPU nav replan | `perf/phase-1d-cpu-nav-replan` | Done |
+| 2 — Incremental grid | `perf/phase-2-incremental-grid` | Done |
+| 3A — Batch GPU upload | `perf/phase-3a-batch-upload` | Done |
+| 3B — GPU perception | `perf/phase-3b-gpu-perception` | Deferred |
+| Validation | `perf/validation` | Done |
+
+Integration branch: `simulation-optimization` (merge `perf/validation` when ready).
 
 ---
 
@@ -27,10 +29,8 @@ Each phase is implemented on its own branch. Before starting the next phase: com
 **Problem:** `behavior.tick` showed ~15ms unscoped self-time; goal resolution (`resolveGoals`) was invisible in the CPU/GPU detail panel.
 
 **Changes:**
-- [`js/behavior/executor.js`](js/behavior/executor.js): wrap `resolveGoals` in `behavior.resolveGoals` with per-goal child scopes (`nearestWater`, `wander`, etc.); wrap `applyDecisionWithContext` in `behavior.applyDecision`.
+- [`js/behavior/executor.js`](js/behavior/executor.js): wrap `resolveGoals` in `behavior.resolveGoals` with per-goal child scopes; wrap `applyDecisionWithContext` in `behavior.applyDecision`.
 - [`js/behavior/index.js`](js/behavior/index.js): wrap GPU `tickDecisionOnly` in `behavior.tick`; extract `_observeLifeStory` scoped as `behavior.lifeStory`.
-
-**Acceptance:** With CPU/GPU detail panel open (F2 + CPU/GPU toggle), `behavior.tick` self-time should be near zero; `behavior.resolveGoals.nearestWater` should dominate when many creatures are thirsty.
 
 ---
 
@@ -38,15 +38,13 @@ Each phase is implemented on its own branch. Before starting the next phase: com
 
 **Branch:** `perf/phase-1a-water-field`
 
-**Problem:** `nearestWater` goal scanned up to 48-tile radius per thirsty creature per tick (~9,400 tile checks each).
+**Problem:** `nearestWater` goal scanned up to 48-tile radius per thirsty creature per tick.
 
 **Changes:**
-- [`js/state.js`](js/state.js): `waterDist` Float32Array on state.
-- [`js/nav.js`](js/nav.js): `buildWaterDistanceField()` (multi-source BFS from shoreline), `waterEdgeGoalFromField()` (gradient descent with fallback to radial scan).
+- [`js/state.js`](js/state.js): `waterDist` Float32Array.
+- [`js/nav.js`](js/nav.js): `buildWaterDistanceField()`, `waterEdgeGoalFromField()`.
 - [`js/world.js`](js/world.js): build field after biome generation.
 - [`js/behavior/executor.js`](js/behavior/executor.js): thirst goals use field lookup first.
-
-**Acceptance:** `behavior.resolveGoals.nearestWater` drops from dominant cost to negligible; thirsty creatures still reach shore (batch parity).
 
 ---
 
@@ -54,12 +52,8 @@ Each phase is implemented on its own branch. Before starting the next phase: com
 
 **Branch:** `perf/phase-1b-goal-cache`
 
-**Problem:** `resolveGoals` ran every tick even when behavior node and targets were unchanged (especially `wander` / `rest` / stable `graze`).
-
 **Changes:**
-- [`js/behavior/executor.js`](js/behavior/executor.js): `shouldReuseGoals()` skips `resolveGoals` when BT node + state match, targets remain valid, and staggered replan phase (quality `navReplanInterval`) has not fired.
-
-**Acceptance:** Large drop in `behavior.resolveGoals.wander` call cost; hunt/flee/mate still replan on interval or target loss.
+- [`js/behavior/executor.js`](js/behavior/executor.js): `shouldReuseGoals()` skips `resolveGoals` when BT node + state match and targets remain valid.
 
 ---
 
@@ -79,7 +73,7 @@ Each phase is implemented on its own branch. Before starting the next phase: com
 **Branch:** `perf/phase-1d-cpu-nav-replan`
 
 **Changes:**
-- [`js/creatures.js`](js/creatures.js): `moveTowardGoal` mirrors GPU `navReplanInterval` — reuses cached waypoint unless goal changes, direct pursuit, or staggered replan phase.
+- [`js/creatures.js`](js/creatures.js): `moveTowardGoal` mirrors GPU `navReplanInterval`.
 
 ---
 
@@ -88,24 +82,34 @@ Each phase is implemented on its own branch. Before starting the next phase: com
 **Branch:** `perf/phase-2-incremental-grid`
 
 **Changes:**
-- [`js/creatures.js`](js/creatures.js): `syncGrid()` moves creatures between buckets; `insertIntoGrid` / `removeFromGrid` on spawn/death; per-tick `syncGrid` replaces full rebuild.
-- [`js/simulation.js`](js/simulation.js): tick uses `syncGrid`.
-- [`js/snapshot.js`](js/snapshot.js): full `rebuildGrid` after snapshot restore.
+- [`js/creatures.js`](js/creatures.js): `syncGrid()`, `insertIntoGrid`, `removeFromGrid`.
+- [`js/simulation.js`](js/simulation.js): per-tick `syncGrid`.
+- [`js/snapshot.js`](js/snapshot.js): `rebuildGrid` after snapshot restore.
 
 ---
 
 ## Phase 3A — Batch GPU behavior upload
 
-*(Pending)*
+**Branch:** `perf/phase-3a-batch-upload`
+
+**Changes:**
+- [`js/gpu/simulation-backend.js`](js/gpu/simulation-backend.js): `behaviorBatch` staging buffer, single `writeBuffer`, `applyBehaviorBatch` compute scatter pass.
 
 ---
 
 ## Phase 3B — GPU decideAndClaim perception
 
-*(Pending)*
+**Status:** Deferred. Wiring `decideAndClaim` requires reordering the tick (GPU bin before CPU BT) or a lightweight perception readback path. Existing WGSL in [`js/gpu/simulation-backend.js`](js/gpu/simulation-backend.js) is ready for a follow-up branch.
 
 ---
 
 ## Validation
 
-*(Pending)*
+**Branch:** `perf/validation`
+
+**Manual checks:**
+1. Serve app (`python serve.py`), generate world, open F2 profiler + CPU/GPU detail.
+2. Confirm `behavior.resolveGoals.nearestWater` is no longer dominant; `behavior.tick` self-time near zero.
+3. Run batch smoke: `python scripts/run_batch.py --days 30 --size s --runs 1` (CPU path).
+
+**Expected impact (577 creatures, CPU sim):** sim frame ~22ms → ~5–10ms depending on thirsty/wander mix.
