@@ -65,8 +65,15 @@ public partial class WorldRenderer : Node2D
         _toolApply = toolApply;
     }
 
-    public override void _UnhandledInput(InputEvent @event)
+    public override void _Input(InputEvent @event)
     {
+        var camera = GetNode<WorldCamera>("Camera2D");
+        if (camera.HandleWorldInput(@event))
+        {
+            GetViewport().SetInputAsHandled();
+            return;
+        }
+
         if (@event is not InputEventMouseButton mb || !mb.Pressed || mb.ButtonIndex != MouseButton.Left)
         {
             return;
@@ -74,7 +81,6 @@ public partial class WorldRenderer : Node2D
 
         if (_session == null) return;
 
-        var camera = GetNode<Camera2D>("Camera2D");
         Vector2 mouse = GetViewport().GetMousePosition();
         Vector2 worldPos = camera.GetCanvasTransform().AffineInverse() * mouse;
         Vector2 tilePos = WorldToTile(worldPos);
@@ -83,6 +89,7 @@ public partial class WorldRenderer : Node2D
         if (tool != "inspect")
         {
             _toolApply?.Invoke(tilePos.X, tilePos.Y);
+            GetViewport().SetInputAsHandled();
             return;
         }
 
@@ -102,6 +109,7 @@ public partial class WorldRenderer : Node2D
         }
 
         _session.State.Selected = best;
+        GetViewport().SetInputAsHandled();
     }
 
     public void BindWorld(SimSession session, SpeciesCatalog catalog)

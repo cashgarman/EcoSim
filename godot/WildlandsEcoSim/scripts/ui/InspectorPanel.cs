@@ -26,6 +26,7 @@ public partial class InspectorPanel : DraggablePanel
     {
         LayoutKey = "inspect";
         Visible = false;
+        NormalizeInspectorLayout();
         base._Ready();
         _header = GetNode<Label>("%InspectHeader");
         _statsTab = GetNode<VBoxContainer>("%StatsTab");
@@ -46,7 +47,28 @@ public partial class InspectorPanel : DraggablePanel
         EcoSimThemeBuilder.StyleNeedBar(_energy, EcoSimThemeBuilder.Energy);
         GetNode<Button>("%StatsTabBtn").Pressed += () => SetTab(false);
         GetNode<Button>("%StoryTabBtn").Pressed += () => SetTab(true);
+        EcoSimFonts.StylePanelTitle(_header, EcoSimFonts.InspectorTitle);
+        _header.HorizontalAlignment = HorizontalAlignment.Center;
+        EcoSimFonts.ApplyFont(_storyLog, EcoSimFonts.Scaled6);
+        StyleNeedLabels(_statsTab);
+        EcoSimFonts.StyleTabButton(GetNode<Button>("%StatsTabBtn"));
+        EcoSimFonts.StyleTabButton(GetNode<Button>("%StoryTabBtn"));
         SetTab(false);
+    }
+
+    private static void StyleNeedLabels(VBoxContainer statsTab)
+    {
+        foreach (Node child in statsTab.GetChildren())
+        {
+            if (child is not HBoxContainer row) continue;
+            foreach (Node lab in row.GetChildren())
+            {
+                if (lab is Label label)
+                {
+                    EcoSimFonts.StyleDimLabel(label);
+                }
+            }
+        }
     }
 
     private void SetTab(bool story)
@@ -58,6 +80,36 @@ public partial class InspectorPanel : DraggablePanel
         GetNode<Button>("%StoryTabBtn").Modulate = story ? EcoSimThemeBuilder.Gold : Colors.White;
     }
 
+    private void NormalizeInspectorLayout()
+    {
+        var vbox = GetNode<VBoxContainer>("VBox");
+        var panelHead = vbox.GetNode<HBoxContainer>("PanelHead");
+        var inspectHeader = GetNode<Label>("%InspectHeader");
+        if (inspectHeader.GetParent() != panelHead)
+        {
+            inspectHeader.Reparent(panelHead);
+            panelHead.MoveChild(inspectHeader, 0);
+        }
+
+        inspectHeader.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+
+        if (vbox.GetNodeOrNull("PanelBody") != null) return;
+
+        var body = new VBoxContainer
+        {
+            Name = "PanelBody",
+            SizeFlagsVertical = SizeFlags.ExpandFill,
+        };
+        int insertIdx = panelHead.GetIndex() + 1;
+        vbox.AddChild(body);
+        vbox.MoveChild(body, insertIdx);
+
+        foreach (string name in new[] { "TabRow", "StatsTab", "StoryTab" })
+        {
+            vbox.GetNodeOrNull(name)?.Reparent(body);
+        }
+    }
+
     public void Bind(SpeciesCatalog catalog)
     {
         _catalog = catalog;
@@ -67,10 +119,14 @@ public partial class InspectorPanel : DraggablePanel
         {
             string label = catalog.GeneLabel.TryGetValue(key, out var lbl) ? lbl : key;
             var chip = new PanelContainer();
-            chip.AddThemeStyleboxOverride("panel", EcoSimThemeBuilder.MakeFlat(EcoSimThemeBuilder.PanelDarker, EcoSimThemeBuilder.Edge));
+            chip.AddThemeStyleboxOverride("panel", UiSliceCatalog.MakeInsetPanel());
             var v = new VBoxContainer();
-            v.AddChild(new Label { Text = label, Modulate = EcoSimThemeBuilder.Dim });
-            v.AddChild(new Label { Text = "—", Name = "Val" });
+            var nameLabel = new Label { Text = label };
+            var valLabel = new Label { Text = "—", Name = "Val" };
+            EcoSimFonts.StyleDimLabel(nameLabel);
+            EcoSimFonts.StyleBodyLabel(valLabel, EcoSimFonts.Small);
+            v.AddChild(nameLabel);
+            v.AddChild(valLabel);
             chip.AddChild(v);
             chip.SetMeta("gene", key);
             _genes.AddChild(chip);
@@ -86,6 +142,7 @@ public partial class InspectorPanel : DraggablePanel
         }
 
         Visible = true;
+        Callable.From(() => PanelLayoutService.ClampToViewport(this)).CallDeferred();
         var def = _catalog.Get(c.Sp);
         string sex = c.Sex == "male" ? "♂" : "♀";
         _header.Text = $"{def.Emoji} {def.Label} #{c.Id} {sex}  gen {c.Gen}  {c.State}";

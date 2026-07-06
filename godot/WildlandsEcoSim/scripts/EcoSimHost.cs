@@ -68,6 +68,15 @@ public partial class EcoSimHost : Node
     private static string ResolveDataRoot()
     {
         string resData = ProjectSettings.GlobalizePath("res://data");
+        if (Directory.Exists(resData) && File.Exists(Path.Combine(resData, "species.json")))
+        {
+            string? parent = Directory.GetParent(resData)?.FullName;
+            if (parent != null)
+            {
+                return parent;
+            }
+        }
+
         if (Directory.Exists(resData))
         {
             string? dir = Directory.GetParent(resData)?.FullName;

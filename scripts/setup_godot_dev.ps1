@@ -3,12 +3,20 @@ $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 $GodotData = Join-Path $Root "godot\WildlandsEcoSim\data"
 $RepoData = Join-Path $Root "data"
+$GodotAssets = Join-Path $Root "godot\WildlandsEcoSim\assets"
+$RepoAssets = Join-Path $Root "assets"
 $DotnetDir = Join-Path $Root ".dotnet"
 
 if (-not (Test-Path $GodotData))
 {
     cmd /c "mklink /J `"$GodotData`" `"$RepoData`""
     Write-Host "Created data junction: $GodotData -> $RepoData"
+}
+
+if (-not (Test-Path $GodotAssets))
+{
+    cmd /c "mklink /J `"$GodotAssets`" `"$RepoAssets`""
+    Write-Host "Created assets junction: $GodotAssets -> $RepoAssets"
 }
 
 # Prefer repo-local SDK when C: is low on space

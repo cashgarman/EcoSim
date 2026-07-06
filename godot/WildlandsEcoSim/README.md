@@ -49,10 +49,25 @@ python scripts/run_batch_godot.py --seed 42 --size s --days 10
 
 `godot/phase-0-bootstrap` … `godot/phase-7-ship`, merged into `godot-migration`.
 
-### Phase 4b JS UI parity (current)
+### Phase 7 ship (current)
+
+- Windows export preset + `scripts/export_windows.ps1` → `build/WildlandsEcoSim.exe`
+- [`GODOT.md`](../../GODOT.md) — primary agent reference
+- [`LEGACY.md`](../../LEGACY.md) — archived web stack
+- GitHub Actions: `dotnet test` on push/PR
+
+### Phase 4b JS UI parity
 
 - Stone theme, full top bar (clock, gen, veg%, FPS, Follow, Profiler, Test Runner stub)
 - Timeline strip with scrub + Present (SQLite snapshots)
 - Labeled gen panel, pop graph, species stats, inspector tabs, world story feed
 - Bottom toolbar + species GOD menu (Kill All)
 - Terrain TX bake, water shimmer, dark page background
+
+## Windows export
+
+```powershell
+# Install Godot 4.7 export templates in the editor first (Manage Export Templates)
+powershell scripts/export_windows.ps1
+# -> build/WildlandsEcoSim.exe
+```

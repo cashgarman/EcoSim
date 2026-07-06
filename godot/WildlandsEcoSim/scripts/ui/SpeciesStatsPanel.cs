@@ -42,6 +42,7 @@ public partial class SpeciesStatsPanel : DraggablePanel
         EcoSimThemeBuilder.StyleNeedBar(_hunBar, EcoSimThemeBuilder.Hunger);
         EcoSimThemeBuilder.StyleNeedBar(_thiBar, EcoSimThemeBuilder.Thirst);
         EcoSimThemeBuilder.StyleNeedBar(_eneBar, EcoSimThemeBuilder.Energy);
+        EcoSimFonts.ApplyFont(_summary, EcoSimFonts.Scaled6, EcoSimThemeBuilder.Dim);
     }
 
     public void Bind(SpeciesCatalog catalog)
@@ -99,7 +100,9 @@ public partial class SpeciesStatsPanel : DraggablePanel
         _deaths.GetChildren().ToList().ForEach(c => c.QueueFree());
         foreach (var kv in entry.DeathsByKey.OrderByDescending(kv => kv.Value))
         {
-            _deaths.AddChild(new Label { Text = $"{kv.Key}: {kv.Value}" });
+            var row = new Label { Text = $"{kv.Key}: {kv.Value}" };
+            EcoSimFonts.ApplyFont(row, EcoSimFonts.Scaled6);
+            _deaths.AddChild(row);
         }
     }
 }

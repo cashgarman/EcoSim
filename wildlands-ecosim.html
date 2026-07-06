@@ -6,7 +6,8 @@
 <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>Wildlands — Procedural Ecosystem</title>
+<title>Wildlands — Procedural Ecosystem (Legacy Web)</title>
+<!-- ARCHIVED: use Godot desktop port — see LEGACY.md and GODOT.md -->
 <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
 <style>
   :root{
@@ -33,6 +34,19 @@
   canvas#world-hl{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:3;}
   .stone{background:linear-gradient(180deg,var(--panel),var(--panel-dark));border:3px solid var(--edge);
     box-shadow:inset 0 2px 0 rgba(255,255,255,.07),inset 0 -3px 0 rgba(0,0,0,.35),0 4px 10px rgba(0,0,0,.5);border-radius:6px;}
+  /* Optional 9-slice variants (shared assets/ui/*.png) — swap .stone for .stone-slice to use textures */
+  .stone-slice,.ui-panel-slice{
+    border-style:solid;border-color:transparent;background:transparent;
+    box-shadow:0 4px 10px rgba(0,0,0,.5);image-rendering:pixelated;
+  }
+  .stone-slice{border-width:12px;border-image:url('assets/ui/panel_stone.png') 12 fill / 12px stretch;}
+  .panel-flat-slice{border-style:solid;border-color:transparent;background:transparent;
+    border-width:8px;border-image:url('assets/ui/panel_flat.png') 8 fill / 8px stretch;image-rendering:pixelated;}
+  .panel-inset-slice{border-style:solid;border-color:transparent;background:transparent;
+    border-width:7px;border-image:url('assets/ui/panel_inset.png') 7 fill / 7px stretch;image-rendering:pixelated;}
+  .btn-slice{border-style:solid;border-color:transparent;background:transparent;color:var(--text);cursor:pointer;
+    border-width:8px;border-image:url('assets/ui/button_normal.png') 8 fill / 8px stretch;image-rendering:pixelated;padding:6px 8px;}
+  .btn-slice.gold{color:#2a2413;border-image-source:url('assets/ui/button_gold.png');}
   .btn{font-family:inherit;font-size:8px;color:var(--text);background:var(--panel-darker);
     border:2px solid var(--edge);border-radius:4px;cursor:pointer;padding:6px 8px;}
   .btn:hover{filter:brightness(1.25);}

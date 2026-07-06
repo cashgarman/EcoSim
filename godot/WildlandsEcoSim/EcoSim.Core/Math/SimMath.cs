@@ -1,5 +1,7 @@
 namespace EcoSim.Core.Numerics;
 
+using EcoSim.Core.Sim;
+
 public static class SimMath
 {
     public static double Clamp(double v, double min, double max)
@@ -33,6 +35,12 @@ public static class SimMath
     {
         double sun = Math.Sin((timeOfDay - 0.25) * Math.PI * 2.0);
         return Clamp(Math.Pow(sun * 0.5 + 0.5, 0.9), 0.08, 1.0);
+    }
+
+    /// <summary>Maps global sim time to day-phase (matches js/timeline-viewport.js).</summary>
+    public static double TimeOfDayAtSimT(double t, double origin = 0.3)
+    {
+        return ((origin + t / SimConstants.SimDaySeconds) % 1.0 + 1.0) % 1.0;
     }
 
     public static (string Phase, string Icon, string Label) DayPhaseFromTimeOfDay(double timeOfDay)

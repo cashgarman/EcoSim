@@ -1,0 +1,145 @@
+{
+  "version": 1,
+  "pixel_art": true,
+  "filter": "nearest",
+  "colors": {
+    "panel": "#3d4636",
+    "panel_dark": "#2c3327",
+    "panel_darker": "#20261c",
+    "edge": "#141810",
+    "gold": "#f2b53e",
+    "gold_edge": "#7a5b17",
+    "gold_text": "#2a2413",
+    "header_tint": "#00000024"
+  },
+  "slices": {
+    "panel_stone": {
+      "file": "panel_stone.png",
+      "margin": {
+        "left": 12,
+        "top": 12,
+        "right": 12,
+        "bottom": 12
+      },
+      "description": "Main draggable window chrome (.stone / ui-panel).",
+      "content_margin": {
+        "left": 12,
+        "top": 12,
+        "right": 12,
+        "bottom": 12
+      }
+    },
+    "panel_flat": {
+      "file": "panel_flat.png",
+      "margin": {
+        "left": 8,
+        "top": 8,
+        "right": 8,
+        "bottom": 8
+      },
+      "description": "Inset surfaces: buttons, species rows, graph backgrounds.",
+      "content_margin": {
+        "left": 6,
+        "top": 6,
+        "right": 6,
+        "bottom": 6
+      }
+    },
+    "panel_inset": {
+      "file": "panel_inset.png",
+      "margin": {
+        "left": 7,
+        "top": 7,
+        "right": 7,
+        "bottom": 7
+      },
+      "description": "Compact bordered chips and progress bar tracks.",
+      "content_margin": {
+        "left": 4,
+        "top": 4,
+        "right": 4,
+        "bottom": 4
+      }
+    },
+    "panel_header": {
+      "file": "panel_header.png",
+      "margin": {
+        "left": 8,
+        "top": 8,
+        "right": 8,
+        "bottom": 8
+      },
+      "description": "Panel title bar with bottom divider.",
+      "content_margin": {
+        "left": 12,
+        "top": 10,
+        "right": 12,
+        "bottom": 8
+      }
+    },
+    "button_normal": {
+      "file": "button_normal.png",
+      "margin": {
+        "left": 8,
+        "top": 8,
+        "right": 8,
+        "bottom": 8
+      },
+      "description": "Standard stone button.",
+      "content_margin": {
+        "left": 8,
+        "top": 6,
+        "right": 8,
+        "bottom": 6
+      }
+    },
+    "button_gold": {
+      "file": "button_gold.png",
+      "margin": {
+        "left": 8,
+        "top": 8,
+        "right": 8,
+        "bottom": 8
+      },
+      "description": "Gold accent button (.btn.gold).",
+      "content_margin": {
+        "left": 8,
+        "top": 6,
+        "right": 8,
+        "bottom": 6
+      }
+    }
+  },
+  "css": {
+    "panel_stone": {
+      "border_width": 12,
+      "border_image_slice": "12 fill",
+      "border_image_repeat": "stretch"
+    },
+    "panel_flat": {
+      "border_width": 8,
+      "border_image_slice": "8 fill",
+      "border_image_repeat": "stretch"
+    },
+    "panel_inset": {
+      "border_width": 7,
+      "border_image_slice": "7 fill",
+      "border_image_repeat": "stretch"
+    },
+    "panel_header": {
+      "border_width": "8 8 8 8",
+      "border_image_slice": "8 fill",
+      "border_image_repeat": "stretch"
+    },
+    "button_normal": {
+      "border_width": 8,
+      "border_image_slice": "8 fill",
+      "border_image_repeat": "stretch"
+    },
+    "button_gold": {
+      "border_width": 8,
+      "border_image_slice": "8 fill",
+      "border_image_repeat": "stretch"
+    }
+  }
+}

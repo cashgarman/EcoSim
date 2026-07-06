@@ -1,0 +1,28 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WildlandsEcoSim", "WildlandsEcoSim.csproj", "{B854A4B8-B2CF-475B-8FBE-4B1947F03E6E}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EcoSim.Core", "EcoSim.Core\EcoSim.Core.csproj", "{F1F01DE6-549A-4A97-8812-DF0ADF0C1835}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{B854A4B8-B2CF-475B-8FBE-4B1947F03E6E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B854A4B8-B2CF-475B-8FBE-4B1947F03E6E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B854A4B8-B2CF-475B-8FBE-4B1947F03E6E}.Release|Any CPU.ActiveCfg = Debug|Any CPU
+		{B854A4B8-B2CF-475B-8FBE-4B1947F03E6E}.Release|Any CPU.Build.0 = Debug|Any CPU
+		{F1F01DE6-549A-4A97-8812-DF0ADF0C1835}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F1F01DE6-549A-4A97-8812-DF0ADF0C1835}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F1F01DE6-549A-4A97-8812-DF0ADF0C1835}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F1F01DE6-549A-4A97-8812-DF0ADF0C1835}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

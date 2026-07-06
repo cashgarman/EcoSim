@@ -50,7 +50,7 @@ public partial class PopGraph : Control
         if (_catalog == null) return;
 
         var rect = GetRect();
-        DrawStyleBox(EcoSimThemeBuilder.MakeFlat(EcoSimThemeBuilder.PanelDarker, EcoSimThemeBuilder.Edge), rect);
+        DrawStyleBox(UiSliceCatalog.MakeInsetPanel(), rect);
 
         float maxVal = 1;
         foreach (var list in _history.Values)
@@ -58,25 +58,17 @@ public partial class PopGraph : Control
             foreach (int v in list) maxVal = Math.Max(maxVal, v);
         }
 
-        int speciesCount = _catalog.SpeciesKeys.Count;
         float xStep = rect.Size.X / Math.Max(1, MaxSamples - 1);
-        int colorIdx = 0;
-        Color[] palette =
-        [
-            new Color(0.35f, 0.72f, 0.9f),
-            new Color(0.9f, 0.55f, 0.3f),
-            new Color(0.5f, 0.85f, 0.45f),
-            new Color(0.85f, 0.4f, 0.4f),
-            new Color(0.75f, 0.6f, 0.9f),
-        ];
 
         foreach (string sp in _catalog.SpeciesKeys)
         {
             var list = _history[sp];
             if (list.Count < 2) continue;
-            Color col = palette[colorIdx % palette.Length];
-            if (sp == _highlightSpecies) col = EcoSimThemeBuilder.Gold;
-            colorIdx++;
+            var def = _catalog.Get(sp);
+            Color col = EcoSimThemeBuilder.SpeciesColor(def);
+            bool highlighted = sp == _highlightSpecies;
+            if (highlighted) col = EcoSimThemeBuilder.Gold;
+            float width = highlighted ? 2f : 1f;
 
             for (int i = 1; i < list.Count; i++)
             {
@@ -84,7 +76,7 @@ public partial class PopGraph : Control
                 float y0 = rect.Position.Y + rect.Size.Y - (list[i - 1] / maxVal) * (rect.Size.Y - 4) - 2;
                 float x1 = rect.Position.X + i * xStep;
                 float y1 = rect.Position.Y + rect.Size.Y - (list[i] / maxVal) * (rect.Size.Y - 4) - 2;
-                DrawLine(new Vector2(x0, y0), new Vector2(x1, y1), col, sp == _highlightSpecies ? 2f : 1f);
+                DrawLine(new Vector2(x0, y0), new Vector2(x1, y1), col, width);
             }
         }
     }

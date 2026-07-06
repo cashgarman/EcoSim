@@ -6,10 +6,15 @@ namespace WildlandsEcoSim;
 
 public partial class WorldCamera : Camera2D
 {
+    private static readonly Vector2 MinZoom = new(0.25f, 0.25f);
+    private static readonly Vector2 MaxZoom = new(8f, 8f);
+    /// <summary>Extra tiles of pan room beyond the grid edge (infinite ocean backdrop).</summary>
+    private const float OceanPanMarginTiles = 40f;
+
     private EcoSimHost _host = null!;
-    private bool _dragging;
-    private Vector2 _dragStart;
-    private Vector2 _camStart;
+    private bool _panning;
+    private MouseButton _panButton;
+    private Vector2 _lastPanMouse;
     private Creature? _followTarget;
     private bool _followEnabled;
 
@@ -24,37 +29,64 @@ public partial class WorldCamera : Camera2D
         _host = GetNode<EcoSimHost>("/root/EcoSimHost");
     }
 
-    public override void _UnhandledInput(InputEvent @event)
+    /// <summary>World-viewport mouse input (wheel, RMB/MMB pan). Returns true if consumed.</summary>
+    public bool HandleWorldInput(InputEvent @event)
     {
         if (@event is InputEventMouseButton mb)
         {
-            if (mb.ButtonIndex == MouseButton.WheelUp && mb.Pressed)
+            if (mb.ButtonIndex is MouseButton.Middle or MouseButton.Right)
             {
-                Zoom *= 1.12f;
-                Zoom = Zoom.Clamp(new Vector2(0.25f, 0.25f), new Vector2(8f, 8f));
+                if (mb.Pressed)
+                {
+                    _panning = true;
+                    _panButton = mb.ButtonIndex;
+                    _lastPanMouse = mb.Position;
+                    _followEnabled = false;
+                }
+                else if (_panning && mb.ButtonIndex == _panButton)
+                {
+                    _panning = false;
+                }
+
+                return true;
             }
-            else if (mb.ButtonIndex == MouseButton.WheelDown && mb.Pressed)
+
+            if (mb.Pressed)
             {
-                Zoom /= 1.12f;
-                Zoom = Zoom.Clamp(new Vector2(0.25f, 0.25f), new Vector2(8f, 8f));
-            }
-            else if (mb.ButtonIndex is MouseButton.Middle or MouseButton.Right)
-            {
-                _dragging = mb.Pressed;
-                _dragStart = mb.Position;
-                _camStart = Position;
+                if (mb.ButtonIndex == MouseButton.WheelUp)
+                {
+                    ApplyZoom(1.12f, mb.Position);
+                    return true;
+                }
+
+                if (mb.ButtonIndex == MouseButton.WheelDown)
+                {
+                    ApplyZoom(1f / 1.12f, mb.Position);
+                    return true;
+                }
             }
         }
-        else if (@event is InputEventMouseMotion mm && _dragging)
+        else if (@event is InputEventMouseMotion mm && _panning)
         {
-            Vector2 delta = (mm.Position - _dragStart) / Zoom;
-            Position = _camStart - delta;
+            Vector2 delta = mm.Position - _lastPanMouse;
+            Position -= delta / (Zoom * ParentScale());
+            _lastPanMouse = mm.Position;
             ClampToLand();
+            return true;
         }
+
+        return false;
     }
 
     public override void _Process(double delta)
     {
+        if (_panning && !Input.IsMouseButtonPressed(_panButton))
+        {
+            _panning = false;
+        }
+
+        if (_panning) return;
+
         var session = _host.Session;
         if (session == null || !session.State.Ready) return;
 
@@ -65,9 +97,7 @@ public partial class WorldCamera : Camera2D
 
         if (_followEnabled && _followTarget != null && !_followTarget.Dead)
         {
-            var target = new Vector2(
-                (float)_followTarget.X * WorldRenderer.TilePixels,
-                (float)_followTarget.Y * WorldRenderer.TilePixels);
+            var target = new Vector2((float)_followTarget.X, (float)_followTarget.Y);
             Position = Position.Lerp(target, (float)Math.Min(1, delta * 4));
             ClampToLand();
         }
@@ -79,11 +109,48 @@ public partial class WorldCamera : Camera2D
         if (session == null) return;
 
         var bounds = session.State.LandBounds;
-        float cx = (bounds.MinX + bounds.MaxX) * 0.5f * WorldRenderer.TilePixels;
-        float cy = (bounds.MinY + bounds.MaxY) * 0.5f * WorldRenderer.TilePixels;
-        Position = new Vector2(cx, cy);
-        Zoom = new Vector2(1.5f, 1.5f);
+        Position = new Vector2(
+            (bounds.MinX + bounds.MaxX) * 0.5f,
+            (bounds.MinY + bounds.MaxY) * 0.5f);
+
+        float landW = bounds.MaxX - bounds.MinX;
+        float landH = bounds.MaxY - bounds.MinY;
+        Vector2 vp = GetViewport().GetVisibleRect().Size;
+        float scale = ParentScale();
+        float fit = Math.Min(vp.X / (landW * scale), vp.Y / (landH * scale)) * 0.9f;
+        Zoom = new Vector2(fit, fit).Clamp(MinZoom, MaxZoom);
         ClampToLand();
+    }
+
+    private void ApplyZoom(float factor, Vector2 viewportMouse)
+    {
+        Vector2 worldBefore = ViewportMouseToWorld(viewportMouse);
+        Vector2 newZoom = (Zoom * factor).Clamp(MinZoom, MaxZoom);
+        if (newZoom == Zoom) return;
+
+        Zoom = newZoom;
+        Vector2 vpCenter = GetViewport().GetVisibleRect().Size * 0.5f;
+        float scale = ParentScale();
+        Position = worldBefore - (viewportMouse - vpCenter) / (Zoom * scale);
+        ClampToLand();
+    }
+
+    private Vector2 ViewportMouseToWorld(Vector2 viewportMouse)
+    {
+        Vector2 vpCenter = GetViewport().GetVisibleRect().Size * 0.5f;
+        float scale = ParentScale();
+        return Position + (viewportMouse - vpCenter) / (Zoom * scale);
+    }
+
+    private float ParentScale()
+    {
+        Node? parent = GetParent();
+        if (parent is Node2D n2d)
+        {
+            return n2d.Scale.X;
+        }
+
+        return 1f;
     }
 
     private void ClampToLand()
@@ -91,14 +158,39 @@ public partial class WorldCamera : Camera2D
         var session = _host.Session;
         if (session == null) return;
 
-        var b = session.State.LandBounds;
-        float margin = 32f;
-        float minX = b.MinX * WorldRenderer.TilePixels - margin;
-        float minY = b.MinY * WorldRenderer.TilePixels - margin;
-        float maxX = b.MaxX * WorldRenderer.TilePixels + margin;
-        float maxY = b.MaxY * WorldRenderer.TilePixels + margin;
-        Position = new Vector2(
-            Math.Clamp(Position.X, minX, maxX),
-            Math.Clamp(Position.Y, minY, maxY));
+        var state = session.State;
+        float minX = -OceanPanMarginTiles;
+        float minY = -OceanPanMarginTiles;
+        float maxX = state.W + OceanPanMarginTiles;
+        float maxY = state.H + OceanPanMarginTiles;
+
+        Vector2 vp = GetViewport().GetVisibleRect().Size;
+        float scale = ParentScale();
+        float vw = vp.X / (Zoom.X * scale);
+        float vh = vp.Y / (Zoom.Y * scale);
+        float boundsW = maxX - minX;
+        float boundsH = maxY - minY;
+
+        if (vw >= boundsW)
+        {
+            Position = new Vector2((minX + maxX) * 0.5f, Position.Y);
+        }
+        else
+        {
+            float loX = minX + vw * 0.5f;
+            float hiX = maxX - vw * 0.5f;
+            Position = new Vector2(Math.Clamp(Position.X, loX, hiX), Position.Y);
+        }
+
+        if (vh >= boundsH)
+        {
+            Position = new Vector2(Position.X, (minY + maxY) * 0.5f);
+        }
+        else
+        {
+            float loY = minY + vh * 0.5f;
+            float hiY = maxY - vh * 0.5f;
+            Position = new Vector2(Position.X, Math.Clamp(Position.Y, loY, hiY));
+        }
     }
 }

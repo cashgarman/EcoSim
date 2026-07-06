@@ -57,8 +57,8 @@ public partial class CreatureRenderer : Node2D
             var def = _catalog.Get(c.Sp);
             float r = 0.35f + (float)c.Genome.Size * 0.12f;
             var xform = Transform2D.Identity
-                .Translated(new Vector2((float)c.X, (float)c.Y))
-                .Scaled(new Vector2(r, r));
+                .Scaled(new Vector2(r, r))
+                .Translated(new Vector2((float)c.X, (float)c.Y));
             _mesh.Multimesh.SetInstanceTransform2D(alive, xform);
             _mesh.Multimesh.SetInstanceColor(alive, SpeciesColor(def, c.Sp == _lockedSpecies));
             alive++;

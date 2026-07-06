@@ -1,5 +1,7 @@
-reports/*.json
+# Build output
+build/
 !.gitkeep
+reports/*.json
 .batch-gpu-profile/
 __pycache__/
 .cursor/debug-*.log

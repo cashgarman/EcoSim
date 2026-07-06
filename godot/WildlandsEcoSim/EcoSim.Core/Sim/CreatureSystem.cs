@@ -263,7 +263,8 @@ public sealed class CreatureSystem
         {
             if (AliveCount() >= SimConstants.MaxPop) break;
             var cg = Genetics.BreedGenome(_catalog, c.Genome, partner);
-            var baby = MakeCreature(c.Sp, c.X + GlobalRng.Rf(-0.8, 0.8), c.Y + GlobalRng.Rf(-0.8, 0.8), cg, c.Gen + 1, RandomSex());
+            var pos = PickBirthPosition(c);
+            var baby = MakeCreature(c.Sp, pos.X, pos.Y, cg, c.Gen + 1, RandomSex());
             baby.Age = 0;
             baby.Hunger = 70;
             baby.Thirst = 70;
@@ -381,7 +382,9 @@ public sealed class CreatureSystem
 
     public (double X, double Y)? FindSpawnTile(string sp)
     {
-        bool nearWater = _catalog.Get(sp).SpawnNearWater;
+        var def = _catalog.Get(sp);
+        bool nearWater = def.SpawnNearWater;
+        bool canSwim = SpeciesCatalog.SpeciesCanSwim(def);
         int maxTries = nearWater ? 450 : 300;
         int nearWaterTries = nearWater ? 150 : 0;
         for (int tries = 0; tries < maxTries; tries++)
@@ -391,9 +394,51 @@ public sealed class CreatureSystem
             var b = (Biome)_state.Biome[GridHelpers.Idx(_state, x, y)];
             if (BiomeData.IsWater(b) || b == Biome.Peak) continue;
             if (tries < nearWaterTries && !TileHasAdjacentWater(x, y)) continue;
-            return (x + GlobalRng.Rf(-0.3, 0.3), y + GlobalRng.Rf(-0.3, 0.3));
+            if (TryPickSpawnPosition(x, y, canSwim, out double px, out double py))
+            {
+                return (px, py);
+            }
         }
         return null;
+    }
+
+    private bool TryPickSpawnPosition(int tileX, int tileY, bool canSwim, out double x, out double y)
+    {
+        x = tileX + GlobalRng.Rf(-0.3, 0.3);
+        y = tileY + GlobalRng.Rf(-0.3, 0.3);
+        int rx = (int)Math.Round(x);
+        int ry = (int)Math.Round(y);
+        if (GridHelpers.InBounds(_state, rx, ry) && Navigation.IsTileWalkable(_state, rx, ry, canSwim))
+        {
+            return true;
+        }
+
+        x = tileX + 0.5;
+        y = tileY + 0.5;
+        return Navigation.IsTileWalkable(_state, tileX, tileY, canSwim);
+    }
+
+    private (double X, double Y) PickBirthPosition(Creature parent)
+    {
+        bool canSwim = SpeciesCatalog.SpeciesCanSwim(_catalog.Get(parent.Sp));
+        int px = (int)Math.Round(parent.X);
+        int py = (int)Math.Round(parent.Y);
+        for (int i = 0; i < 8; i++)
+        {
+            double x = parent.X + GlobalRng.Rf(-0.8, 0.8);
+            double y = parent.Y + GlobalRng.Rf(-0.8, 0.8);
+            int rx = (int)Math.Round(x);
+            int ry = (int)Math.Round(y);
+            if (GridHelpers.InBounds(_state, rx, ry) && Navigation.IsTileWalkable(_state, rx, ry, canSwim))
+            {
+                return (x, y);
+            }
+        }
+        if (GridHelpers.InBounds(_state, px, py) && Navigation.IsTileWalkable(_state, px, py, canSwim))
+        {
+            return (px + 0.5, py + 0.5);
+        }
+        return (parent.X, parent.Y);
     }
 
     public void StockLife()

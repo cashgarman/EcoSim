@@ -1,19 +1,20 @@
 # Wildlands EcoSim — Agent Reference
 
 > **Purpose:** Canonical design doc for AI agents working on this repo. Read this before scanning source. Update this file when architecture or simulation behavior changes.
+>
+> **Godot is the primary product.** For the active desktop port, read **[`GODOT.md`](GODOT.md)** first. The web stack (`wildlands-ecosim.html`, `js/`) is **legacy** — see [`LEGACY.md`](LEGACY.md).
 
 ## Quick Start
 
 | Item | Value |
 |------|-------|
-| Entry point | `wildlands-ecosim.html` (serve over HTTP — ES modules block `file://`) |
-| Modules | `js/` — ES module classes (see tree below) |
-| Run | `python serve.py` from repo root → `http://127.0.0.1:8765/wildlands-ecosim.html` |
-| Batch test | `http://127.0.0.1:8765/batch-test.html` — headless ecology/balance runs (CPU default) |
-| Batch CLI | `python scripts/run_batch.py --days 100 --size s` · GPU: `python scripts/run_batch_gpu.py --days 100 --size s` or `--sim gpu` · **C#:** `python scripts/run_batch_godot.py --days 100 --size s` |
-| Stack | Vanilla JS ES modules, Canvas 2D + WebGPU compute simulation + WebGPU creature overlay |
-| Godot migration | `EcoSim.sln` — `EcoSim.Core` (pure C# CPU sim) + `EcoSim.BatchCli` + `godot/WildlandsEcoSim/` scaffold; local SDK at `.dotnet/` via `scripts/setup_godot_dev.ps1` |
-| Game design | `GAMEPLAY.md` — player-facing rules and planned Challenge mode |
+| **Primary entry** | [`godot/WildlandsEcoSim/project.godot`](godot/WildlandsEcoSim/project.godot) — Godot 4.7 Mono, press **F5** |
+| **Agent doc (Godot)** | [`GODOT.md`](GODOT.md) |
+| **Legacy web** | `wildlands-ecosim.html` (serve over HTTP) — **archived**, see [`LEGACY.md`](LEGACY.md) |
+| **Tests** | `dotnet test EcoSim.sln` |
+| **Windows export** | `powershell scripts/export_windows.ps1` |
+| **Batch CLI** | `python scripts/run_batch_godot.py --days 100 --size s` |
+| **Game design** | `GAMEPLAY.md` |
 
 ```
 EcoSim/

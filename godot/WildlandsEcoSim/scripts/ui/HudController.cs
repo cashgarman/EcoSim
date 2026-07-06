@@ -77,6 +77,18 @@ public partial class HudController : CanvasLayer
         _terrainTip = GetNode<Label>("%TerrainTip");
         _creatureTip = GetNode<Label>("%CreatureTip");
 
+        EcoSimFonts.ApplyFont(_dayIcon, EcoSimFonts.DayIcon);
+        EcoSimFonts.ApplyFont(_clockLabel, EcoSimFonts.Body, EcoSimThemeBuilder.Gold);
+        EcoSimFonts.ApplyFont(_dayLabel, EcoSimFonts.Body, EcoSimThemeBuilder.Dim);
+        EcoSimFonts.ApplyFont(_popLabel, EcoSimFonts.Body, EcoSimThemeBuilder.Gold);
+        EcoSimFonts.ApplyFont(_genLabel, EcoSimFonts.Body, EcoSimThemeBuilder.Gold);
+        EcoSimFonts.ApplyFont(_vegLabel, EcoSimFonts.Body, EcoSimThemeBuilder.Gold);
+        EcoSimFonts.ApplyFont(_simFpsLabel, EcoSimFonts.Small, EcoSimThemeBuilder.Dim);
+        EcoSimFonts.ApplyFont(_speedValueLabel, EcoSimFonts.Body, EcoSimThemeBuilder.Gold);
+        EcoSimFonts.ApplyFont(_terrainTip, EcoSimFonts.Medium, EcoSimThemeBuilder.Text, textShadow: true);
+        EcoSimFonts.ApplyFont(_creatureTip, EcoSimFonts.Small, EcoSimThemeBuilder.Text, textShadow: true);
+        EcoSimFonts.StylePanelTitle(GetNode<Label>("%GodMenuTitle"));
+
         var viewport = GetNode<SubViewport>("%WorldViewport");
         viewport.TransparentBg = true;
         _world = viewport.GetNode<WorldRenderer>("WorldRoot");
@@ -95,7 +107,7 @@ public partial class HudController : CanvasLayer
         _timeline.PresentRequested += OnTimelinePresent;
 
         GetNode<Button>("%FollowBtn").Pressed += () => _camera.FollowEnabled = !_camera.FollowEnabled;
-        GetNode<Button>("%ProfilerBtn").Pressed += () => _profiler.PanelOpen = !_profiler.PanelOpen;
+        GetNode<Button>("%ProfilerBtn").Pressed += OnProfilerToggled;
         GetNode<Button>("%TestRunnerBtn").Disabled = true;
         GetNode<Button>("%TestRunnerBtn").TooltipText = "Coming in Phase 6";
         GetNode<Button>("%PresentBtn").Pressed += OnTimelinePresent;
@@ -106,13 +118,19 @@ public partial class HudController : CanvasLayer
         _ecosystem.Bind(_host.Species!);
         _inspector.Bind(_host.Species!);
         _speciesStats.Bind(_host.Species!);
-        _tools.Bind(_host.Species!);
 
         if (!Engine.IsEditorHint())
         {
             InitTimeline();
             OnGenerate();
         }
+
+        GetViewport().SizeChanged += OnViewportSizeChanged;
+    }
+
+    private void OnViewportSizeChanged()
+    {
+        PanelLayoutService.ClampAll(_panels);
     }
 
     private void InitTimeline()
@@ -148,7 +166,7 @@ public partial class HudController : CanvasLayer
             }
             else if (key.Keycode == Key.F2)
             {
-                _profiler.PanelOpen = !_profiler.PanelOpen;
+                OnProfilerToggled();
                 GetViewport().SetInputAsHandled();
             }
             else if (key.Keycode == Key.F)
@@ -269,6 +287,12 @@ public partial class HudController : CanvasLayer
         RefreshHud();
     }
 
+    private void OnProfilerToggled()
+    {
+        _profiler.PanelOpen = !_profiler.PanelOpen;
+        EcoSimThemeBuilder.StyleActiveButton(GetNode<Button>("%ProfilerBtn"), _profiler.PanelOpen);
+    }
+
     private void RefreshHud()
     {
         var session = _host.Session;
@@ -278,18 +302,19 @@ public partial class HudController : CanvasLayer
         _dayIcon.Text = phase.Icon;
         _clockLabel.Text = SimMath.FormatTimeOfDay12(session.State.TimeOfDay);
         _dayLabel.Text = $"Day {session.State.Day}";
-        _popLabel.Text = session.Creatures.AliveCount().ToString();
+        _popLabel.Text = $"🐾 {session.Creatures.AliveCount()}";
 
         int maxGen = 1;
         foreach (var c in session.State.Creatures)
         {
             if (!c.Dead && c.Gen > maxGen) maxGen = c.Gen;
         }
-        _genLabel.Text = $"Gen {maxGen}";
-        _vegLabel.Text = $"{ComputeVegPercent(session.State):F0}%";
+        _genLabel.Text = $"🧬 Gen {maxGen}";
+        _vegLabel.Text = $"🌱 {ComputeVegPercent(session.State):F0}%";
 
         double fps = PerfProfiler.Instance.FrameMsAvg > 0 ? 1000.0 / PerfProfiler.Instance.FrameMsAvg : 0;
-        _simFpsLabel.Text = $"{fps:F0}";
+        double frameMs = PerfProfiler.Instance.FrameMsAvg;
+        _simFpsLabel.Text = $"⚙ {fps:F0} FPS · {frameMs:F1}ms";
 
         _speedValueLabel.Text = $"{session.State.Speed:0}×";
         _ecosystem.Refresh(session);
@@ -304,7 +329,7 @@ public partial class HudController : CanvasLayer
     {
         var session = _host.Session;
         if (session == null || _scrub == null) return;
-        _timeline.SetSnapshots(_scrub.SnapshotTimes(), session.State.TGlobal, _scrub.BaselineT, _gameApp.Paused);
+        _timeline.SetSnapshots(_scrub.SnapshotTimes(), session.State.TGlobal, _scrub.BaselineT, _gameApp.Paused, 0.3);
     }
 
     private static double ComputeVegPercent(SimState state)

@@ -14,6 +14,23 @@ public partial class WorldStoryTracker : Control
     public override void _Ready()
     {
         _list = GetNode<VBoxContainer>("%StoryList");
+        SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+        _list.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+        _list.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        _list.AddThemeConstantOverride("separation", 4);
+        Resized += OnResized;
+        UpdateListWidth();
+    }
+
+    private void OnResized()
+    {
+        UpdateListWidth();
+    }
+
+    private void UpdateListWidth()
+    {
+        float width = Math.Max(0, Size.X - 4);
+        _list.CustomMinimumSize = new Vector2(width, 0);
     }
 
     public void Reset()
@@ -65,11 +82,22 @@ public partial class WorldStoryTracker : Control
     {
         if (_list == null) return;
         _list.GetChildren().ToList().ForEach(c => c.QueueFree());
+        UpdateListWidth();
+
         foreach (string line in _lines)
         {
             var entry = new PanelContainer();
-            entry.AddThemeStyleboxOverride("panel", EcoSimThemeBuilder.MakeFlat(EcoSimThemeBuilder.PanelDarker, EcoSimThemeBuilder.Edge));
-            entry.AddChild(new Label { Text = line, AutowrapMode = TextServer.AutowrapMode.WordSmart });
+            entry.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+            entry.AddThemeStyleboxOverride("panel", UiSliceCatalog.MakeInsetPanel());
+
+            var label = new Label
+            {
+                Text = line,
+                AutowrapMode = TextServer.AutowrapMode.WordSmart,
+                SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            };
+            EcoSimFonts.StyleStoryEntry(label);
+            entry.AddChild(label);
             _list.AddChild(entry);
         }
     }

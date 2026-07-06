@@ -1,22 +1,22 @@
-[gd_scene load_steps=15 format=3 uid="uid://main_scene"]
+[gd_scene format=3 uid="uid://cdpaxr5blhl3d"]
 
-[ext_resource type="Script" path="res://scripts/Main.cs" id="1_main"]
-[ext_resource type="Script" path="res://scripts/render/WorldRenderer.cs" id="2_world"]
-[ext_resource type="Script" path="res://scripts/WorldCamera.cs" id="3_cam"]
-[ext_resource type="Script" path="res://scripts/ui/HudController.cs" id="4_hud"]
-[ext_resource type="Script" path="res://scripts/ui/GenPanel.cs" id="5_gen"]
-[ext_resource type="Script" path="res://scripts/ui/EcosystemPanel.cs" id="6_eco"]
-[ext_resource type="Script" path="res://scripts/ui/InspectorPanel.cs" id="7_inspect"]
-[ext_resource type="Script" path="res://scripts/ui/StoryPanel.cs" id="8_story"]
-[ext_resource type="Script" path="res://scripts/ui/WorldStoryTracker.cs" id="9_tracker"]
-[ext_resource type="Script" path="res://scripts/ui/SpeciesStatsPanel.cs" id="10_spstats"]
-[ext_resource type="Script" path="res://scripts/ui/ProfilerPanel.cs" id="11_profiler"]
-[ext_resource type="Script" path="res://scripts/ui/PopGraph.cs" id="12_graph"]
-[ext_resource type="Script" path="res://scripts/ui/ToolsController.cs" id="13_tools"]
-[ext_resource type="Script" path="res://scripts/ui/SpeciesGodMenu.cs" id="14_god"]
-[ext_resource type="Script" path="res://scripts/ui/TimelineStrip.cs" id="15_timeline"]
+[ext_resource type="Script" uid="uid://ceb8rkxi8f4dr" path="res://scripts/Main.cs" id="1_main"]
+[ext_resource type="Script" uid="uid://dmc36akit03eg" path="res://scripts/render/WorldRenderer.cs" id="2_world"]
+[ext_resource type="Script" uid="uid://c57c04eql2vqj" path="res://scripts/WorldCamera.cs" id="3_cam"]
+[ext_resource type="Script" uid="uid://ccd5xt665wc0n" path="res://scripts/ui/HudController.cs" id="4_hud"]
+[ext_resource type="Script" uid="uid://ddtq7lcvar8i6" path="res://scripts/ui/GenPanel.cs" id="5_gen"]
+[ext_resource type="Script" uid="uid://d0ca5iulrk14s" path="res://scripts/ui/EcosystemPanel.cs" id="6_eco"]
+[ext_resource type="Script" uid="uid://cfa2c1u7girci" path="res://scripts/ui/InspectorPanel.cs" id="7_inspect"]
+[ext_resource type="Script" uid="uid://bh11v6hguny2n" path="res://scripts/ui/StoryPanel.cs" id="8_story"]
+[ext_resource type="Script" uid="uid://3iiq6hguluju" path="res://scripts/ui/WorldStoryTracker.cs" id="9_tracker"]
+[ext_resource type="Script" uid="uid://bm60wuvdtvkpf" path="res://scripts/ui/SpeciesStatsPanel.cs" id="10_spstats"]
+[ext_resource type="Script" uid="uid://hw85a23xdv06" path="res://scripts/ui/ProfilerPanel.cs" id="11_profiler"]
+[ext_resource type="Script" uid="uid://c3qob0e5dhsvd" path="res://scripts/ui/PopGraph.cs" id="12_graph"]
+[ext_resource type="Script" uid="uid://cd74bq061usd5" path="res://scripts/ui/ToolsController.cs" id="13_tools"]
+[ext_resource type="Script" uid="uid://wjrt2ltjqny8" path="res://scripts/ui/SpeciesGodMenu.cs" id="14_god"]
+[ext_resource type="Script" uid="uid://jraxsn5ikhhv" path="res://scripts/ui/TimelineStrip.cs" id="15_timeline"]
 
-[node name="Main" type="Control"]
+[node name="Main" type="Control" unique_id=1657980803]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
@@ -25,7 +25,7 @@ grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("1_main")
 
-[node name="PageBg" type="ColorRect" parent="."]
+[node name="PageBg" type="ColorRect" parent="." unique_id=1060819528]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -34,33 +34,36 @@ grow_horizontal = 2
 grow_vertical = 2
 color = Color(0.047, 0.063, 0.039, 1)
 
-[node name="WorldViewportContainer" type="SubViewportContainer" parent="."]
+[node name="WorldViewportContainer" type="SubViewportContainer" parent="." unique_id=1611060839]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
+offset_left = -32.0
+offset_top = 11.0
+offset_right = -32.0
+offset_bottom = 11.0
 grow_horizontal = 2
 grow_vertical = 2
 stretch = true
 
-[node name="WorldViewport" type="SubViewport" parent="WorldViewportContainer"]
+[node name="WorldViewport" type="SubViewport" parent="WorldViewportContainer" unique_id=570050269]
 unique_name_in_owner = true
 transparent_bg = true
-handle_input_locally = true
+handle_input_locally = false
 size = Vector2i(1600, 900)
 render_target_update_mode = 4
 
-[node name="WorldRoot" type="Node2D" parent="WorldViewportContainer/WorldViewport"]
+[node name="WorldRoot" type="Node2D" parent="WorldViewportContainer/WorldViewport" unique_id=520362174]
 script = ExtResource("2_world")
 
-[node name="Camera2D" type="Camera2D" parent="WorldViewportContainer/WorldViewport/WorldRoot"]
-current = true
+[node name="Camera2D" type="Camera2D" parent="WorldViewportContainer/WorldViewport/WorldRoot" unique_id=645883337]
 script = ExtResource("3_cam")
 
-[node name="Hud" type="CanvasLayer" parent="."]
+[node name="Hud" type="CanvasLayer" parent="." unique_id=383437731]
 script = ExtResource("4_hud")
 
-[node name="TopBar" type="PanelContainer" parent="Hud"]
+[node name="TopBar" type="PanelContainer" parent="Hud" unique_id=962045653]
 anchors_preset = 10
 anchor_right = 1.0
 offset_left = 8.0
@@ -69,93 +72,92 @@ offset_right = -8.0
 offset_bottom = 88.0
 grow_horizontal = 2
 
-[node name="VBox" type="VBoxContainer" parent="Hud/TopBar"]
+[node name="VBox" type="VBoxContainer" parent="Hud/TopBar" unique_id=2053396087]
 layout_mode = 2
 
-[node name="Row1" type="HBoxContainer" parent="Hud/TopBar/VBox"]
+[node name="Row1" type="HBoxContainer" parent="Hud/TopBar/VBox" unique_id=339931015]
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="DayIcon" type="Label" parent="Hud/TopBar/VBox/Row1"]
+[node name="DayIcon" type="Label" parent="Hud/TopBar/VBox/Row1" unique_id=979001966]
 unique_name_in_owner = true
 layout_mode = 2
 text = "🌅"
 
-[node name="ClockLabel" type="Label" parent="Hud/TopBar/VBox/Row1"]
+[node name="ClockLabel" type="Label" parent="Hud/TopBar/VBox/Row1" unique_id=609071771]
 unique_name_in_owner = true
 layout_mode = 2
 text = "6:00 AM"
 
-[node name="DayNumLabel" type="Label" parent="Hud/TopBar/VBox/Row1"]
+[node name="DayNumLabel" type="Label" parent="Hud/TopBar/VBox/Row1" unique_id=1571902233]
 unique_name_in_owner = true
 layout_mode = 2
 text = "Day 0"
 
-[node name="PopLabel" type="Label" parent="Hud/TopBar/VBox/Row1"]
+[node name="PopLabel" type="Label" parent="Hud/TopBar/VBox/Row1" unique_id=230596528]
 unique_name_in_owner = true
 layout_mode = 2
 text = "0"
 
-[node name="GenLabel" type="Label" parent="Hud/TopBar/VBox/Row1"]
+[node name="GenLabel" type="Label" parent="Hud/TopBar/VBox/Row1" unique_id=436148930]
 unique_name_in_owner = true
 layout_mode = 2
 text = "Gen 1"
 
-[node name="VegLabel" type="Label" parent="Hud/TopBar/VBox/Row1"]
+[node name="VegLabel" type="Label" parent="Hud/TopBar/VBox/Row1" unique_id=1197068971]
 unique_name_in_owner = true
 layout_mode = 2
 text = "0%"
 
-[node name="SimFpsLabel" type="Label" parent="Hud/TopBar/VBox/Row1"]
+[node name="SimFpsLabel" type="Label" parent="Hud/TopBar/VBox/Row1" unique_id=672618110]
 unique_name_in_owner = true
 layout_mode = 2
 text = "—"
 
-[node name="SpeedSlider" type="HSlider" parent="Hud/TopBar/VBox/Row1"]
+[node name="SpeedSlider" type="HSlider" parent="Hud/TopBar/VBox/Row1" unique_id=757820667]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(100, 0)
 layout_mode = 2
 size_flags_horizontal = 3
 max_value = 10.0
-step = 1.0
 value = 2.0
 
-[node name="SpeedValueLabel" type="Label" parent="Hud/TopBar/VBox/Row1"]
+[node name="SpeedValueLabel" type="Label" parent="Hud/TopBar/VBox/Row1" unique_id=121704400]
 unique_name_in_owner = true
 layout_mode = 2
 text = "2×"
 
-[node name="FollowBtn" type="Button" parent="Hud/TopBar/VBox/Row1"]
+[node name="FollowBtn" type="Button" parent="Hud/TopBar/VBox/Row1" unique_id=1967997718]
 unique_name_in_owner = true
 layout_mode = 2
 text = "Follow"
 
-[node name="ProfilerBtn" type="Button" parent="Hud/TopBar/VBox/Row1"]
+[node name="ProfilerBtn" type="Button" parent="Hud/TopBar/VBox/Row1" unique_id=663110479]
 unique_name_in_owner = true
 layout_mode = 2
 text = "Profiler"
 
-[node name="TestRunnerBtn" type="Button" parent="Hud/TopBar/VBox/Row1"]
+[node name="TestRunnerBtn" type="Button" parent="Hud/TopBar/VBox/Row1" unique_id=1643432154]
 unique_name_in_owner = true
 layout_mode = 2
 text = "Test Runner"
 
-[node name="Row2" type="HBoxContainer" parent="Hud/TopBar/VBox"]
+[node name="Row2" type="HBoxContainer" parent="Hud/TopBar/VBox" unique_id=1073028786]
 layout_mode = 2
 
-[node name="TimelineStrip" type="Control" parent="Hud/TopBar/VBox/Row2"]
+[node name="TimelineStrip" type="Control" parent="Hud/TopBar/VBox/Row2" unique_id=1967707090]
 unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 22)
 layout_mode = 2
 size_flags_horizontal = 3
-custom_minimum_size = Vector2(0, 22)
 script = ExtResource("15_timeline")
 
-[node name="PresentBtn" type="Button" parent="Hud/TopBar/VBox/Row2"]
+[node name="PresentBtn" type="Button" parent="Hud/TopBar/VBox/Row2" unique_id=1303110915]
 unique_name_in_owner = true
 layout_mode = 2
 text = "Present"
 
-[node name="GenPanel" type="PanelContainer" parent="Hud"]
+[node name="GenPanel" type="PanelContainer" parent="Hud" unique_id=1477167189]
 unique_name_in_owner = true
 offset_left = 10.0
 offset_top = 100.0
@@ -163,31 +165,31 @@ offset_right = 260.0
 offset_bottom = 480.0
 script = ExtResource("5_gen")
 
-[node name="VBox" type="VBoxContainer" parent="Hud/GenPanel"]
+[node name="VBox" type="VBoxContainer" parent="Hud/GenPanel" unique_id=913740797]
 layout_mode = 2
 
-[node name="PanelHead" type="HBoxContainer" parent="Hud/GenPanel/VBox"]
+[node name="PanelHead" type="HBoxContainer" parent="Hud/GenPanel/VBox" unique_id=1296304237]
 unique_name_in_owner = true
 layout_mode = 2
 
-[node name="Title" type="Label" parent="Hud/GenPanel/VBox/PanelHead"]
+[node name="Title" type="Label" parent="Hud/GenPanel/VBox/PanelHead" unique_id=767693947]
 layout_mode = 2
 size_flags_horizontal = 3
 text = "World Generator"
 
-[node name="CollapseBtn" type="Button" parent="Hud/GenPanel/VBox/PanelHead"]
+[node name="CollapseBtn" type="Button" parent="Hud/GenPanel/VBox/PanelHead" unique_id=813014272]
 unique_name_in_owner = true
 layout_mode = 2
 text = "▼"
 
-[node name="PanelBody" type="VBoxContainer" parent="Hud/GenPanel/VBox"]
+[node name="PanelBody" type="VBoxContainer" parent="Hud/GenPanel/VBox" unique_id=2047516919]
 unique_name_in_owner = true
 layout_mode = 2
 
-[node name="SeedRow" type="HBoxContainer" parent="Hud/GenPanel/VBox/PanelBody"]
+[node name="SeedRow" type="HBoxContainer" parent="Hud/GenPanel/VBox/PanelBody" unique_id=1343528280]
 layout_mode = 2
 
-[node name="SeedBox" type="SpinBox" parent="Hud/GenPanel/VBox/PanelBody/SeedRow"]
+[node name="SeedBox" type="SpinBox" parent="Hud/GenPanel/VBox/PanelBody/SeedRow" unique_id=1063204490]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
@@ -195,121 +197,121 @@ min_value = 1.0
 max_value = 999999.0
 value = 42.0
 
-[node name="RandSeedBtn" type="Button" parent="Hud/GenPanel/VBox/PanelBody/SeedRow"]
+[node name="RandSeedBtn" type="Button" parent="Hud/GenPanel/VBox/PanelBody/SeedRow" unique_id=564776047]
 unique_name_in_owner = true
 layout_mode = 2
 text = "🎲"
 
-[node name="SizeRow" type="HBoxContainer" parent="Hud/GenPanel/VBox/PanelBody"]
+[node name="SizeRow" type="HBoxContainer" parent="Hud/GenPanel/VBox/PanelBody" unique_id=1571751425]
 unique_name_in_owner = true
 layout_mode = 2
 
-[node name="SeaRow" type="HBoxContainer" parent="Hud/GenPanel/VBox/PanelBody"]
+[node name="SeaRow" type="HBoxContainer" parent="Hud/GenPanel/VBox/PanelBody" unique_id=1732453161]
 layout_mode = 2
 
-[node name="SeaLabel" type="Label" parent="Hud/GenPanel/VBox/PanelBody/SeaRow"]
+[node name="SeaLabel" type="Label" parent="Hud/GenPanel/VBox/PanelBody/SeaRow" unique_id=768883510]
 layout_mode = 2
 text = "Sea level"
 
-[node name="SeaVal" type="Label" parent="Hud/GenPanel/VBox/PanelBody/SeaRow"]
+[node name="SeaVal" type="Label" parent="Hud/GenPanel/VBox/PanelBody/SeaRow" unique_id=109477178]
 unique_name_in_owner = true
 layout_mode = 2
 text = "46%"
 
-[node name="SeaSlider" type="HSlider" parent="Hud/GenPanel/VBox/PanelBody"]
+[node name="SeaSlider" type="HSlider" parent="Hud/GenPanel/VBox/PanelBody" unique_id=1380074755]
 unique_name_in_owner = true
 layout_mode = 2
 max_value = 1.0
 step = 0.01
 value = 0.46
 
-[node name="TempRow" type="HBoxContainer" parent="Hud/GenPanel/VBox/PanelBody"]
+[node name="TempRow" type="HBoxContainer" parent="Hud/GenPanel/VBox/PanelBody" unique_id=15568377]
 layout_mode = 2
 
-[node name="TempLabel" type="Label" parent="Hud/GenPanel/VBox/PanelBody/TempRow"]
+[node name="TempLabel" type="Label" parent="Hud/GenPanel/VBox/PanelBody/TempRow" unique_id=215239516]
 layout_mode = 2
 text = "Temperature"
 
-[node name="TempVal" type="Label" parent="Hud/GenPanel/VBox/PanelBody/TempRow"]
+[node name="TempVal" type="Label" parent="Hud/GenPanel/VBox/PanelBody/TempRow" unique_id=1388420782]
 unique_name_in_owner = true
 layout_mode = 2
 text = "Temperate"
 
-[node name="TempSlider" type="HSlider" parent="Hud/GenPanel/VBox/PanelBody"]
+[node name="TempSlider" type="HSlider" parent="Hud/GenPanel/VBox/PanelBody" unique_id=1778994633]
 unique_name_in_owner = true
 layout_mode = 2
 max_value = 1.0
 step = 0.01
 value = 0.5
 
-[node name="MoistRow" type="HBoxContainer" parent="Hud/GenPanel/VBox/PanelBody"]
+[node name="MoistRow" type="HBoxContainer" parent="Hud/GenPanel/VBox/PanelBody" unique_id=246243282]
 layout_mode = 2
 
-[node name="MoistLabel" type="Label" parent="Hud/GenPanel/VBox/PanelBody/MoistRow"]
+[node name="MoistLabel" type="Label" parent="Hud/GenPanel/VBox/PanelBody/MoistRow" unique_id=70030289]
 layout_mode = 2
 text = "Moisture"
 
-[node name="MoistVal" type="Label" parent="Hud/GenPanel/VBox/PanelBody/MoistRow"]
+[node name="MoistVal" type="Label" parent="Hud/GenPanel/VBox/PanelBody/MoistRow" unique_id=2034742116]
 unique_name_in_owner = true
 layout_mode = 2
 text = "Balanced"
 
-[node name="MoistSlider" type="HSlider" parent="Hud/GenPanel/VBox/PanelBody"]
+[node name="MoistSlider" type="HSlider" parent="Hud/GenPanel/VBox/PanelBody" unique_id=1188935710]
 unique_name_in_owner = true
 layout_mode = 2
 max_value = 1.0
 step = 0.01
 value = 0.5
 
-[node name="ReliefRow" type="HBoxContainer" parent="Hud/GenPanel/VBox/PanelBody"]
+[node name="ReliefRow" type="HBoxContainer" parent="Hud/GenPanel/VBox/PanelBody" unique_id=980595678]
 layout_mode = 2
 
-[node name="ReliefLabel" type="Label" parent="Hud/GenPanel/VBox/PanelBody/ReliefRow"]
+[node name="ReliefLabel" type="Label" parent="Hud/GenPanel/VBox/PanelBody/ReliefRow" unique_id=1842690255]
 layout_mode = 2
 text = "Terrain relief"
 
-[node name="ReliefVal" type="Label" parent="Hud/GenPanel/VBox/PanelBody/ReliefRow"]
+[node name="ReliefVal" type="Label" parent="Hud/GenPanel/VBox/PanelBody/ReliefRow" unique_id=320045648]
 unique_name_in_owner = true
 layout_mode = 2
 text = "Medium"
 
-[node name="ReliefSlider" type="HSlider" parent="Hud/GenPanel/VBox/PanelBody"]
+[node name="ReliefSlider" type="HSlider" parent="Hud/GenPanel/VBox/PanelBody" unique_id=1902678219]
 unique_name_in_owner = true
 layout_mode = 2
 max_value = 1.0
 step = 0.01
 value = 0.6
 
-[node name="AnimRow" type="HBoxContainer" parent="Hud/GenPanel/VBox/PanelBody"]
+[node name="AnimRow" type="HBoxContainer" parent="Hud/GenPanel/VBox/PanelBody" unique_id=2075122970]
 layout_mode = 2
 
-[node name="AnimLabel" type="Label" parent="Hud/GenPanel/VBox/PanelBody/AnimRow"]
+[node name="AnimLabel" type="Label" parent="Hud/GenPanel/VBox/PanelBody/AnimRow" unique_id=434406650]
 layout_mode = 2
 text = "Starting animals"
 
-[node name="AnimVal" type="Label" parent="Hud/GenPanel/VBox/PanelBody/AnimRow"]
+[node name="AnimVal" type="Label" parent="Hud/GenPanel/VBox/PanelBody/AnimRow" unique_id=482481478]
 unique_name_in_owner = true
 layout_mode = 2
 text = "Normal"
 
-[node name="AnimalsSlider" type="HSlider" parent="Hud/GenPanel/VBox/PanelBody"]
+[node name="AnimalsSlider" type="HSlider" parent="Hud/GenPanel/VBox/PanelBody" unique_id=839477168]
 unique_name_in_owner = true
 layout_mode = 2
 max_value = 1.0
 step = 0.01
 value = 0.45
 
-[node name="GenerateWorldBtn" type="Button" parent="Hud/GenPanel/VBox/PanelBody"]
+[node name="GenerateWorldBtn" type="Button" parent="Hud/GenPanel/VBox/PanelBody" unique_id=1691428367]
 unique_name_in_owner = true
 layout_mode = 2
 text = "Generate World"
 
-[node name="RestockBtn" type="Button" parent="Hud/GenPanel/VBox/PanelBody"]
+[node name="RestockBtn" type="Button" parent="Hud/GenPanel/VBox/PanelBody" unique_id=253288278]
 unique_name_in_owner = true
 layout_mode = 2
 text = "Restock Life"
 
-[node name="EcosystemPanel" type="PanelContainer" parent="Hud"]
+[node name="EcosystemPanel" type="PanelContainer" parent="Hud" unique_id=1211420420]
 unique_name_in_owner = true
 anchors_preset = 1
 anchor_left = 1.0
@@ -321,185 +323,171 @@ offset_bottom = 420.0
 grow_horizontal = 0
 script = ExtResource("6_eco")
 
-[node name="VBox" type="VBoxContainer" parent="Hud/EcosystemPanel"]
+[node name="VBox" type="VBoxContainer" parent="Hud/EcosystemPanel" unique_id=1830146139]
 layout_mode = 2
 
-[node name="PanelHead" type="HBoxContainer" parent="Hud/EcosystemPanel/VBox"]
-unique_name_in_owner = true
+[node name="PanelHead" type="HBoxContainer" parent="Hud/EcosystemPanel/VBox" unique_id=720013475]
 layout_mode = 2
 
-[node name="Title" type="Label" parent="Hud/EcosystemPanel/VBox/PanelHead"]
+[node name="Title" type="Label" parent="Hud/EcosystemPanel/VBox/PanelHead" unique_id=1012433077]
 layout_mode = 2
 size_flags_horizontal = 3
 text = "Ecosystem"
 
-[node name="CollapseBtn" type="Button" parent="Hud/EcosystemPanel/VBox/PanelHead"]
-unique_name_in_owner = true
+[node name="CollapseBtn" type="Button" parent="Hud/EcosystemPanel/VBox/PanelHead" unique_id=1809252059]
 layout_mode = 2
 text = "▼"
 
-[node name="PanelBody" type="VBoxContainer" parent="Hud/EcosystemPanel/VBox"]
-unique_name_in_owner = true
+[node name="PanelBody" type="VBoxContainer" parent="Hud/EcosystemPanel/VBox" unique_id=1640470471]
 layout_mode = 2
 size_flags_vertical = 3
 
-[node name="PopGraph" type="Control" parent="Hud/EcosystemPanel/VBox/PanelBody"]
+[node name="PopGraph" type="Control" parent="Hud/EcosystemPanel/VBox/PanelBody" unique_id=677781592]
 unique_name_in_owner = true
-layout_mode = 2
 custom_minimum_size = Vector2(0, 70)
+layout_mode = 2
 script = ExtResource("12_graph")
 
-[node name="Scroll" type="ScrollContainer" parent="Hud/EcosystemPanel/VBox/PanelBody"]
+[node name="Scroll" type="ScrollContainer" parent="Hud/EcosystemPanel/VBox/PanelBody" unique_id=247137160]
 layout_mode = 2
 size_flags_vertical = 3
 
-[node name="SpeciesRows" type="VBoxContainer" parent="Hud/EcosystemPanel/VBox/PanelBody/Scroll"]
+[node name="SpeciesRows" type="VBoxContainer" parent="Hud/EcosystemPanel/VBox/PanelBody/Scroll" unique_id=396111459]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
 
-[node name="InspectorPanel" type="PanelContainer" parent="Hud"]
+[node name="InspectorPanel" type="PanelContainer" parent="Hud" unique_id=275745881]
 unique_name_in_owner = true
-anchors_preset = 3
-anchor_left = 1.0
-anchor_top = 1.0
-anchor_right = 1.0
-anchor_bottom = 1.0
-offset_left = -270.0
-offset_top = -300.0
-offset_right = -10.0
-offset_bottom = -70.0
+offset_left = 1320.0
+offset_top = 530.0
+offset_right = 1590.0
+offset_bottom = 830.0
 grow_horizontal = 0
 grow_vertical = 0
 script = ExtResource("7_inspect")
 
-[node name="VBox" type="VBoxContainer" parent="Hud/InspectorPanel"]
+[node name="VBox" type="VBoxContainer" parent="Hud/InspectorPanel" unique_id=645404979]
 layout_mode = 2
 
-[node name="PanelHead" type="HBoxContainer" parent="Hud/InspectorPanel/VBox"]
-unique_name_in_owner = true
+[node name="PanelHead" type="HBoxContainer" parent="Hud/InspectorPanel/VBox" unique_id=1177006415]
 layout_mode = 2
 
-[node name="InspectHeader" type="Label" parent="Hud/InspectorPanel/VBox"]
+[node name="InspectHeader" type="Label" parent="Hud/InspectorPanel/VBox" unique_id=1711678139]
 unique_name_in_owner = true
 layout_mode = 2
 text = "Inspector"
 
-[node name="TabRow" type="HBoxContainer" parent="Hud/InspectorPanel/VBox"]
+[node name="TabRow" type="HBoxContainer" parent="Hud/InspectorPanel/VBox" unique_id=519882904]
 layout_mode = 2
 
-[node name="StatsTabBtn" type="Button" parent="Hud/InspectorPanel/VBox/TabRow"]
+[node name="StatsTabBtn" type="Button" parent="Hud/InspectorPanel/VBox/TabRow" unique_id=2100429673]
 unique_name_in_owner = true
 layout_mode = 2
 text = "Stats"
 
-[node name="StoryTabBtn" type="Button" parent="Hud/InspectorPanel/VBox/TabRow"]
+[node name="StoryTabBtn" type="Button" parent="Hud/InspectorPanel/VBox/TabRow" unique_id=392513298]
 unique_name_in_owner = true
 layout_mode = 2
 text = "Life Story"
 
-[node name="StatsTab" type="VBoxContainer" parent="Hud/InspectorPanel/VBox"]
+[node name="StatsTab" type="VBoxContainer" parent="Hud/InspectorPanel/VBox" unique_id=20718046]
 unique_name_in_owner = true
 layout_mode = 2
 
-[node name="HpRow" type="HBoxContainer" parent="Hud/InspectorPanel/VBox/StatsTab"]
+[node name="HpRow" type="HBoxContainer" parent="Hud/InspectorPanel/VBox/StatsTab" unique_id=1007969239]
 layout_mode = 2
 
-[node name="HpLabel" type="Label" parent="Hud/InspectorPanel/VBox/StatsTab/HpRow"]
+[node name="HpLabel" type="Label" parent="Hud/InspectorPanel/VBox/StatsTab/HpRow" unique_id=2073013115]
 layout_mode = 2
 text = "❤️ Health"
 
-[node name="HpVal" type="Label" parent="Hud/InspectorPanel/VBox/StatsTab/HpRow"]
+[node name="HpVal" type="Label" parent="Hud/InspectorPanel/VBox/StatsTab/HpRow" unique_id=686305107]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
-horizontal_alignment = 2
 text = "—"
+horizontal_alignment = 2
 
-[node name="HpBar" type="ProgressBar" parent="Hud/InspectorPanel/VBox/StatsTab"]
+[node name="HpBar" type="ProgressBar" parent="Hud/InspectorPanel/VBox/StatsTab" unique_id=1226837221]
 unique_name_in_owner = true
 layout_mode = 2
-max_value = 100.0
 show_percentage = false
 
-[node name="HunRow" type="HBoxContainer" parent="Hud/InspectorPanel/VBox/StatsTab"]
+[node name="HunRow" type="HBoxContainer" parent="Hud/InspectorPanel/VBox/StatsTab" unique_id=334864135]
 layout_mode = 2
 
-[node name="HunLabel" type="Label" parent="Hud/InspectorPanel/VBox/StatsTab/HunRow"]
+[node name="HunLabel" type="Label" parent="Hud/InspectorPanel/VBox/StatsTab/HunRow" unique_id=1099853846]
 layout_mode = 2
 text = "🍖 Fullness"
 
-[node name="HunVal" type="Label" parent="Hud/InspectorPanel/VBox/StatsTab/HunRow"]
+[node name="HunVal" type="Label" parent="Hud/InspectorPanel/VBox/StatsTab/HunRow" unique_id=1862951243]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
-horizontal_alignment = 2
 text = "—"
+horizontal_alignment = 2
 
-[node name="HungerBar" type="ProgressBar" parent="Hud/InspectorPanel/VBox/StatsTab"]
+[node name="HungerBar" type="ProgressBar" parent="Hud/InspectorPanel/VBox/StatsTab" unique_id=610824961]
 unique_name_in_owner = true
 layout_mode = 2
-max_value = 100.0
 show_percentage = false
 
-[node name="ThiRow" type="HBoxContainer" parent="Hud/InspectorPanel/VBox/StatsTab"]
+[node name="ThiRow" type="HBoxContainer" parent="Hud/InspectorPanel/VBox/StatsTab" unique_id=930431799]
 layout_mode = 2
 
-[node name="ThiLabel" type="Label" parent="Hud/InspectorPanel/VBox/StatsTab/ThiRow"]
+[node name="ThiLabel" type="Label" parent="Hud/InspectorPanel/VBox/StatsTab/ThiRow" unique_id=613589305]
 layout_mode = 2
 text = "💧 Hydration"
 
-[node name="ThiVal" type="Label" parent="Hud/InspectorPanel/VBox/StatsTab/ThiRow"]
+[node name="ThiVal" type="Label" parent="Hud/InspectorPanel/VBox/StatsTab/ThiRow" unique_id=2124551256]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
-horizontal_alignment = 2
 text = "—"
+horizontal_alignment = 2
 
-[node name="ThirstBar" type="ProgressBar" parent="Hud/InspectorPanel/VBox/StatsTab"]
+[node name="ThirstBar" type="ProgressBar" parent="Hud/InspectorPanel/VBox/StatsTab" unique_id=1221486203]
 unique_name_in_owner = true
 layout_mode = 2
-max_value = 100.0
 show_percentage = false
 
-[node name="EneRow" type="HBoxContainer" parent="Hud/InspectorPanel/VBox/StatsTab"]
+[node name="EneRow" type="HBoxContainer" parent="Hud/InspectorPanel/VBox/StatsTab" unique_id=812611674]
 layout_mode = 2
 
-[node name="EneLabel" type="Label" parent="Hud/InspectorPanel/VBox/StatsTab/EneRow"]
+[node name="EneLabel" type="Label" parent="Hud/InspectorPanel/VBox/StatsTab/EneRow" unique_id=551488575]
 layout_mode = 2
 text = "⚡ Energy"
 
-[node name="EneVal" type="Label" parent="Hud/InspectorPanel/VBox/StatsTab/EneRow"]
+[node name="EneVal" type="Label" parent="Hud/InspectorPanel/VBox/StatsTab/EneRow" unique_id=1867764431]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
-horizontal_alignment = 2
 text = "—"
+horizontal_alignment = 2
 
-[node name="EnergyBar" type="ProgressBar" parent="Hud/InspectorPanel/VBox/StatsTab"]
+[node name="EnergyBar" type="ProgressBar" parent="Hud/InspectorPanel/VBox/StatsTab" unique_id=1349352189]
 unique_name_in_owner = true
 layout_mode = 2
-max_value = 100.0
 show_percentage = false
 
-[node name="GeneGrid" type="GridContainer" parent="Hud/InspectorPanel/VBox/StatsTab"]
+[node name="GeneGrid" type="GridContainer" parent="Hud/InspectorPanel/VBox/StatsTab" unique_id=1641440189]
 unique_name_in_owner = true
 layout_mode = 2
 columns = 2
 
-[node name="StoryTab" type="VBoxContainer" parent="Hud/InspectorPanel/VBox"]
+[node name="StoryTab" type="VBoxContainer" parent="Hud/InspectorPanel/VBox" unique_id=776097622]
 unique_name_in_owner = true
 visible = false
 layout_mode = 2
 size_flags_vertical = 3
 
-[node name="LifeStoryLog" type="RichTextLabel" parent="Hud/InspectorPanel/VBox/StoryTab"]
+[node name="LifeStoryLog" type="RichTextLabel" parent="Hud/InspectorPanel/VBox/StoryTab" unique_id=482590560]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_vertical = 3
-scroll_active = true
 
-[node name="StoryPanel" type="PanelContainer" parent="Hud"]
+[node name="StoryPanel" type="PanelContainer" parent="Hud" unique_id=1744359933]
 unique_name_in_owner = true
 offset_left = 10.0
 offset_top = 500.0
@@ -507,130 +495,120 @@ offset_right = 360.0
 offset_bottom = 820.0
 script = ExtResource("8_story")
 
-[node name="VBox" type="VBoxContainer" parent="Hud/StoryPanel"]
+[node name="VBox" type="VBoxContainer" parent="Hud/StoryPanel" unique_id=535469473]
 layout_mode = 2
 
-[node name="PanelHead" type="HBoxContainer" parent="Hud/StoryPanel/VBox"]
-unique_name_in_owner = true
+[node name="PanelHead" type="HBoxContainer" parent="Hud/StoryPanel/VBox" unique_id=466416554]
 layout_mode = 2
 
-[node name="Title" type="Label" parent="Hud/StoryPanel/VBox/PanelHead"]
+[node name="Title" type="Label" parent="Hud/StoryPanel/VBox/PanelHead" unique_id=1736876942]
 layout_mode = 2
 size_flags_horizontal = 3
 text = "World Story"
 
-[node name="CollapseBtn" type="Button" parent="Hud/StoryPanel/VBox/PanelHead"]
-unique_name_in_owner = true
+[node name="CollapseBtn" type="Button" parent="Hud/StoryPanel/VBox/PanelHead" unique_id=1907315029]
 layout_mode = 2
 text = "▼"
 
-[node name="PanelBody" type="ScrollContainer" parent="Hud/StoryPanel/VBox"]
-unique_name_in_owner = true
+[node name="PanelBody" type="ScrollContainer" parent="Hud/StoryPanel/VBox" unique_id=457299428]
 layout_mode = 2
 size_flags_vertical = 3
 
-[node name="WorldStory" type="Control" parent="Hud/StoryPanel/VBox/PanelBody"]
+[node name="WorldStory" type="Control" parent="Hud/StoryPanel/VBox/PanelBody" unique_id=1617362103]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
 script = ExtResource("9_tracker")
 
-[node name="StoryList" type="VBoxContainer" parent="Hud/StoryPanel/VBox/PanelBody/WorldStory"]
+[node name="StoryList" type="VBoxContainer" parent="Hud/StoryPanel/VBox/PanelBody/WorldStory" unique_id=597678809]
+unique_name_in_owner = true
+layout_mode = 0
+size_flags_horizontal = 3
+
+[node name="SpeciesStatsPanel" type="PanelContainer" parent="Hud" unique_id=148150792]
+unique_name_in_owner = true
+offset_left = 1320.0
+offset_top = 430.0
+offset_right = 1590.0
+offset_bottom = 700.0
+grow_horizontal = 0
+grow_vertical = 0
+script = ExtResource("10_spstats")
+
+[node name="VBox" type="VBoxContainer" parent="Hud/SpeciesStatsPanel" unique_id=794770544]
+layout_mode = 2
+
+[node name="PanelHead" type="HBoxContainer" parent="Hud/SpeciesStatsPanel/VBox" unique_id=1573031866]
+layout_mode = 2
+
+[node name="SpeciesStatsTitle" type="Label" parent="Hud/SpeciesStatsPanel/VBox/PanelHead" unique_id=1434338491]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
-
-[node name="SpeciesStatsPanel" type="PanelContainer" parent="Hud"]
-unique_name_in_owner = true
-anchors_preset = 1
-anchor_left = 1.0
-anchor_right = 1.0
-offset_left = -280.0
-offset_top = 430.0
-offset_right = -10.0
-offset_bottom = 700.0
-grow_horizontal = 0
-script = ExtResource("10_spstats")
-
-[node name="VBox" type="VBoxContainer" parent="Hud/SpeciesStatsPanel"]
-layout_mode = 2
-
-[node name="PanelHead" type="HBoxContainer" parent="Hud/SpeciesStatsPanel/VBox"]
-unique_name_in_owner = true
-layout_mode = 2
-
-[node name="SpeciesStatsTitle" type="Label" parent="Hud/SpeciesStatsPanel/VBox/PanelHead"]
-unique_name_in_owner = true
-layout_mode = 2
 text = "Species Stats"
 
-[node name="PanelBody" type="VBoxContainer" parent="Hud/SpeciesStatsPanel/VBox"]
-unique_name_in_owner = true
+[node name="PanelBody" type="VBoxContainer" parent="Hud/SpeciesStatsPanel/VBox" unique_id=1374673244]
 layout_mode = 2
 
-[node name="SpeciesStatsGraph" type="Control" parent="Hud/SpeciesStatsPanel/VBox/PanelBody"]
+[node name="SpeciesStatsGraph" type="Control" parent="Hud/SpeciesStatsPanel/VBox/PanelBody" unique_id=1302637804]
 unique_name_in_owner = true
-layout_mode = 2
 custom_minimum_size = Vector2(0, 70)
+layout_mode = 2
 script = ExtResource("12_graph")
 
-[node name="Needs" type="VBoxContainer" parent="Hud/SpeciesStatsPanel/VBox/PanelBody"]
+[node name="Needs" type="VBoxContainer" parent="Hud/SpeciesStatsPanel/VBox/PanelBody" unique_id=455893706]
 layout_mode = 2
 
-[node name="SsHpRow" type="HBoxContainer" parent="Hud/SpeciesStatsPanel/VBox/PanelBody/Needs"]
+[node name="SsHpRow" type="HBoxContainer" parent="Hud/SpeciesStatsPanel/VBox/PanelBody/Needs" unique_id=15365826]
 layout_mode = 2
 
-[node name="SsHpVal" type="Label" parent="Hud/SpeciesStatsPanel/VBox/PanelBody/Needs/SsHpRow"]
+[node name="SsHpVal" type="Label" parent="Hud/SpeciesStatsPanel/VBox/PanelBody/Needs/SsHpRow" unique_id=1084131373]
 unique_name_in_owner = true
 layout_mode = 2
 text = "—"
 
-[node name="SsHpBar" type="ProgressBar" parent="Hud/SpeciesStatsPanel/VBox/PanelBody/Needs"]
+[node name="SsHpBar" type="ProgressBar" parent="Hud/SpeciesStatsPanel/VBox/PanelBody/Needs" unique_id=2097247487]
 unique_name_in_owner = true
 layout_mode = 2
-max_value = 100.0
 
-[node name="SsHunVal" type="Label" parent="Hud/SpeciesStatsPanel/VBox/PanelBody/Needs"]
-unique_name_in_owner = true
-layout_mode = 2
-text = "—"
-
-[node name="SsHunBar" type="ProgressBar" parent="Hud/SpeciesStatsPanel/VBox/PanelBody/Needs"]
-unique_name_in_owner = true
-layout_mode = 2
-max_value = 100.0
-
-[node name="SsThiVal" type="Label" parent="Hud/SpeciesStatsPanel/VBox/PanelBody/Needs"]
+[node name="SsHunVal" type="Label" parent="Hud/SpeciesStatsPanel/VBox/PanelBody/Needs" unique_id=1996861869]
 unique_name_in_owner = true
 layout_mode = 2
 text = "—"
 
-[node name="SsThiBar" type="ProgressBar" parent="Hud/SpeciesStatsPanel/VBox/PanelBody/Needs"]
+[node name="SsHunBar" type="ProgressBar" parent="Hud/SpeciesStatsPanel/VBox/PanelBody/Needs" unique_id=1708165916]
 unique_name_in_owner = true
 layout_mode = 2
-max_value = 100.0
 
-[node name="SsEneVal" type="Label" parent="Hud/SpeciesStatsPanel/VBox/PanelBody/Needs"]
+[node name="SsThiVal" type="Label" parent="Hud/SpeciesStatsPanel/VBox/PanelBody/Needs" unique_id=116793459]
 unique_name_in_owner = true
 layout_mode = 2
 text = "—"
 
-[node name="SsEneBar" type="ProgressBar" parent="Hud/SpeciesStatsPanel/VBox/PanelBody/Needs"]
+[node name="SsThiBar" type="ProgressBar" parent="Hud/SpeciesStatsPanel/VBox/PanelBody/Needs" unique_id=2025730685]
 unique_name_in_owner = true
 layout_mode = 2
-max_value = 100.0
 
-[node name="SpeciesStatsSummary" type="Label" parent="Hud/SpeciesStatsPanel/VBox/PanelBody"]
+[node name="SsEneVal" type="Label" parent="Hud/SpeciesStatsPanel/VBox/PanelBody/Needs" unique_id=124774434]
+unique_name_in_owner = true
+layout_mode = 2
+text = "—"
+
+[node name="SsEneBar" type="ProgressBar" parent="Hud/SpeciesStatsPanel/VBox/PanelBody/Needs" unique_id=756944602]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="SpeciesStatsSummary" type="Label" parent="Hud/SpeciesStatsPanel/VBox/PanelBody" unique_id=367237923]
 unique_name_in_owner = true
 layout_mode = 2
 autowrap_mode = 3
 
-[node name="SpeciesStatsDeaths" type="VBoxContainer" parent="Hud/SpeciesStatsPanel/VBox/PanelBody"]
+[node name="SpeciesStatsDeaths" type="VBoxContainer" parent="Hud/SpeciesStatsPanel/VBox/PanelBody" unique_id=1379683080]
 unique_name_in_owner = true
 layout_mode = 2
 
-[node name="ProfilerPanel" type="PanelContainer" parent="Hud"]
+[node name="ProfilerPanel" type="PanelContainer" parent="Hud" unique_id=570297473]
 unique_name_in_owner = true
 offset_left = 10.0
 offset_top = 100.0
@@ -638,66 +616,67 @@ offset_right = 310.0
 offset_bottom = 280.0
 script = ExtResource("11_profiler")
 
-[node name="VBox" type="VBoxContainer" parent="Hud/ProfilerPanel"]
+[node name="VBox" type="VBoxContainer" parent="Hud/ProfilerPanel" unique_id=305905861]
 layout_mode = 2
 
-[node name="PanelHead" type="HBoxContainer" parent="Hud/ProfilerPanel/VBox"]
-unique_name_in_owner = true
+[node name="PanelHead" type="HBoxContainer" parent="Hud/ProfilerPanel/VBox" unique_id=90421732]
 layout_mode = 2
 
-[node name="Title" type="Label" parent="Hud/ProfilerPanel/VBox/PanelHead"]
+[node name="Title" type="Label" parent="Hud/ProfilerPanel/VBox/PanelHead" unique_id=1609057222]
 layout_mode = 2
+size_flags_horizontal = 3
 text = "Profiler"
 
-[node name="PanelBody" type="VBoxContainer" parent="Hud/ProfilerPanel/VBox"]
-unique_name_in_owner = true
+[node name="PanelBody" type="VBoxContainer" parent="Hud/ProfilerPanel/VBox" unique_id=2096510527]
 layout_mode = 2
 
-[node name="ProfilerOverview" type="Label" parent="Hud/ProfilerPanel/VBox/PanelBody"]
+[node name="ProfilerOverview" type="Label" parent="Hud/ProfilerPanel/VBox/PanelBody" unique_id=1241278655]
 unique_name_in_owner = true
 layout_mode = 2
 text = "FPS —"
 
-[node name="ProfilerBudget" type="Control" parent="Hud/ProfilerPanel/VBox/PanelBody"]
+[node name="ProfilerBudget" type="Control" parent="Hud/ProfilerPanel/VBox/PanelBody" unique_id=286179015]
 unique_name_in_owner = true
-layout_mode = 2
 custom_minimum_size = Vector2(0, 12)
+layout_mode = 2
 
-[node name="Toolbar" type="HBoxContainer" parent="Hud"]
+[node name="Toolbar" type="HBoxContainer" parent="Hud" unique_id=810082590]
 unique_name_in_owner = true
 anchors_preset = 7
 anchor_left = 0.5
 anchor_top = 1.0
 anchor_right = 0.5
 anchor_bottom = 1.0
-offset_left = -300.0
+offset_left = -120.0
 offset_top = -56.0
-offset_right = 300.0
+offset_right = 120.0
 offset_bottom = -10.0
 grow_horizontal = 2
 grow_vertical = 0
 alignment = 1
 script = ExtResource("13_tools")
 
-[node name="SpeciesGodMenu" type="PopupPanel" parent="Hud"]
+[node name="SpeciesGodMenu" type="PopupPanel" parent="Hud" unique_id=904972904]
 unique_name_in_owner = true
 script = ExtResource("14_god")
 
-[node name="VBox" type="VBoxContainer" parent="Hud/SpeciesGodMenu"]
-offset_right = 180.0
-offset_bottom = 80.0
+[node name="VBox" type="VBoxContainer" parent="Hud/SpeciesGodMenu" unique_id=1485494682]
+offset_left = 4.0
+offset_top = 4.0
+offset_right = 96.0
+offset_bottom = 96.0
 
-[node name="GodMenuTitle" type="Label" parent="Hud/SpeciesGodMenu/VBox"]
+[node name="GodMenuTitle" type="Label" parent="Hud/SpeciesGodMenu/VBox" unique_id=742791893]
 unique_name_in_owner = true
 layout_mode = 2
 text = "GOD"
 
-[node name="GodKillAll" type="Button" parent="Hud/SpeciesGodMenu/VBox"]
+[node name="GodKillAll" type="Button" parent="Hud/SpeciesGodMenu/VBox" unique_id=381948609]
 unique_name_in_owner = true
 layout_mode = 2
 text = "Kill All"
 
-[node name="TerrainTip" type="Label" parent="Hud"]
+[node name="TerrainTip" type="Label" parent="Hud" unique_id=1526441523]
 unique_name_in_owner = true
 visible = false
 theme_override_colors/font_color = Color(0.9, 0.92, 0.85, 1)
@@ -705,7 +684,7 @@ theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
 theme_override_constants/outline_size = 2
 text = "terrain"
 
-[node name="CreatureTip" type="Label" parent="Hud"]
+[node name="CreatureTip" type="Label" parent="Hud" unique_id=164989129]
 unique_name_in_owner = true
 visible = false
 theme_override_colors/font_color = Color(1, 0.95, 0.7, 1)

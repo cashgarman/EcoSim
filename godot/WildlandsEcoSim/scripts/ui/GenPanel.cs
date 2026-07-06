@@ -56,7 +56,23 @@ public partial class GenPanel : DraggablePanel
         GetNode<Button>("%RandSeedBtn").Pressed += () => _seed.Value = GlobalRng.Ri(1, 999999);
         GetNode<Button>("%GenerateWorldBtn").Pressed += () => EmitSignal(SignalName.GenerateRequested);
         GetNode<Button>("%RestockBtn").Pressed += () => EmitSignal(SignalName.RestockRequested);
+        StyleFieldLabels();
         UpdateLabels();
+    }
+
+    private void StyleFieldLabels()
+    {
+        foreach (Node row in GetNode<VBoxContainer>("%PanelBody").GetChildren())
+        {
+            if (row is not HBoxContainer hbox) continue;
+            foreach (Node child in hbox.GetChildren())
+            {
+                if (child is Label label && child.Name.ToString().EndsWith("Label"))
+                {
+                    EcoSimFonts.StyleDimLabel(label);
+                }
+            }
+        }
     }
 
     private void BuildSizeButtons()
