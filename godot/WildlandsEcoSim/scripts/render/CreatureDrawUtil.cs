@@ -47,7 +47,7 @@ public static class CreatureDrawUtil
             col = col.Lightened((brightness - 0.62f) / 0.38f * 0.2f);
         }
 
-        float m = Math.Max(0.08f, size * 0.45f);
+        float m = Math.Max(0.25f, size * 0.55f);
         canvas.DrawRect(new Rect2(pos.X - m * 0.5f, pos.Y - m * 0.5f, m, m), col);
     }
 
@@ -59,7 +59,7 @@ public static class CreatureDrawUtil
             col = col.Lightened((brightness - 0.62f) / 0.38f * 0.2f);
         }
 
-        float body = Math.Max(0.08f, size * 0.55f);
+        float body = Math.Max(0.25f, size * 0.65f);
         canvas.DrawRect(new Rect2(pos.X - body * 0.5f, pos.Y - body * 0.4f, body, body * 0.8f), col);
     }
 
@@ -134,6 +134,24 @@ public static class CreatureDrawUtil
         "rest" => "💤",
         _ => null,
     };
+
+    /// <summary>Draw behavior emoji above a creature (JS: screen px, converted to tile-local draw units).</summary>
+    public static void DrawStateEmoji(
+        CanvasItem canvas,
+        Vector2 tilePos,
+        string emoji,
+        float camZoom,
+        float eSize,
+        float tilePixels)
+    {
+        float sScreen = Math.Max(2.5f, camZoom * 0.9f * eSize);
+        int fontScreen = Math.Max(6, (int)(sScreen * 0.9f));
+        float worldScale = tilePixels * Math.Max(camZoom, 0.01f);
+        int fontLocal = Math.Max(1, (int)Math.Ceiling(fontScreen / worldScale));
+        Vector2 offset = new(-sScreen * 0.4f / worldScale, -sScreen * 0.9f / worldScale);
+        canvas.DrawString(ThemeDB.FallbackFont, tilePos + offset, emoji,
+            HorizontalAlignment.Left, -1, fontLocal);
+    }
 
     private static Color HslToRgb(double h, double s, double l)
     {

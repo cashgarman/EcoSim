@@ -61,7 +61,13 @@ public partial class CreatureRenderer : Node2D
             float bright = CreatureDrawUtil.CreatureBrightness(c, selected, light);
             Vector2 pos = CreatureDrawUtil.DisplayPos(c);
             float eSize = CreatureDrawUtil.EffectiveSize(creatures, c);
-            float s = Math.Max(0.15f, _camZoom * 0.9f * eSize);
+            // Tile-space radius — matches legacy MultiMesh (0.35 + size*0.12 tiles).
+            float baseRadius = 0.35f + (float)c.Genome.Size * 0.12f;
+            float s = baseRadius;
+            if (detail >= 2 && _camZoom > 4.2f)
+            {
+                s = Math.Max(baseRadius, _camZoom * 0.22f * eSize);
+            }
 
             if (detail <= 0 || _camZoom < 1.8f)
             {
@@ -81,8 +87,7 @@ public partial class CreatureRenderer : Node2D
                     string? em = CreatureDrawUtil.StateEmoji(c.State);
                     if (em != null && c.State != "wander")
                     {
-                        DrawString(ThemeDB.FallbackFont, pos + new Vector2(-s * 0.4f, -s * 0.9f), em,
-                            HorizontalAlignment.Left, -1, Math.Max(8, (int)(s * 9)));
+                        CreatureDrawUtil.DrawStateEmoji(this, pos, em, _camZoom, eSize, WorldRenderer.TilePixels);
                     }
                 }
             }
@@ -98,14 +103,16 @@ public partial class CreatureRenderer : Node2D
         var camera = GetViewport()?.GetCamera2D();
         if (camera == null) return true;
 
-        Rect2 view = camera.GetViewportRect();
-        Vector2 center = camera.GetScreenCenterPosition();
-        float scale = GetParent<Node2D>()?.Scale.X ?? 1f;
-        float pad = Math.Max(4f, _camZoom * 4f) / scale;
-        float hw = view.Size.X / (camera.Zoom.X * scale * 2f) + pad;
-        float hh = view.Size.Y / (camera.Zoom.Y * scale * 2f) + pad;
+        // Use camera position in tile space (same as creature coords), not global screen center.
+        Vector2 center = camera.Position;
+        Vector2 vp = camera.GetViewportRect().Size;
+        float tileScale = (camera.GetParent() as Node2D)?.Scale.X ?? 1f;
+        float hw = vp.X / (camera.Zoom.X * tileScale * 2f);
+        float hh = vp.Y / (camera.Zoom.Y * tileScale * 2f);
+        const float pad = 4f;
         float x = (float)c.Rx;
         float y = (float)c.Ry;
-        return x >= center.X - hw && x <= center.X + hw && y >= center.Y - hh && y <= center.Y + hh;
+        return x >= center.X - hw - pad && x <= center.X + hw + pad
+            && y >= center.Y - hh - pad && y <= center.Y + hh + pad;
     }
 }

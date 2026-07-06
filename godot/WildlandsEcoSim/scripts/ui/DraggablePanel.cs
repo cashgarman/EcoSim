@@ -12,8 +12,10 @@ public partial class DraggablePanel : PanelContainer
     private bool _dragging;
     private Vector2 _dragOffset;
     private bool _collapsed;
+    private Vector2 _expandedSize;
 
     public Control? Body => _body;
+    public bool IsCollapsed => _collapsed;
 
     public override void _Ready()
     {
@@ -33,6 +35,15 @@ public partial class DraggablePanel : PanelContainer
         }
 
         SetProcess(true);
+        Callable.From(CaptureExpandedSize).CallDeferred();
+    }
+
+    private void CaptureExpandedSize()
+    {
+        if (Size.Y > 1f)
+        {
+            _expandedSize = Size;
+        }
     }
 
     public override void _Process(double delta)
@@ -81,7 +92,7 @@ public partial class DraggablePanel : PanelContainer
 
         var strip = new PanelHeaderStrip();
         strip.SizeFlagsHorizontal = SizeFlags.ExpandFill;
-        strip.MouseFilter = MouseFilterEnum.Stop;
+        strip.MouseFilter = MouseFilterEnum.Pass;
         strip.AddChild(_header);
         parent.AddChild(strip);
         parent.MoveChild(strip, index);
@@ -94,7 +105,7 @@ public partial class DraggablePanel : PanelContainer
         if (headHBox == null) return;
 
         headHBox.SizeFlagsHorizontal = SizeFlags.ExpandFill;
-        headHBox.MouseFilter = MouseFilterEnum.Stop;
+        headHBox.MouseFilter = MouseFilterEnum.Pass;
         headHBox.AddThemeConstantOverride("separation", 6);
 
         foreach (Node child in headHBox.GetChildren())
@@ -130,6 +141,8 @@ public partial class DraggablePanel : PanelContainer
         if (_collapseBtn == null) return;
 
         EcoSimThemeBuilder.StyleCollapseButton(_collapseBtn);
+        _collapseBtn.MouseFilter = MouseFilterEnum.Stop;
+        _collapseBtn.FocusMode = FocusModeEnum.None;
         _collapseBtn.Pressed += ToggleCollapse;
     }
 
@@ -145,16 +158,16 @@ public partial class DraggablePanel : PanelContainer
 
     private void BindHeaderDrag()
     {
-        if (_header == null) return;
-
-        _header.MouseDefaultCursorShape = CursorShape.Move;
-        _header.GuiInput += OnHeaderGuiInput;
-
         HBoxContainer? headHBox = GetPanelHeadHBox();
-        if (headHBox != null && headHBox != _header)
+        if (headHBox == null) return;
+
+        foreach (Node child in headHBox.GetChildren())
         {
-            headHBox.MouseDefaultCursorShape = CursorShape.Move;
-            headHBox.GuiInput += OnHeaderGuiInput;
+            if (child is not Label title) continue;
+
+            title.MouseFilter = MouseFilterEnum.Stop;
+            title.MouseDefaultCursorShape = CursorShape.Move;
+            title.GuiInput += OnHeaderGuiInput;
         }
     }
 
@@ -175,8 +188,6 @@ public partial class DraggablePanel : PanelContainer
 
     private void OnHeaderGuiInput(InputEvent @event)
     {
-        if (IsPointerOverCollapseButton()) return;
-
         if (@event is InputEventMouseButton mb && mb.ButtonIndex == MouseButton.Left)
         {
             if (mb.Pressed)
@@ -192,15 +203,13 @@ public partial class DraggablePanel : PanelContainer
         }
     }
 
-    private bool IsPointerOverCollapseButton()
-    {
-        return _collapseBtn != null
-            && _collapseBtn.Visible
-            && _collapseBtn.GetGlobalRect().HasPoint(GetGlobalMousePosition());
-    }
-
     private void ToggleCollapse()
     {
+        if (!_collapsed)
+        {
+            _expandedSize = Size.Y > 1f ? Size : _expandedSize;
+        }
+
         _collapsed = !_collapsed;
         if (_body != null)
         {
@@ -211,6 +220,48 @@ public partial class DraggablePanel : PanelContainer
         {
             _collapseBtn.Text = _collapsed ? "▶" : "▼";
         }
+
+        Callable.From(ApplyCollapseLayout).CallDeferred();
+    }
+
+    private void ApplyCollapseLayout()
+    {
+        if (_collapsed)
+        {
+            Size = new Vector2(Size.X, MeasureCollapsedHeight());
+        }
+        else if (_expandedSize.Y > 1f)
+        {
+            Size = _expandedSize;
+        }
+
+        QueueRedraw();
+    }
+
+    private float MeasureCollapsedHeight()
+    {
+        float headerH = 0;
+        if (_header != null)
+        {
+            headerH = _header.Size.Y;
+            if (headerH < 1f)
+            {
+                headerH = _header.GetCombinedMinimumSize().Y;
+            }
+        }
+
+        if (headerH < 1f)
+        {
+            HBoxContainer? headHBox = GetPanelHeadHBox();
+            if (headHBox != null)
+            {
+                headerH = headHBox.GetCombinedMinimumSize().Y;
+            }
+        }
+
+        int marginTop = GetThemeConstant("panel_margin_top", "PanelContainer");
+        int marginBottom = GetThemeConstant("panel_margin_bottom", "PanelContainer");
+        return Mathf.Max(headerH + marginTop + marginBottom + 4f, 32f);
     }
 
     public void SaveLayout()

@@ -88,6 +88,7 @@ public partial class ProfilerPanel : DraggablePanel
 
     public override void _Draw()
     {
+        if (IsCollapsed) return;
         if (_budgetBar == null) return;
         var p = PerfProfiler.Instance;
         double total = Math.Max(0.001, p.SimMsAvg + p.RenderMsAvg + p.UiMsAvg);

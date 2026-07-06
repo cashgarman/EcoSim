@@ -45,8 +45,7 @@ public partial class CreatureHighlightOverlay : Node2D
         {
             if (c.Dead) continue;
             Vector2 pos = CreatureDrawUtil.DisplayPos(c);
-            float eSize = CreatureDrawUtil.EffectiveSize(_session.Creatures, c);
-            float size = Math.Max(0.15f, _camZoom * 0.9f * eSize);
+            float size = 0.35f + (float)c.Genome.Size * 0.12f;
 
             bool isLocked = c.Sp == _lockedSpecies;
             bool isHovered = c.Sp == _hoveredSpecies;
