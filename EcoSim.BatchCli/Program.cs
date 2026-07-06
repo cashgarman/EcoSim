@@ -9,6 +9,9 @@ string size = "s";
 int days = 100;
 int sampleEvery = 10;
 string? reportDir = null;
+string? balanceFile = null;
+bool autoMigration = false;
+double maxWallMs = 120_000;
 
 for (int i = 0; i < args.Length; i++)
 {
@@ -32,6 +35,15 @@ for (int i = 0; i < args.Length; i++)
         case "--report-dir" when i + 1 < args.Length:
             reportDir = args[++i];
             break;
+        case "--balance-file" when i + 1 < args.Length:
+            balanceFile = args[++i];
+            break;
+        case "--auto-migration":
+            autoMigration = true;
+            break;
+        case "--max-wall-ms" when i + 1 < args.Length:
+            maxWallMs = double.Parse(args[++i]);
+            break;
     }
 }
 
@@ -41,6 +53,12 @@ if (dataRoot == null)
 }
 
 var session = SimSession.Create(dataRoot, seed);
+if (!string.IsNullOrEmpty(balanceFile))
+{
+    var overrides = BalanceConfigLoader.LoadFromFile(balanceFile);
+    BalanceConfigLoader.Apply(session, overrides);
+}
+
 var harness = new BatchHarness(session);
 harness.Init(new BatchRunConfig
 {
@@ -48,12 +66,18 @@ harness.Init(new BatchRunConfig
     Size = size,
     TargetDays = days,
     SampleEveryDays = sampleEvery,
+    AutoMigration = autoMigration,
 });
 
 int initialPop = harness.GenerateWorld();
 Console.WriteLine($"Seeded {initialPop} creatures (world {session.State.W}x{session.State.H})");
 
-var result = harness.Run(new BatchRunOptions { TargetDays = days, SampleEveryDays = sampleEvery });
+var result = harness.Run(new BatchRunOptions
+{
+    TargetDays = days,
+    SampleEveryDays = sampleEvery,
+    MaxWallMs = maxWallMs,
+});
 string runId = $"batch-{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}-{Random.Shared.Next(100000, 999999)}";
 var report = harness.GetReport(runId, result);
 harness.Teardown();

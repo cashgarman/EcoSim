@@ -15,6 +15,7 @@ public sealed class SpeciesCatalog
 
     private Dictionary<string, SpeciesDefinition> _baseSpecies = new();
     private Dictionary<string, SpeciesDefinition> _species = new();
+    private List<string> _speciesKeyOrder = [];
     private Dictionary<string, Dictionary<string, object>>? _rawOverrides;
 
     public IReadOnlyList<string> SpeciesKeys { get; private set; } = [];
@@ -29,20 +30,33 @@ public sealed class SpeciesCatalog
     {
         path ??= DataPaths.SpeciesJson;
         string json = File.ReadAllText(path);
+        var keyOrder = ReadSpeciesKeyOrder(json);
         var root = JsonSerializer.Deserialize<SpeciesFileRoot>(json, JsonOptions)
             ?? throw new InvalidOperationException($"Failed to parse species data: {path}");
         var catalog = new SpeciesCatalog();
-        catalog.Initialize(root);
+        catalog.Initialize(root, keyOrder);
         return catalog;
     }
 
-    private void Initialize(SpeciesFileRoot root)
+    private static List<string> ReadSpeciesKeyOrder(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        var list = new List<string>();
+        foreach (var prop in doc.RootElement.GetProperty("species").EnumerateObject())
+        {
+            list.Add(prop.Name);
+        }
+        return list;
+    }
+
+    private void Initialize(SpeciesFileRoot root, List<string> keyOrder)
     {
         GeneKeys = root.GeneKeys;
         GeneRange = root.GeneRange;
         GeneLabel = root.GeneLabel;
-        _baseSpecies = CloneSpeciesMap(root.Species);
-        _species = CloneSpeciesMap(root.Species);
+        _speciesKeyOrder = [.. keyOrder];
+        _baseSpecies = CloneSpeciesMap(root.Species, keyOrder);
+        _species = CloneSpeciesMap(root.Species, keyOrder);
         RebuildIndices();
         AttachSpeciesMasks();
     }
@@ -50,7 +64,7 @@ public sealed class SpeciesCatalog
     public void ApplyOverrides(Dictionary<string, Dictionary<string, object>>? overrides)
     {
         _rawOverrides = overrides;
-        _species = CloneSpeciesMap(_baseSpecies);
+        _species = CloneSpeciesMap(_baseSpecies, _speciesKeyOrder);
         if (overrides == null) return;
 
         foreach (var (sp, patch) in overrides)
@@ -112,11 +126,11 @@ public sealed class SpeciesCatalog
 
     private void RebuildIndices()
     {
-        SpeciesKeys = _species.Keys.ToList();
+        SpeciesKeys = _speciesKeyOrder;
         var index = new Dictionary<string, int>(StringComparer.Ordinal);
-        for (int i = 0; i < SpeciesKeys.Count; i++)
+        for (int i = 0; i < _speciesKeyOrder.Count; i++)
         {
-            index[SpeciesKeys[i]] = i;
+            index[_speciesKeyOrder[i]] = i;
         }
         SpeciesIndex = index;
     }
@@ -131,10 +145,18 @@ public sealed class SpeciesCatalog
         }
     }
 
-    private static Dictionary<string, SpeciesDefinition> CloneSpeciesMap(Dictionary<string, SpeciesDefinition> source)
+    private static Dictionary<string, SpeciesDefinition> CloneSpeciesMap(
+        Dictionary<string, SpeciesDefinition> source,
+        IReadOnlyList<string> keyOrder)
     {
-        string json = JsonSerializer.Serialize(source, JsonOptions);
-        return JsonSerializer.Deserialize<Dictionary<string, SpeciesDefinition>>(json, JsonOptions)!;
+        var result = new Dictionary<string, SpeciesDefinition>(keyOrder.Count, StringComparer.Ordinal);
+        foreach (string key in keyOrder)
+        {
+            if (!source.TryGetValue(key, out var value)) continue;
+            string json = JsonSerializer.Serialize(value, JsonOptions);
+            result[key] = JsonSerializer.Deserialize<SpeciesDefinition>(json, JsonOptions)!;
+        }
+        return result;
     }
 
     private static SpeciesDefinition DictionaryToSpeciesPatch(Dictionary<string, object> patch)
