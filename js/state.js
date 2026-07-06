@@ -26,6 +26,7 @@ export const state = {
   veg: null,
   vegCap: null,
   passMask: null,
+  waterDist: null,
 
   cfg: { sea: 0.46, temp: 0.5, moist: 0.5, relief: 0.6, animals: 0.45, size: 'm' },
   worldAreaKm2: WORLD_SIZE_PRESETS.m.areaKm2,

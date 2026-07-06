@@ -1,6 +1,7 @@
 import { setRngSeed, ri, rf, clamp, fbm } from './utils.js';
 import { B, BIOME_INFO, isWater } from './data.js';
 import { state, WORLD_SIZE_PRESETS, idx, inB } from './state.js';
+import { buildWaterDistanceField } from './nav.js';
 
 export class World
 {
@@ -109,6 +110,7 @@ export class World
     }
 
     this.computeLandBounds();
+    buildWaterDistanceField();
     state.infWaterKey = '';
     onTerrainBaked();
   }

@@ -206,6 +206,120 @@ export function resolveMovementTarget(px, py, goalX, goalY, canSwim, radius = 48
 }
 
 export const WATER_SEEK_RADIUS_MIN = 48;
+const WATER_DIST_UNREACHABLE = 1e9;
+
+const SHORE_NEIGHBORS = [
+  [-1, -1], [0, -1], [1, -1],
+  [-1, 0],           [1, 0],
+  [-1, 1],  [0, 1],  [1, 1],
+];
+
+function isShoreWalkableTile(tx, ty)
+{
+  if (!isTileWalkable(tx, ty, false)) return false;
+  for (let dy = -1; dy <= 1; dy++)
+  {
+    for (let dx = -1; dx <= 1; dx++)
+    {
+      const nx = tx + dx;
+      const ny = ty + dy;
+      if (inB(nx, ny) && isWater(state.biome[idx(nx, ny)])) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Multi-source BFS from shoreline walkable tiles. Fills state.waterDist (tile steps to nearest shore).
+ */
+export function buildWaterDistanceField()
+{
+  const { W, H } = state;
+  const n = W * H;
+  if (!state.waterDist || state.waterDist.length !== n)
+  {
+    state.waterDist = new Float32Array(n);
+  }
+  state.waterDist.fill(WATER_DIST_UNREACHABLE);
+
+  const queue = [];
+  for (let y = 0; y < H; y++)
+  {
+    for (let x = 0; x < W; x++)
+    {
+      if (!isShoreWalkableTile(x, y)) continue;
+      const ti = idx(x, y);
+      state.waterDist[ti] = 0;
+      queue.push(ti);
+    }
+  }
+
+  let head = 0;
+  while (head < queue.length)
+  {
+    const ti = queue[head++];
+    const cx = ti % W;
+    const cy = (ti / W) | 0;
+    const nextDist = state.waterDist[ti] + 1;
+    for (const [ddx, ddy] of SHORE_NEIGHBORS)
+    {
+      const nx = cx + ddx;
+      const ny = cy + ddy;
+      if (!inB(nx, ny)) continue;
+      if (!isTileWalkable(nx, ny, false)) continue;
+      const ni = idx(nx, ny);
+      if (state.waterDist[ni] <= nextDist) continue;
+      state.waterDist[ni] = nextDist;
+      queue.push(ni);
+    }
+  }
+}
+
+/**
+ * O(steps) thirst goal via precomputed waterDist gradient; falls back to radial scan when stuck.
+ */
+export function waterEdgeGoalFromField(x, y, maxSteps)
+{
+  if (!state.waterDist) return null;
+
+  let cx = Math.round(x);
+  let cy = Math.round(y);
+  if (!inB(cx, cy)) return null;
+
+  let ti = idx(cx, cy);
+  let dist = state.waterDist[ti];
+  if (dist >= WATER_DIST_UNREACHABLE) return null;
+  if (dist <= 0) return { x: cx + 0.5, y: cy + 0.5 };
+
+  const stepLimit = Math.max(1, Math.min(maxSteps | 0, dist | 0));
+  for (let step = 0; step < stepLimit; step++)
+  {
+    let bestNx = cx;
+    let bestNy = cy;
+    let bestDist = dist;
+    for (const [ddx, ddy] of SHORE_NEIGHBORS)
+    {
+      const nx = cx + ddx;
+      const ny = cy + ddy;
+      if (!inB(nx, ny)) continue;
+      if (!isTileWalkable(nx, ny, false)) continue;
+      const nd = state.waterDist[idx(nx, ny)];
+      if (nd < bestDist)
+      {
+        bestDist = nd;
+        bestNx = nx;
+        bestNy = ny;
+      }
+    }
+    if (bestDist >= dist) break;
+    cx = bestNx;
+    cy = bestNy;
+    dist = bestDist;
+    if (dist <= 0) break;
+  }
+
+  return { x: cx + 0.5, y: cy + 0.5 };
+}
 
 export function waterSeekRadius(senseR)
 {

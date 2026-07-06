@@ -6,6 +6,7 @@ import {
   nearestWaterEdgeTarget,
   snapWalkableGoal,
   unsnappedWalkableGoal,
+  waterEdgeGoalFromField,
   waterSeekRadius,
 } from '../nav.js';
 import { lifeStory } from '../life-story.js';
@@ -70,7 +71,9 @@ function _resolveGoals(action, ctx, creatureSystem)
       goalScope('nearestWater', () =>
       {
         const pos = creatureSystem.simPos(c);
-        const w = nearestWaterEdgeTarget(pos.x, pos.y, waterSeekRadius(ctx.senseR));
+        const seekR = waterSeekRadius(ctx.senseR);
+        const w = waterEdgeGoalFromField(pos.x, pos.y, seekR)
+          || nearestWaterEdgeTarget(pos.x, pos.y, seekR);
         if (w)
         {
           goalX = w.x;

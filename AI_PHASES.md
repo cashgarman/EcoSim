@@ -8,8 +8,8 @@ Each phase is implemented on its own branch. Before starting the next phase: com
 
 | Phase | Branch | Status |
 |-------|--------|--------|
-| 0 — Profiler scopes | `perf/phase-0-scopes` | In progress |
-| 1A — Water distance field | `perf/phase-1a-water-field` | Pending |
+| 0 — Profiler scopes | `perf/phase-0-scopes` | Done |
+| 1A — Water distance field | `perf/phase-1a-water-field` | In progress |
 | 1B — Goal replan cache | `perf/phase-1b-goal-cache` | Pending |
 | 1C — Alloc-free perception | `perf/phase-1c-perception` | Pending |
 | 1D — CPU nav replan | `perf/phase-1d-cpu-nav-replan` | Pending |
@@ -36,7 +36,17 @@ Each phase is implemented on its own branch. Before starting the next phase: com
 
 ## Phase 1A — Water distance field
 
-*(Pending)*
+**Branch:** `perf/phase-1a-water-field`
+
+**Problem:** `nearestWater` goal scanned up to 48-tile radius per thirsty creature per tick (~9,400 tile checks each).
+
+**Changes:**
+- [`js/state.js`](js/state.js): `waterDist` Float32Array on state.
+- [`js/nav.js`](js/nav.js): `buildWaterDistanceField()` (multi-source BFS from shoreline), `waterEdgeGoalFromField()` (gradient descent with fallback to radial scan).
+- [`js/world.js`](js/world.js): build field after biome generation.
+- [`js/behavior/executor.js`](js/behavior/executor.js): thirst goals use field lookup first.
+
+**Acceptance:** `behavior.resolveGoals.nearestWater` drops from dominant cost to negligible; thirsty creatures still reach shore (batch parity).
 
 ---
 
