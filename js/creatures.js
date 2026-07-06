@@ -351,9 +351,30 @@ export class CreatureSystem
       c.vy *= 0.7;
       return;
     }
-    const wp = resolveMovementTarget(c.x, c.y, goalX, goalY, canSwim, navR, opts);
-    const tx = wp ? wp.x : goalX;
-    const ty = wp ? wp.y : goalY;
+
+    const replanEvery = quality.config().navReplanInterval;
+    const phase = (Math.floor(state.tGlobal * 24) + (c.id | 0)) % replanEvery;
+    const goalChanged = c._navGoalX !== goalX || c._navGoalY !== goalY;
+    const shouldPlan = opts.direct || opts.forceReplan || phase === 0 || goalChanged
+      || !Number.isFinite(c._navWpX) || !Number.isFinite(c._navWpY);
+
+    let tx;
+    let ty;
+    if (shouldPlan)
+    {
+      const wp = resolveMovementTarget(c.x, c.y, goalX, goalY, canSwim, navR, opts);
+      tx = wp ? wp.x : goalX;
+      ty = wp ? wp.y : goalY;
+      c._navGoalX = goalX;
+      c._navGoalY = goalY;
+      c._navWpX = tx;
+      c._navWpY = ty;
+    }
+    else
+    {
+      tx = c._navWpX;
+      ty = c._navWpY;
+    }
     c.tx = tx;
     c.ty = ty;
 

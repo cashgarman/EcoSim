@@ -76,7 +76,10 @@ Each phase is implemented on its own branch. Before starting the next phase: com
 
 ## Phase 1D — CPU nav replan interval
 
-*(Pending)*
+**Branch:** `perf/phase-1d-cpu-nav-replan`
+
+**Changes:**
+- [`js/creatures.js`](js/creatures.js): `moveTowardGoal` mirrors GPU `navReplanInterval` — reuses cached waypoint unless goal changes, direct pursuit, or staggered replan phase.
 
 ---
 
