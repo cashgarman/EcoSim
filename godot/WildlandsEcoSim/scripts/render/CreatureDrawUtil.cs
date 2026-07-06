@@ -22,7 +22,13 @@ public static class CreatureDrawUtil
             return 1f;
         }
 
-        return (float)(0.62 + 0.38 * lightLevel);
+        // Dim less than terrain at night; stay fairly visible (JS parity: lerp floor, raised).
+        return (float)(0.78 + 0.22 * lightLevel);
+    }
+
+    public static Color ApplyBrightness(Color color, float brightness)
+    {
+        return new Color(color.R * brightness, color.G * brightness, color.B * brightness, color.A);
     }
 
     public static bool IsPedigreeLit(Creature c, Creature? selected)
@@ -41,11 +47,7 @@ public static class CreatureDrawUtil
 
     public static void DrawMarker(CanvasItem canvas, Vector2 pos, float size, Color color, float brightness)
     {
-        Color col = color;
-        if (brightness < 0.999f)
-        {
-            col = col.Lightened((brightness - 0.62f) / 0.38f * 0.2f);
-        }
+        Color col = ApplyBrightness(color, brightness);
 
         float m = Math.Max(0.25f, size * 0.55f);
         canvas.DrawRect(new Rect2(pos.X - m * 0.5f, pos.Y - m * 0.5f, m, m), col);
@@ -53,11 +55,7 @@ public static class CreatureDrawUtil
 
     public static void DrawBodyRect(CanvasItem canvas, Vector2 pos, float size, Color color, float brightness)
     {
-        Color col = color;
-        if (brightness < 0.999f)
-        {
-            col = col.Lightened((brightness - 0.62f) / 0.38f * 0.2f);
-        }
+        Color col = ApplyBrightness(color, brightness);
 
         float body = Math.Max(0.25f, size * 0.65f);
         canvas.DrawRect(new Rect2(pos.X - body * 0.5f, pos.Y - body * 0.4f, body, body * 0.8f), col);
@@ -76,11 +74,8 @@ public static class CreatureDrawUtil
         bool juvenile,
         float brightness)
     {
-        if (brightness < 0.999f)
-        {
-            rgb = rgb.Lightened((brightness - 0.62f) / 0.38f * 0.2f);
-            dk = dk.Lightened((brightness - 0.62f) / 0.38f * 0.15f);
-        }
+        rgb = ApplyBrightness(rgb, brightness);
+        dk = ApplyBrightness(dk, brightness);
 
         float legSw = moving ? (float)(Math.Sin(walk) * size * 0.28) : 0f;
         float bob = moving ? Math.Abs((float)Math.Sin(walk)) * size * 0.06f : 0f;

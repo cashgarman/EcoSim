@@ -17,7 +17,7 @@ public partial class WorldRenderer : Node2D
     private CreatureRenderer _creatures = null!;
     private CreatureHighlightOverlay _highlights = null!;
     private ToolFxOverlay _toolFx = null!;
-    private CanvasModulate _dayNight = null!;
+    private Node2D _terrainLayer = null!;
     private SimSession? _session;
     private Func<string>? _activeTool;
     private Action<double, double>? _toolApply;
@@ -39,17 +39,15 @@ public partial class WorldRenderer : Node2D
         };
         AddChild(_oceanBg);
 
-        _dayNight = new CanvasModulate();
-        var terrainLayer = new Node2D();
-        AddChild(_dayNight);
-        _dayNight.AddChild(terrainLayer);
+        _terrainLayer = new Node2D();
+        AddChild(_terrainLayer);
 
         _terrain = new Sprite2D { Centered = false, TextureFilter = CanvasItem.TextureFilterEnum.Nearest };
         _veg = new Sprite2D { Centered = false, TextureFilter = CanvasItem.TextureFilterEnum.Nearest };
         _water = new Sprite2D { Centered = false, TextureFilter = CanvasItem.TextureFilterEnum.Nearest };
-        terrainLayer.AddChild(_terrain);
-        terrainLayer.AddChild(_veg);
-        terrainLayer.AddChild(_water);
+        _terrainLayer.AddChild(_terrain);
+        _terrainLayer.AddChild(_veg);
+        _terrainLayer.AddChild(_water);
 
         _pedigree = new CreaturePedigreeOverlay();
         _creatures = new CreatureRenderer();
@@ -264,7 +262,8 @@ public partial class WorldRenderer : Node2D
     {
         if (_session == null) return;
         float light = (float)_session.State.LightLevel;
-        _dayNight.Color = new Color(light, light, light * 0.95f);
+        var tint = new Color(light, light, light * 0.95f);
+        _terrainLayer.Modulate = tint;
     }
 
     public Vector2 WorldToTile(Vector2 worldPos) => worldPos / TilePixels;
