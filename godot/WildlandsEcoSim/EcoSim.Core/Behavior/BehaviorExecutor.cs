@@ -107,16 +107,39 @@ public static class BehaviorExecutor
 
     public static void ApplyDecision(Creature creature, BehaviorDecision decision, CreatureSystem creatures, SimState state)
     {
-        var goals = ShouldReuseGoals(state, creature, decision)
-            ? new GoalResult { GoalX = creature.Tx, GoalY = creature.Ty, TargetId = creature.Target }
+        bool reuseGoals = ShouldReuseGoals(state, creature, decision);
+        var goals = reuseGoals
+            ? ReusedGoals(creature)
             : ResolveGoals(state, decision.Action, decision.Ctx, creatures);
 
-        creature.State = decision.Action["state"]?.GetValue<string>() ?? creature.State;
+        string newState = decision.Action["state"]?.GetValue<string>() ?? creature.State;
+        if (newState != creature.State)
+        {
+            creature.StateCommittedSince = state.TGlobal;
+        }
+
+        creature.State = newState;
         creature.BtNodeId = decision.NodeId;
+        creature.BtAction = decision.Action;
         creature.Tx = goals.GoalX;
         creature.Ty = goals.GoalY;
         creature.Target = goals.TargetId;
         creature.BtSpeedMult = decision.Action.TryGetPropertyValue("speedMult", out var sm) ? sm!.GetValue<double>() : 1;
+
+        if (!reuseGoals)
+        {
+            creature.NavGoalX = double.NaN;
+            creature.NavGoalY = double.NaN;
+            creature.NavWpX = double.NaN;
+            creature.NavWpY = double.NaN;
+        }
+    }
+
+    private static GoalResult ReusedGoals(Creature creature)
+    {
+        double goalX = double.IsFinite(creature.NavGoalX) ? creature.NavGoalX : creature.Tx;
+        double goalY = double.IsFinite(creature.NavGoalY) ? creature.NavGoalY : creature.Ty;
+        return new GoalResult { GoalX = goalX, GoalY = goalY, TargetId = creature.Target };
     }
 
     public static bool ApplyActionEffects(SpeciesCatalog catalog, SimState state, JsonObject action, BehaviorContext ctx, CreatureSystem creatures, double dt, double speed)
@@ -152,7 +175,11 @@ public static class BehaviorExecutor
                     c.Thirst = Math.Min(100, c.Thirst + 60 * dt);
                     return false;
                 }
-                creatures.MoveTo(c, moveSpeed, dt);
+                {
+                    double goalDist = SimMath.Hypot(c.Tx - c.X, c.Ty - c.Y);
+                    bool direct = goalDist <= SimConstants.DirectPursuitRadius;
+                    creatures.MoveTowardGoal(c, c.Tx, c.Ty, moveSpeed, dt, direct: direct, forceReplan: direct);
+                }
                 return true;
 
             case "graze":
@@ -273,7 +300,7 @@ public static class BehaviorExecutor
             "huntSearch" => true,
             "mate" => ctxValidMate(creature, decision.Ctx),
             "thirst" => !Navigation.AtWaterEdge(state, creature.X, creature.Y)
-                && double.IsFinite(creature.Tx) && double.IsFinite(creature.Ty),
+                && (double.IsFinite(creature.NavGoalX) || double.IsFinite(creature.Tx)),
             "graze" => GrazeReuse(state, creature),
             "rest" or "wander" => true,
             _ => false,

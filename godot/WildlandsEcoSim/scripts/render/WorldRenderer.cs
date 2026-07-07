@@ -1,6 +1,7 @@
 using EcoSim.Core.Data;
 using EcoSim.Core.Sim;
 using Godot;
+using WildlandsEcoSim;
 using WildlandsEcoSim.UI;
 
 namespace WildlandsEcoSim.Render;
@@ -9,7 +10,8 @@ public partial class WorldRenderer : Node2D
 {
     public const float TilePixels = 4f;
 
-    private ColorRect _oceanBg = null!;
+    private InfiniteOceanOverlay _infiniteOcean = null!;
+    private Node2D _backdropLayer = null!;
     private Sprite2D _terrain = null!;
     private Sprite2D _veg = null!;
     private Sprite2D _water = null!;
@@ -31,13 +33,11 @@ public partial class WorldRenderer : Node2D
 
     public override void _Ready()
     {
-        _oceanBg = new ColorRect
-        {
-            Color = EcoSimThemeBuilder.PageBg,
-            Size = new Vector2(10000, 10000),
-            Position = new Vector2(-5000, -5000),
-        };
-        AddChild(_oceanBg);
+        _backdropLayer = new Node2D();
+        AddChild(_backdropLayer);
+
+        _infiniteOcean = new InfiniteOceanOverlay();
+        _backdropLayer.AddChild(_infiniteOcean);
 
         _terrainLayer = new Node2D();
         AddChild(_terrainLayer);
@@ -53,8 +53,8 @@ public partial class WorldRenderer : Node2D
         _creatures = new CreatureRenderer();
         _highlights = new CreatureHighlightOverlay();
         _toolFx = new ToolFxOverlay();
-        AddChild(_pedigree);
         AddChild(_creatures);
+        AddChild(_pedigree);
         AddChild(_highlights);
         AddChild(_toolFx);
 
@@ -64,17 +64,22 @@ public partial class WorldRenderer : Node2D
 
     public override void _Process(double delta)
     {
-        _waterAnim += delta * 2.5;
-        if (_session != null && _session.State.Ready)
+        PerfProfiler.Instance.Timed("render", () =>
+        PerfProfiler.Instance.Timed("frame.render", () =>
         {
-            RefreshWater();
-            UpdateRenderContext();
-            UpdateToolFx();
-            if (_painting && Input.IsMouseButtonPressed(MouseButton.Left))
+            _waterAnim += delta * 2.5;
+            if (_session != null && _session.State.Ready)
             {
-                ApplyToolAtMouse();
+                PerfProfiler.Instance.Timed("render.water", () => RefreshWater());
+                UpdateRenderContext();
+                PerfProfiler.Instance.Timed("render.ocean", UpdateInfiniteOcean);
+                UpdateToolFx();
+                if (_painting && Input.IsMouseButtonPressed(MouseButton.Left))
+                {
+                    ApplyToolAtMouse();
+                }
             }
-        }
+        }));
     }
 
     private void UpdateToolFx()
@@ -211,6 +216,10 @@ public partial class WorldRenderer : Node2D
         _veg.Texture = ImageTexture.CreateFromImage(vegImg);
 
         RefreshWater(force: true);
+        var camera = GetNode<WorldCamera>("Camera2D");
+        _infiniteOcean.Bind(camera, session.State.W, session.State.H);
+        _infiniteOcean.SetWaterAnim(_waterAnim);
+        _infiniteOcean.Invalidate();
         _creatures.Bind(session, catalog);
         _pedigree.Bind(session);
         _highlights.Bind(session);
@@ -234,13 +243,16 @@ public partial class WorldRenderer : Node2D
 
     public void RefreshVegIfDirty()
     {
-        if (_session == null || !_session.State.VegDirty) return;
-        _vegRefreshCounter++;
-        if (_vegRefreshCounter < 10) return;
-        _vegRefreshCounter = 0;
-        _session.State.VegDirty = false;
-        var vegImg = TerrainBaker.BakeVegImage(_session.State);
-        _veg.Texture = ImageTexture.CreateFromImage(vegImg);
+        PerfProfiler.Instance.Timed("render.vegBake", () =>
+        {
+            if (_session == null || !_session.State.VegDirty) return;
+            _vegRefreshCounter++;
+            if (_vegRefreshCounter < 10) return;
+            _vegRefreshCounter = 0;
+            _session.State.VegDirty = false;
+            var vegImg = TerrainBaker.BakeVegImage(_session.State);
+            _veg.Texture = ImageTexture.CreateFromImage(vegImg);
+        });
     }
 
     private void RefreshWater(bool force = false)
@@ -258,11 +270,18 @@ public partial class WorldRenderer : Node2D
         UpdateRenderContext();
     }
 
+    private void UpdateInfiniteOcean()
+    {
+        if (_session == null) return;
+        _infiniteOcean.SetWaterAnim(_waterAnim);
+    }
+
     private void UpdateDayNight()
     {
         if (_session == null) return;
         float light = (float)_session.State.LightLevel;
         var tint = new Color(light, light, light * 0.95f);
+        _backdropLayer.Modulate = tint;
         _terrainLayer.Modulate = tint;
     }
 

@@ -44,12 +44,16 @@ public partial class CreatureRenderer : Node2D
     {
         if (_session == null || _catalog == null || !_session.State.Ready) return;
 
+        PerfProfiler.Instance.Timed("render", () =>
+        PerfProfiler.Instance.Timed("render.creatures", () =>
+        {
         var profiler = PerfProfiler.Instance;
         int detail = profiler.DetailTier;
         var selected = _session.State.Selected;
         double light = _session.State.LightLevel;
         var creatures = _session.Creatures;
 
+        int drawn = 0;
         foreach (var c in _session.State.Creatures)
         {
             if (c.Dead) continue;
@@ -61,23 +65,25 @@ public partial class CreatureRenderer : Node2D
             float bright = CreatureDrawUtil.CreatureBrightness(c, selected, light);
             Vector2 pos = CreatureDrawUtil.DisplayPos(c);
             float eSize = CreatureDrawUtil.EffectiveSize(creatures, c);
-            // Tile-space radius — matches legacy MultiMesh (0.35 + size*0.12 tiles).
             float baseRadius = 0.35f + (float)c.Genome.Size * 0.12f;
+            bool useMapCircles = _camZoom < 3.5f || detail <= 0;
+
+            if (useMapCircles)
+            {
+                float r = CreatureDrawUtil.MapCircleRadiusTiles(_camZoom, (float)c.Genome.Size, eSize);
+                var mapColor = CreatureDrawUtil.SpeciesMapColor(c.Sp, def);
+                float mapBright = CreatureDrawUtil.MapMarkerBrightness(light);
+                CreatureDrawUtil.DrawMapCircle(this, pos, r, mapColor, mapBright, _camZoom);
+                continue;
+            }
+
             float s = baseRadius;
             if (detail >= 2 && _camZoom > 4.2f)
             {
                 s = Math.Max(baseRadius, _camZoom * 0.22f * eSize);
             }
 
-            if (detail <= 0 || _camZoom < 1.8f)
-            {
-                CreatureDrawUtil.DrawMarker(this, pos, s, rgb, bright);
-            }
-            else if (detail == 1 && _camZoom < 3.5f)
-            {
-                CreatureDrawUtil.DrawBodyRect(this, pos, s, rgb, bright);
-            }
-            else if (detail >= 2 && _camZoom > 4.2f)
+            if (detail >= 2 && _camZoom > 4.2f)
             {
                 bool moving = Math.Sqrt(c.Vx * c.Vx + c.Vy * c.Vy) > 0.02;
                 CreatureDrawUtil.DrawSprite(this, pos, s, c.Dir, def.Shape, rgb, dk, moving, c.Walk,
@@ -92,7 +98,15 @@ public partial class CreatureRenderer : Node2D
             {
                 CreatureDrawUtil.DrawStateIcon(this, pos, c.State, eSize, _camZoom, WorldRenderer.TilePixels, s);
             }
+
+            drawn++;
         }
+
+        if (drawn > 0)
+        {
+            PerfProfiler.Instance.RecordGpuDraw(drawn);
+        }
+        }));
     }
 
     private bool IsVisible(Creature c)

@@ -61,11 +61,26 @@ public sealed class BatchHarness
         _metrics.Begin(initialPop);
 
         long wallStart = Stopwatch.GetTimestamp();
+        int lastProgressDay = -1;
         while (_session.State.Day < targetDays && !_abort)
         {
             _session.State.TGlobal += tickDt;
             _session.Simulation.Tick(tickDt);
             _session.State.Day = (int)Math.Floor(_session.State.TGlobal / SimConstants.SimDaySeconds);
+
+            if (options.OnProgress != null && _session.State.Day != lastProgressDay)
+            {
+                lastProgressDay = _session.State.Day;
+                var (_, alive) = _metrics.AliveCounts();
+                options.OnProgress(new BatchProgress
+                {
+                    Day = _session.State.Day,
+                    TargetDays = targetDays,
+                    TotalAlive = alive,
+                    GenerationMax = _session.State.GenerationMax,
+                    WallMs = (Stopwatch.GetTimestamp() - wallStart) * 1000.0 / Stopwatch.Frequency,
+                });
+            }
 
             if (options.SparseMode)
             {
@@ -144,6 +159,16 @@ public sealed class BatchRunOptions
     public double? MaxWallMs { get; set; }
     public int? EarlyStopDay { get; set; }
     public bool SparseMode { get; set; }
+    public Action<BatchProgress>? OnProgress { get; set; }
+}
+
+public sealed class BatchProgress
+{
+    public int Day { get; set; }
+    public int TargetDays { get; set; }
+    public int TotalAlive { get; set; }
+    public int GenerationMax { get; set; }
+    public double WallMs { get; set; }
 }
 
 public sealed class BatchRunResult

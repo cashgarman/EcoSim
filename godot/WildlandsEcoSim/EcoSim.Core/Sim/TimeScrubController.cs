@@ -8,6 +8,7 @@ public sealed class TimeScrubController
     private readonly TimelineDb _db;
     private double _baselineT;
     private bool _viewingPast;
+    private bool _dragging;
     private double _scrubTargetT;
     private long _lastCapturedBucket = -1;
 
@@ -17,7 +18,9 @@ public sealed class TimeScrubController
         _db = db;
     }
 
-    public bool ScrubActive => _viewingPast;
+    public bool ScrubActive => _viewingPast || _dragging;
+
+    public void SetDragging(bool active) => _dragging = active;
     public double BaselineT => _baselineT;
     public double ScrubTargetT => _scrubTargetT;
     public double SnapshotIntervalSec { get; set; } = DefaultSnapshotIntervalSec;

@@ -6,6 +6,9 @@ namespace WildlandsEcoSim.UI;
 
 public partial class InspectorPanel : DraggablePanel
 {
+    [Signal]
+    public delegate void CreatureLinkPressedEventHandler(int creatureId);
+
     private Label _header = null!;
     private VBoxContainer _statsTab = null!;
     private VBoxContainer _storyTab = null!;
@@ -21,6 +24,7 @@ public partial class InspectorPanel : DraggablePanel
     private ProgressBar _energy = null!;
     private GridContainer _genes = null!;
     private RichTextLabel _storyLog = null!;
+    private RichTextLabel _parentsRow = null!;
     private SpeciesCatalog? _catalog;
     private bool _storyMode;
 
@@ -56,7 +60,34 @@ public partial class InspectorPanel : DraggablePanel
         StyleNeedLabels(_statsTab);
         EcoSimFonts.StyleTabButton(_statsTabBtn);
         EcoSimFonts.StyleTabButton(_storyTabBtn);
+        SetupParentsRow();
         SetTab(false);
+    }
+
+    private void SetupParentsRow()
+    {
+        var tabRow = Req<HBoxContainer>("TabRow");
+        _parentsRow = new RichTextLabel
+        {
+            Name = "ParentsRow",
+            BbcodeEnabled = true,
+            FitContent = true,
+            ScrollActive = false,
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            AutowrapMode = TextServer.AutowrapMode.Off,
+            MouseFilter = MouseFilterEnum.Stop,
+            Visible = false,
+        };
+        EcoSimFonts.ApplyFont(_parentsRow, EcoSimFonts.Scaled6);
+        _parentsRow.AddThemeColorOverride("default_color", EcoSimThemeBuilder.Dim);
+        _parentsRow.MetaClicked += OnParentMetaClicked;
+        tabRow.AddChild(_parentsRow);
+    }
+
+    private void OnParentMetaClicked(Variant meta)
+    {
+        if (!int.TryParse(meta.AsString(), out int creatureId)) return;
+        EmitSignal(SignalName.CreatureLinkPressed, creatureId);
     }
 
     private static T Req<T>(Node root, string name) where T : Node
@@ -114,11 +145,13 @@ public partial class InspectorPanel : DraggablePanel
         }
     }
 
-    public void Refresh(Creature? c)
+    public void Refresh(Creature? c, CreatureSystem? creatures = null)
     {
         if (c == null || _catalog == null || c.Dead)
         {
             Visible = false;
+            _parentsRow.Visible = false;
+            _parentsRow.Text = "";
             return;
         }
 
@@ -127,6 +160,7 @@ public partial class InspectorPanel : DraggablePanel
         var def = _catalog.Get(c.Sp);
         string sex = c.Sex == "male" ? "♂" : "♀";
         _header.Text = $"{def.Emoji} {def.Label} #{c.Id} {sex}  gen {c.Gen}  {c.State}";
+        RefreshParents(c, creatures);
         SetBar(_hp, _hpVal, c.Hp);
         SetBar(_hunger, _hunVal, c.Hunger);
         SetBar(_thirst, _thiVal, c.Thirst);
@@ -152,6 +186,38 @@ public partial class InspectorPanel : DraggablePanel
         {
             _storyLog.Text = "";
         }
+    }
+
+    private void RefreshParents(Creature c, CreatureSystem? creatures)
+    {
+        if (creatures == null || c.ParentIds.Count == 0)
+        {
+            _parentsRow.Visible = false;
+            _parentsRow.Text = "";
+            return;
+        }
+
+        var links = new List<string>();
+        foreach (int pid in c.ParentIds)
+        {
+            var parent = creatures.GetById(pid);
+            if (parent == null) continue;
+            var parentDef = _catalog!.Get(parent.Sp);
+            string parentSex = parent.Sex == "male" ? "♂" : "♀";
+            string suffix = parent.Dead ? " †" : "";
+            links.Add(
+                $"[url={pid}][u]{parentDef.Emoji} {parentDef.Label} #{pid} {parentSex}{suffix}[/u][/url]");
+        }
+
+        if (links.Count == 0)
+        {
+            _parentsRow.Visible = false;
+            _parentsRow.Text = "";
+            return;
+        }
+
+        _parentsRow.Visible = true;
+        _parentsRow.Text = $"[color=#8a9a7a]Parents:[/color] [color=#ffdc3c]{string.Join(" · ", links)}[/color]";
     }
 
     private static void SetBar(ProgressBar bar, Label label, double value)

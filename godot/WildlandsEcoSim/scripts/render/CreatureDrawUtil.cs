@@ -15,6 +15,73 @@ public static class CreatureDrawUtil
         return new Color(r / 255f, g / 255f, b / 255f);
     }
 
+    /// <summary>Vivid per-species colour for zoomed-out map circles.</summary>
+    public static Color SpeciesMapColor(string speciesKey, SpeciesDefinition def)
+    {
+        if (SpeciesMarkerPalette.TryGetValue(speciesKey, out Color palette))
+        {
+            return palette;
+        }
+
+        return BoostSpeciesColor(def);
+    }
+
+    public static float MapMarkerBrightness(double lightLevel) =>
+        (float)(0.9 + 0.1 * lightLevel);
+
+    public static float MapCircleRadiusTiles(float camZoom, float genomeSize, float eSize)
+    {
+        float zoom = Math.Max(0.15f, camZoom);
+        float baseRadius = 0.35f + genomeSize * 0.12f;
+        const float minScreenPx = 6f;
+        float minTiles = minScreenPx / (WorldRenderer.TilePixels * zoom);
+        float sizeBoost = Math.Max(0.85f, eSize);
+        float zoomBoost = zoom < 1.8f ? Mathf.Lerp(2.8f, 1f, zoom / 1.8f) : 1f;
+        return Math.Max(baseRadius * sizeBoost * zoomBoost, minTiles);
+    }
+
+    public static void DrawMapCircle(
+        CanvasItem canvas,
+        Vector2 pos,
+        float radiusTiles,
+        Color color,
+        float brightness,
+        float camZoom)
+    {
+        Color fill = ApplyBrightness(color, brightness);
+        canvas.DrawCircle(pos, radiusTiles, fill);
+
+        float outlineW = Math.Max(0.03f, 1.25f / (WorldRenderer.TilePixels * Math.Max(0.15f, camZoom)));
+        canvas.DrawArc(pos, radiusTiles, 0, Mathf.Tau, 24, new Color(0.06f, 0.08f, 0.05f, 0.7f), outlineW);
+    }
+
+    private static Color BoostSpeciesColor(SpeciesDefinition def)
+    {
+        if (def.Col.Length < 3)
+        {
+            return Colors.Gray;
+        }
+
+        var c = new Color(def.Col[0] / 255f, def.Col[1] / 255f, def.Col[2] / 255f);
+        c = c.Lightened(0.18f);
+        return c with { S = Math.Min(1f, c.S * 1.45f) };
+    }
+
+    private static readonly Dictionary<string, Color> SpeciesMarkerPalette = new(StringComparer.Ordinal)
+    {
+        ["rabbit"] = new Color("#f5e6a8"),
+        ["mouse"] = new Color("#b8b4c8"),
+        ["deer"] = new Color("#e8943a"),
+        ["elk"] = new Color("#c87830"),
+        ["beaver"] = new Color("#8a5a38"),
+        ["boar"] = new Color("#d86a58"),
+        ["fox"] = new Color("#f06828"),
+        ["wolf"] = new Color("#6a9ac8"),
+        ["hawk"] = new Color("#d84820"),
+        ["owl"] = new Color("#9a68b8"),
+        ["bear"] = new Color("#5a4030"),
+    };
+
     public static float CreatureBrightness(Creature c, Creature? selected, double lightLevel)
     {
         if (IsPedigreeLit(c, selected))

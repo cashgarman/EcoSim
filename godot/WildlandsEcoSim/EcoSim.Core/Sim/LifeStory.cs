@@ -23,6 +23,7 @@ public sealed class LifeStory
 {
     public const int MaxEvents = 300;
     public const double DecisionDebounceSec = 2.5;
+    public const double BehaviorCommitDebounceSec = 2.5;
 
     public LifeStoryData Ensure(Creature c)
     {

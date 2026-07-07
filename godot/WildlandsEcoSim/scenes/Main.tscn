@@ -15,6 +15,7 @@
 [ext_resource type="Script" uid="uid://cd74bq061usd5" path="res://scripts/ui/ToolsController.cs" id="13_tools"]
 [ext_resource type="Script" uid="uid://wjrt2ltjqny8" path="res://scripts/ui/SpeciesGodMenu.cs" id="14_god"]
 [ext_resource type="Script" uid="uid://jraxsn5ikhhv" path="res://scripts/ui/TimelineStrip.cs" id="15_timeline"]
+[ext_resource type="Script" path="res://scripts/ui/SpeedSliderControl.cs" id="16_speed"]
 
 [node name="Main" type="Control" unique_id=1657980803]
 layout_mode = 3
@@ -114,30 +115,31 @@ unique_name_in_owner = true
 layout_mode = 2
 text = "—"
 
-[node name="SpeedSlider" type="HSlider" parent="Hud/TopBar/VBox/Row1" unique_id=757820667]
+[node name="SpeedControl" type="VBoxContainer" parent="Hud/TopBar/VBox/Row1" unique_id=757820667]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(100, 0)
+layout_mode = 2
+script = ExtResource("16_speed")
+
+[node name="Row1Spacer" type="Control" parent="Hud/TopBar/VBox/Row1" unique_id=1982736454]
 layout_mode = 2
 size_flags_horizontal = 3
-max_value = 10.0
-value = 2.0
 
-[node name="SpeedValueLabel" type="Label" parent="Hud/TopBar/VBox/Row1" unique_id=121704400]
-unique_name_in_owner = true
+[node name="Actions" type="HBoxContainer" parent="Hud/TopBar/VBox/Row1" unique_id=1982736455]
 layout_mode = 2
-text = "2×"
+theme_override_constants/separation = 8
+alignment = 2
 
-[node name="FollowBtn" type="Button" parent="Hud/TopBar/VBox/Row1" unique_id=1967997718]
+[node name="FollowBtn" type="Button" parent="Hud/TopBar/VBox/Row1/Actions" unique_id=1967997718]
 unique_name_in_owner = true
 layout_mode = 2
 text = "Follow"
 
-[node name="ProfilerBtn" type="Button" parent="Hud/TopBar/VBox/Row1" unique_id=663110479]
+[node name="ProfilerBtn" type="Button" parent="Hud/TopBar/VBox/Row1/Actions" unique_id=663110479]
 unique_name_in_owner = true
 layout_mode = 2
 text = "Profiler"
 
-[node name="TestRunnerBtn" type="Button" parent="Hud/TopBar/VBox/Row1" unique_id=1643432154]
+[node name="TestRunnerBtn" type="Button" parent="Hud/TopBar/VBox/Row1/Actions" unique_id=1643432154]
 unique_name_in_owner = true
 layout_mode = 2
 text = "Test Runner"
@@ -499,6 +501,7 @@ size_flags_vertical = 3
 
 [node name="StoryPanel" type="PanelContainer" parent="Hud" unique_id=1744359933]
 unique_name_in_owner = true
+visible = false
 offset_left = 10.0
 offset_top = 500.0
 offset_right = 360.0
@@ -652,6 +655,7 @@ layout_mode = 2
 
 [node name="Toolbar" type="HBoxContainer" parent="Hud" unique_id=810082590]
 unique_name_in_owner = true
+visible = false
 anchors_preset = 7
 anchor_left = 0.5
 anchor_top = 1.0
@@ -686,18 +690,59 @@ unique_name_in_owner = true
 layout_mode = 2
 text = "Kill All"
 
-[node name="TerrainTip" type="Label" parent="Hud" unique_id=1526441523]
+[node name="TerrainTip" type="PanelContainer" parent="Hud" unique_id=1526441523]
 unique_name_in_owner = true
 visible = false
-theme_override_colors/font_color = Color(0.9, 0.92, 0.85, 1)
-theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
-theme_override_constants/outline_size = 2
-text = "terrain"
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -168.0
+offset_top = -44.0
+offset_right = -10.0
+offset_bottom = -10.0
+grow_horizontal = 0
+grow_vertical = 0
+mouse_filter = 2
+theme_override_constants/margin_left = 9
+theme_override_constants/margin_top = 6
+theme_override_constants/margin_right = 9
+theme_override_constants/margin_bottom = 6
 
-[node name="CreatureTip" type="Label" parent="Hud" unique_id=164989129]
+[node name="HBox" type="HBoxContainer" parent="Hud/TerrainTip" unique_id=1982736451]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="TerrainTipDot" type="PanelContainer" parent="Hud/TerrainTip/HBox" unique_id=1982736452]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(10, 10)
+layout_mode = 2
+
+[node name="TerrainTipLabel" type="Label" parent="Hud/TerrainTip/HBox" unique_id=1982736453]
+unique_name_in_owner = true
+layout_mode = 2
+text = "—"
+
+[node name="CreatureTip" type="PanelContainer" parent="Hud" unique_id=164989129]
 unique_name_in_owner = true
 visible = false
-theme_override_colors/font_color = Color(1, 0.95, 0.7, 1)
-theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
-theme_override_constants/outline_size = 2
-text = "creature"
+mouse_filter = 2
+theme_override_constants/margin_left = 5
+theme_override_constants/margin_top = 3
+theme_override_constants/margin_right = 5
+theme_override_constants/margin_bottom = 3
+
+[node name="HBox" type="HBoxContainer" parent="Hud/CreatureTip" unique_id=164989130]
+layout_mode = 2
+theme_override_constants/separation = 3
+
+[node name="CreatureTipDot" type="PanelContainer" parent="Hud/CreatureTip/HBox" unique_id=164989131]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(6, 6)
+layout_mode = 2
+
+[node name="CreatureTipLabel" type="Label" parent="Hud/CreatureTip/HBox" unique_id=164989132]
+unique_name_in_owner = true
+layout_mode = 2
+text = "—"

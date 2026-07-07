@@ -214,7 +214,9 @@ public sealed class CreatureSystem
         int replanEvery = QualityConfig.NavReplanInterval;
         int phase = ((int)Math.Floor(_state.TGlobal * 24) + c.Id) % replanEvery;
         bool goalChanged = c.NavGoalX != goalX || c.NavGoalY != goalY;
-        bool shouldPlan = direct || forceReplan || phase == 0 || goalChanged
+        bool thirstClose = c.State == "thirst"
+            && SimMath.Hypot(goalX - c.X, goalY - c.Y) <= SimConstants.DirectPursuitRadius + 0.5;
+        bool shouldPlan = direct || forceReplan || thirstClose || phase == 0 || goalChanged
             || !double.IsFinite(c.NavWpX) || !double.IsFinite(c.NavWpY);
 
         double tx, ty;
@@ -237,7 +239,26 @@ public sealed class CreatureSystem
         c.Ty = ty;
 
         double dx = tx - c.X, dy = ty - c.Y, d = SimMath.Hypot(dx, dy);
-        if (d < 0.05) { c.Vx *= 0.7; c.Vy *= 0.7; return; }
+        if (d < 0.05)
+        {
+            if (c.State == "thirst" && !Navigation.AtWaterEdge(_state, c.X, c.Y)
+                && double.IsFinite(c.NavGoalX)
+                && SimMath.Hypot(c.NavGoalX - c.X, c.NavGoalY - c.Y) > 0.08)
+            {
+                tx = c.NavGoalX;
+                ty = c.NavGoalY;
+                dx = tx - c.X;
+                dy = ty - c.Y;
+                d = SimMath.Hypot(dx, dy);
+            }
+
+            if (d < 0.05)
+            {
+                c.Vx *= 0.7;
+                c.Vy *= 0.7;
+                return;
+            }
+        }
         double nx = c.X + dx / d * speed * 2.2 * dt;
         double ny = c.Y + dy / d * speed * 2.2 * dt;
         int rx = (int)Math.Round(nx), ry = (int)Math.Round(ny);
@@ -510,6 +531,26 @@ public sealed class CreatureSystem
             if (!c.Dead) n++;
         }
         return n;
+    }
+
+    public Creature? FindNearestOfSpecies(string speciesKey, double wx, double wy)
+    {
+        Creature? best = null;
+        double bestD2 = double.MaxValue;
+        foreach (var c in _state.Creatures)
+        {
+            if (c.Dead || c.Sp != speciesKey) continue;
+            double dx = c.Rx - wx;
+            double dy = c.Ry - wy;
+            double d2 = dx * dx + dy * dy;
+            if (d2 < bestD2)
+            {
+                bestD2 = d2;
+                best = c;
+            }
+        }
+
+        return best;
     }
 
     public int KillAllBySpecies(string speciesKey)

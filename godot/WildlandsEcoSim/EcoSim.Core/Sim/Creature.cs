@@ -1,5 +1,7 @@
 namespace EcoSim.Core.Sim;
 
+using System.Text.Json.Nodes;
+
 public sealed class Creature
 {
     public int Id { get; set; }
@@ -32,6 +34,8 @@ public sealed class Creature
     public Genome? MatePartner { get; set; }
     public int? MatePartnerId { get; set; }
     public string? BtNodeId { get; set; }
+    public JsonObject? BtAction { get; set; }
+    public double StateCommittedSince { get; set; }
     public double BtSpeedMult { get; set; } = 1;
     public double Rx { get; set; }
     public double Ry { get; set; }

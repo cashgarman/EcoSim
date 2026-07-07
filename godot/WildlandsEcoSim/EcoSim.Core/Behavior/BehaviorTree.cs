@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using EcoSim.Core.Data;
 using EcoSim.Core.Sim;
 
@@ -26,10 +27,19 @@ public sealed class BehaviorTree
 
     public BehaviorDecision? Tick(Creature creature, double dt, CreatureSystem creatures, bool executeActions = true)
     {
-        var decision = Decide(creature, creatures);
-        if (decision == null) return null;
+        var proposed = Decide(creature, creatures);
+        if (proposed == null) return null;
 
-        BehaviorExecutor.ApplyDecision(creature, decision, creatures, _state);
+        BehaviorDecision effective;
+        if (ShouldApplyDecision(creature, proposed))
+        {
+            effective = proposed;
+            BehaviorExecutor.ApplyDecision(creature, effective, creatures, _state);
+        }
+        else
+        {
+            effective = BuildCommittedDecision(creature, creatures);
+        }
 
         double speed = creature.Genome.Speed;
         if (!creatures.IsAdult(creature)) speed *= 0.8;
@@ -37,9 +47,40 @@ public sealed class BehaviorTree
 
         if (executeActions)
         {
-            BehaviorExecutor.ApplyActionEffects(_catalog, _state, decision.Action, decision.Ctx, creatures, dt, speed);
+            BehaviorExecutor.ApplyActionEffects(_catalog, _state, effective.Action, effective.Ctx, creatures, dt, speed);
         }
 
-        return decision;
+        return effective;
+    }
+
+    private bool ShouldApplyDecision(Creature creature, BehaviorDecision proposed)
+    {
+        string proposedState = proposed.Action["state"]?.GetValue<string>() ?? creature.State;
+        if (proposedState == creature.State) return true;
+        if (creature.State == "flee" || proposedState == "flee") return true;
+        if (creature.BtAction == null) return true;
+        if (IsImmediateStateChange(creature, proposedState, proposed)) return true;
+        if (creature.StateCommittedSince <= 0) return true;
+        return _state.TGlobal - creature.StateCommittedSince >= LifeStory.BehaviorCommitDebounceSec;
+    }
+
+    private bool IsImmediateStateChange(Creature creature, string proposedState, BehaviorDecision proposed)
+    {
+        return proposedState switch
+        {
+            "thirst" => creature.Thirst < 30,
+            _ => false,
+        };
+    }
+
+    private BehaviorDecision BuildCommittedDecision(Creature creature, CreatureSystem creatures)
+    {
+        var action = creature.BtAction ?? new JsonObject { ["state"] = creature.State };
+        return new BehaviorDecision
+        {
+            NodeId = creature.BtNodeId ?? "",
+            Action = action,
+            Ctx = BehaviorContextBuilder.Build(creature, creatures, _state, _catalog),
+        };
     }
 }

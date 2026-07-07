@@ -19,6 +19,49 @@ public static class PanelLayoutService
             (float)cfg.GetValue(key, "y").AsDouble());
     }
 
+    public static bool ApplyBounds(Control panel, string key, Vector2 defaultPosition, Vector2 defaultSize)
+    {
+        panel.SetAnchorsPreset(Control.LayoutPreset.TopLeft);
+        panel.SetOffsetsPreset(Control.LayoutPreset.TopLeft);
+
+        var cfg = new ConfigFile();
+        if (cfg.Load(Path) != Error.Ok || !cfg.HasSectionKey(key, "x"))
+        {
+            panel.GlobalPosition = defaultPosition;
+            panel.Size = defaultSize;
+            return false;
+        }
+
+        panel.GlobalPosition = new Vector2(
+            (float)cfg.GetValue(key, "x").AsDouble(),
+            (float)cfg.GetValue(key, "y").AsDouble());
+        if (cfg.HasSectionKey(key, "w") && cfg.HasSectionKey(key, "h"))
+        {
+            panel.Size = new Vector2(
+                (float)cfg.GetValue(key, "w").AsDouble(),
+                (float)cfg.GetValue(key, "h").AsDouble());
+        }
+        else
+        {
+            panel.Size = defaultSize;
+        }
+
+        return true;
+    }
+
+    public static void SaveBounds(Control panel, string key)
+    {
+        var cfg = new ConfigFile();
+        cfg.Load(Path);
+        Vector2 pos = panel.GlobalPosition;
+        Vector2 size = panel.Size;
+        cfg.SetValue(key, "x", pos.X);
+        cfg.SetValue(key, "y", pos.Y);
+        cfg.SetValue(key, "w", size.X);
+        cfg.SetValue(key, "h", size.Y);
+        cfg.Save(Path);
+    }
+
     public static void SavePosition(Control panel, string key)
     {
         var cfg = new ConfigFile();

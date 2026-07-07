@@ -88,7 +88,7 @@ public partial class PopGraph : Control
             if (list.Count < 2) continue;
 
             var def = _catalog.Get(sp);
-            Color baseCol = EcoSimThemeBuilder.SpeciesColor(def);
+            Color baseCol = EcoSimThemeBuilder.SpeciesMapColor(sp, def);
             bool focused = focusSpecies == sp;
             bool dimmed = !string.IsNullOrEmpty(focusSpecies) && !focused;
             Color col;

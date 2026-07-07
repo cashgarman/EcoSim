@@ -76,12 +76,15 @@ public partial class ProfilerPanel : DraggablePanel
         var p = PerfProfiler.Instance;
         double fps = p.FrameMsAvg > 0 ? 1000.0 / p.FrameMsAvg : 0;
         _overview.Text = $"FPS {fps:F0}   Frame {p.FrameMsAvg:F1}ms   Tier {p.QualityName}";
-        _badges.Text = "sim: cpu   render: canvas   mode: sandbox";
+        _badges.Text = "sim: cpu   render: godot   mode: sandbox";
         _cpuSection.Text =
-            $"rebuildGrid {p.SimMsAvg * 0.12:F1}ms\n" +
-            $"stepCreatures {p.SimMsAvg * 0.62:F1}ms\n" +
-            $"vegGrow {p.SimMsAvg * 0.08:F1}ms\n" +
-            $"heartbeat {p.SimMsAvg * 0.04:F1}ms";
+            $"sim.tick {p.Get("sim.tick"):F1}ms\n" +
+            $"sim total {p.Get("sim"):F1}ms\n" +
+            $"render.creatures {p.Get("render.creatures"):F1}ms\n" +
+            $"render.highlights {p.Get("render.highlights"):F1}ms\n" +
+            $"render.pedigree {p.Get("render.pedigree"):F1}ms\n" +
+            $"render.oceanBake {p.Get("render.oceanBake"):F1}ms\n" +
+            $"ui {p.Get("ui"):F1}ms";
         _budgetBar.QueueRedraw();
         _sparkline.QueueRedraw();
     }

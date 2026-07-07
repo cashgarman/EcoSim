@@ -30,13 +30,22 @@ public partial class HudController : CanvasLayer
     private Label _genLabel = null!;
     private Label _vegLabel = null!;
     private Label _simFpsLabel = null!;
-    private Label _speedValueLabel = null!;
-    private HSlider _speedSlider = null!;
-    private Label _terrainTip = null!;
-    private Label _creatureTip = null!;
+    private SpeedSliderControl _speedControl = null!;
+    private PanelContainer _terrainTip = null!;
+    private PanelContainer _terrainTipDot = null!;
+    private Label _terrainTipLabel = null!;
+    private PanelContainer _creatureTip = null!;
+    private PanelContainer _creatureTipDot = null!;
+    private Label _creatureTipLabel = null!;
+    private SubViewportContainer _worldViewportContainer = null!;
+    private int _lastTerrainTipBiome = -1;
+    private string _lastCreatureTipKey = "";
 
     private TimelineDbPanel? _timelineDbPanel;
     private ProfilerDetailPanel? _profilerDetail;
+    private DeathNoticePanel? _deathNotice;
+    private Button? _cpuGpuBtn;
+    private int? _watchFollowDeathId;
     private TimelineDb? _timelineDb;
     private TimeScrubController? _scrub;
     private double _heartbeatIntervalSec = 5;
@@ -77,10 +86,20 @@ public partial class HudController : CanvasLayer
         _genLabel = GetNode<Label>("%GenLabel");
         _vegLabel = GetNode<Label>("%VegLabel");
         _simFpsLabel = GetNode<Label>("%SimFpsLabel");
-        _speedValueLabel = GetNode<Label>("%SpeedValueLabel");
-        _speedSlider = GetNode<HSlider>("%SpeedSlider");
-        _terrainTip = GetNode<Label>("%TerrainTip");
-        _creatureTip = GetNode<Label>("%CreatureTip");
+        _speedControl = GetNode<SpeedSliderControl>("%SpeedControl");
+        _speedControl.Theme = uiTheme;
+        _terrainTip = GetNode<PanelContainer>("%TerrainTip");
+        _terrainTipDot = GetNode<PanelContainer>("%TerrainTipDot");
+        _terrainTipLabel = GetNode<Label>("%TerrainTipLabel");
+        _creatureTip = GetNode<PanelContainer>("%CreatureTip");
+        _creatureTipDot = GetNode<PanelContainer>("%CreatureTipDot");
+        _creatureTipLabel = GetNode<Label>("%CreatureTipLabel");
+        _terrainTip.Theme = uiTheme;
+        _terrainTip.AddThemeStyleboxOverride("panel", UiSliceCatalog.MakeStonePanel());
+        _creatureTip.Theme = uiTheme;
+        _creatureTip.AddThemeStyleboxOverride("panel", UiSliceCatalog.MakeStonePanel());
+        _creatureTip.TopLevel = true;
+        _creatureTip.ZIndex = 50;
 
         EcoSimFonts.ApplyFont(_dayIcon, EcoSimFonts.DayIcon);
         EcoSimFonts.ApplyFont(_clockLabel, EcoSimFonts.Body, EcoSimThemeBuilder.Gold);
@@ -89,10 +108,11 @@ public partial class HudController : CanvasLayer
         EcoSimFonts.ApplyFont(_genLabel, EcoSimFonts.Body, EcoSimThemeBuilder.Gold);
         EcoSimFonts.ApplyFont(_vegLabel, EcoSimFonts.Body, EcoSimThemeBuilder.Gold);
         EcoSimFonts.ApplyFont(_simFpsLabel, EcoSimFonts.Small, EcoSimThemeBuilder.Dim);
-        EcoSimFonts.ApplyFont(_speedValueLabel, EcoSimFonts.Body, EcoSimThemeBuilder.Gold);
-        EcoSimFonts.ApplyFont(_terrainTip, EcoSimFonts.Medium, EcoSimThemeBuilder.Text, textShadow: true);
-        EcoSimFonts.ApplyFont(_creatureTip, EcoSimFonts.Small, EcoSimThemeBuilder.Text, textShadow: true);
+        EcoSimFonts.ApplyFont(_terrainTipLabel, EcoSimFonts.Scaled7, EcoSimThemeBuilder.Text);
+        EcoSimFonts.ApplyFont(_creatureTipLabel, EcoSimFonts.Scaled6, EcoSimThemeBuilder.Text);
         EcoSimFonts.StylePanelTitle(GetNode<Label>("%GodMenuTitle"));
+
+        _worldViewportContainer = GetNode<SubViewportContainer>("../WorldViewportContainer");
 
         var viewport = GetNode<SubViewport>("%WorldViewport");
         viewport.TransparentBg = true;
@@ -100,15 +120,20 @@ public partial class HudController : CanvasLayer
         _camera = viewport.GetNode<WorldCamera>("WorldRoot/Camera2D");
 
         _profilerDetail = new ProfilerDetailPanel();
+        _profilerDetail.Theme = uiTheme;
+        _profilerDetail.PanelClosed += OnProfilerDetailClosed;
         AddChild(_profilerDetail);
         _timelineDbPanel = new TimelineDbPanel();
         AddChild(_timelineDbPanel);
+        _deathNotice = new DeathNoticePanel();
+        _deathNotice.Theme = uiTheme;
+        AddChild(_deathNotice);
 
         _panels = [_gen, _ecosystem, _inspector, GetNode<StoryPanel>("%StoryPanel"), _speciesStats, _profiler, _timelineDbPanel];
 
         _gen.GenerateRequested += OnGenerate;
         _gen.RestockRequested += OnRestock;
-        _speedSlider.ValueChanged += OnSpeedChanged;
+        _speedControl.SpeedChanged += OnSpeedChanged;
         _ecosystem.SpeciesLocked += OnSpeciesLocked;
         _ecosystem.SpeciesHovered += OnSpeciesHovered;
         _ecosystem.SpeciesFollow += OnSpeciesFollow;
@@ -117,22 +142,21 @@ public partial class HudController : CanvasLayer
         _gameApp.SimTicked += OnSimTicked;
         _timeline.SeekRequested += OnTimelineSeek;
         _timeline.PresentRequested += OnTimelinePresent;
+        _timeline.ScrubDragStarted += OnTimelineScrubDragStarted;
+        _timeline.ScrubDragEnded += OnTimelineScrubDragEnded;
 
-        GetNode<Button>("%FollowBtn").Pressed += () => _camera.FollowEnabled = !_camera.FollowEnabled;
+        GetNode<Button>("%FollowBtn").Pressed += OnFollowToggled;
         GetNode<Button>("%ProfilerBtn").Pressed += OnProfilerToggled;
         GetNode<Button>("%TestRunnerBtn").Disabled = false;
         GetNode<Button>("%TestRunnerBtn").TooltipText = "Open batch test runner";
         GetNode<Button>("%TestRunnerBtn").Pressed += () => GetTree().ChangeSceneToFile("res://scenes/BatchTest.tscn");
         GetNode<Button>("%PresentBtn").Pressed += OnTimelinePresent;
 
-        var cpuGpuBtn = new Button { Text = "CPU/GPU" };
-        cpuGpuBtn.Pressed += () =>
-        {
-            _profilerDetail.PanelOpen = !_profilerDetail.PanelOpen;
-            PerfProfiler.Instance.DetailEnabled = _profilerDetail.PanelOpen;
-            _profilerDetail.Refresh();
-        };
-        GetNode<HBoxContainer>("TopBar/VBox/Row1").AddChild(cpuGpuBtn);
+        var cpuGpuBtn = new Button { Text = "CPU/GPU", FocusMode = Control.FocusModeEnum.None };
+        cpuGpuBtn.Theme = uiTheme;
+        cpuGpuBtn.Pressed += OnCpuGpuToggled;
+        _cpuGpuBtn = cpuGpuBtn;
+        GetNode<HBoxContainer>("TopBar/VBox/Row1/Actions").AddChild(cpuGpuBtn);
 
         var gpuThrottle = new OptionButton();
         gpuThrottle.AddItem("GPU throttle: Off");
@@ -141,7 +165,7 @@ public partial class HudController : CanvasLayer
         gpuThrottle.AddItem("Heavy");
         gpuThrottle.AddItem("Eco");
         gpuThrottle.ItemSelected += idx => WildlandsEcoSim.Gpu.GpuThrottle.Preset = (WildlandsEcoSim.Gpu.GpuThrottlePreset)idx;
-        GetNode<HBoxContainer>("TopBar/VBox/Row1").AddChild(gpuThrottle);
+        GetNode<HBoxContainer>("TopBar/VBox/Row1/Actions").AddChild(gpuThrottle);
 
         _world.BindInput(() => _tools.ActiveTool, OnToolApply);
 
@@ -150,6 +174,7 @@ public partial class HudController : CanvasLayer
         _ecosystem.Bind(_host.Species!, _popHistory);
         _tools.Bind(_host.Species!);
         _inspector.Bind(_host.Species!);
+        _inspector.CreatureLinkPressed += OnCreatureLinkPressed;
         _speciesStats.Bind(_host.Species!, _popHistory);
         _story.CreatureLifeEvent += OnCreatureLifeEvent;
 
@@ -165,6 +190,10 @@ public partial class HudController : CanvasLayer
     private void OnViewportSizeChanged()
     {
         PanelLayoutService.ClampAll(_panels);
+        if (_profilerDetail != null && _profilerDetail.Visible)
+        {
+            PanelLayoutService.ClampToViewport(_profilerDetail);
+        }
     }
 
     private void InitTimeline()
@@ -192,6 +221,7 @@ public partial class HudController : CanvasLayer
         if (what == NotificationWMCloseRequest)
         {
             PanelLayoutService.SaveAll(_panels);
+            _profilerDetail?.SaveLayout();
             _timelineDb?.Dispose();
         }
     }
@@ -203,6 +233,7 @@ public partial class HudController : CanvasLayer
             if (key.Keycode == Key.Space)
             {
                 _gameApp.TogglePause();
+                SyncSpeedSliderFromSession();
                 GetViewport().SetInputAsHandled();
             }
             else if (key.Keycode == Key.F2)
@@ -210,9 +241,14 @@ public partial class HudController : CanvasLayer
                 OnProfilerToggled();
                 GetViewport().SetInputAsHandled();
             }
+            else if (key.Keycode == Key.Escape && _deathNotice != null && _deathNotice.Visible)
+            {
+                _deathNotice.HideNotice();
+                GetViewport().SetInputAsHandled();
+            }
             else if (key.Keycode == Key.F)
             {
-                _camera.FollowEnabled = !_camera.FollowEnabled;
+                OnFollowToggled();
                 GetViewport().SetInputAsHandled();
             }
         }
@@ -220,8 +256,7 @@ public partial class HudController : CanvasLayer
         {
             if (!string.IsNullOrEmpty(_ecosystem.LockedSpecies) && !IsPointerOnHud(mb.GlobalPosition))
             {
-                _ecosystem.ClearSpeciesLock();
-                OnSpeciesLocked("");
+                DeselectFromPanel();
                 GetViewport().SetInputAsHandled();
             }
         }
@@ -229,10 +264,42 @@ public partial class HudController : CanvasLayer
 
     public override void _Process(double delta)
     {
-        UpdateTooltips();
-        _profiler.Refresh();
-        _profilerDetail.Refresh();
-        RefreshTimelineStrip();
+        var profiler = PerfProfiler.Instance;
+        profiler.Timed("frame.ui", () =>
+        {
+            profiler.Timed("ui", () =>
+            {
+                UpdateTooltips();
+                RefreshHud();
+            });
+            _profiler.Refresh();
+            if (_profilerDetail.PanelOpen)
+            {
+                _profilerDetail.Refresh();
+            }
+            RefreshTimelineStrip();
+        });
+    }
+
+    private void OnCpuGpuToggled()
+    {
+        bool open = !_profilerDetail!.PanelOpen;
+        _profilerDetail.PanelOpen = open;
+        PerfProfiler.Instance.DetailEnabled = open;
+        EcoSimThemeBuilder.StyleActiveButton(_cpuGpuBtn!, open);
+        if (open)
+        {
+            _profilerDetail.EnsureLayout(_profiler.PanelOpen ? _profiler : null);
+            _profilerDetail.Refresh();
+        }
+    }
+
+    private void OnProfilerDetailClosed()
+    {
+        _profilerDetail!.SaveLayout();
+        _profilerDetail.PanelOpen = false;
+        PerfProfiler.Instance.DetailEnabled = false;
+        EcoSimThemeBuilder.StyleActiveButton(_cpuGpuBtn!, false);
     }
 
     private void OnGenerate()
@@ -241,7 +308,7 @@ public partial class HudController : CanvasLayer
         uint seed = _gen.Seed;
         _host.GenerateWorld(cfg, seed);
         var session = _host.Session!;
-        session.State.Speed = _speedSlider.Value;
+        session.State.Speed = _speedControl.Value;
         session.State.AutoMigrationEnabled = _gen.AutoMigrationEnabled;
         _gameApp.Paused = false;
 
@@ -256,6 +323,8 @@ public partial class HudController : CanvasLayer
         _camera.CenterOnWorld();
         _story.Reset();
         _ecosystem.Reset();
+        _deathNotice?.HideNotice();
+        _watchFollowDeathId = null;
         _story.LogGodAction($"Day 0: World generated ({cfg.Size}, seed {seed})", session);
         RefreshHud();
     }
@@ -305,7 +374,6 @@ public partial class HudController : CanvasLayer
         if (_host.Session != null && !_gameApp.Paused)
         {
             _host.Session.State.Speed = v;
-            _speedValueLabel.Text = $"{v:0}×";
         }
     }
 
@@ -344,28 +412,51 @@ public partial class HudController : CanvasLayer
         var session = _host.Session;
         if (session == null || string.IsNullOrEmpty(speciesKey)) return;
 
-        Creature? nearest = null;
-        double best = double.MaxValue;
         Vector2 center = _camera.Position;
-        foreach (var c in session.State.Creatures)
-        {
-            if (c.Dead || c.Sp != speciesKey) continue;
-            double d = (c.X - center.X) * (c.X - center.X) + (c.Y - center.Y) * (c.Y - center.Y);
-            if (d < best)
-            {
-                best = d;
-                nearest = c;
-            }
-        }
-
+        Creature? nearest = session.Creatures.FindNearestOfSpecies(speciesKey, center.X, center.Y);
         if (nearest == null) return;
+
         session.State.Selected = nearest;
         _camera.FollowEnabled = true;
-        _camera.Position = new Vector2((float)nearest.X, (float)nearest.Y);
-        if (_camera.Zoom.X < 3f)
+        _watchFollowDeathId = nearest.Id;
+        SyncFollowButton();
+        _camera.FocusCreature(nearest);
+        _inspector.Refresh(nearest, session.Creatures);
+    }
+
+    private void DeselectFromPanel()
+    {
+        var session = _host.Session;
+        if (session != null)
         {
-            _camera.Zoom = new Vector2(3f, 3f);
+            session.State.Selected = null;
+            _speciesStats.ShowSpecies(null, session, session.SpeciesStats);
         }
+
+        _ecosystem.ClearSpeciesLock();
+        OnSpeciesLocked("");
+        OnSpeciesHovered("");
+        _camera.FollowEnabled = false;
+        _watchFollowDeathId = null;
+        SyncFollowButton();
+        _inspector.Refresh(null);
+    }
+
+    private void OnCreatureLinkPressed(int creatureId)
+    {
+        var session = _host.Session;
+        if (session == null) return;
+
+        var creature = session.Creatures.GetById(creatureId);
+        if (creature == null) return;
+
+        session.State.Selected = creature;
+        if (!creature.Dead)
+        {
+            _camera.FocusCreature(creature);
+        }
+
+        _inspector.Refresh(creature, session.Creatures);
     }
 
     private void OnToolApply(double wx, double wy)
@@ -382,13 +473,39 @@ public partial class HudController : CanvasLayer
         RefreshHud();
     }
 
+    private void OnTimelineScrubDragStarted()
+    {
+        PauseSimulationForTimeline();
+        _scrub?.SetDragging(true);
+    }
+
+    private void OnTimelineScrubDragEnded()
+    {
+        _scrub?.SetDragging(false);
+    }
+
     private void OnTimelineSeek(double targetT)
     {
+        PauseSimulationForTimeline();
         _scrub?.SeekTo(targetT);
         var session = _host.Session;
         if (session == null) return;
         _world.BindWorld(session, _host.Species!);
         RefreshHud();
+    }
+
+    private void PauseSimulationForTimeline()
+    {
+        _gameApp.PauseForTimeline();
+        _speedControl.SetValueNoSignal(0);
+    }
+
+    private void SyncSpeedSliderFromSession()
+    {
+        var session = _host.Session;
+        if (session == null) return;
+        double speed = session.State.Speed;
+        _speedControl.SetValueNoSignal(speed);
     }
 
     private void OnTimelinePresent()
@@ -404,17 +521,71 @@ public partial class HudController : CanvasLayer
     {
         var session = _host.Session;
         if (session == null) return;
+        CheckFollowedCreatureDeath(session);
         CaptureHeartbeatIfDue(session);
         _story.OnSimTicked(session);
         RefreshHud();
     }
 
+    private void OnFollowToggled()
+    {
+        _camera.FollowEnabled = !_camera.FollowEnabled;
+        SyncFollowButton();
+        if (!_camera.FollowEnabled)
+        {
+            _watchFollowDeathId = null;
+        }
+    }
+
+    private void SyncFollowButton()
+    {
+        var btn = GetNode<Button>("%FollowBtn");
+        bool following = _camera.FollowEnabled;
+        btn.Text = following ? "Following" : "Follow";
+        EcoSimThemeBuilder.StyleActiveButton(btn, following);
+    }
+
+    private void CheckFollowedCreatureDeath(SimSession session)
+    {
+        if (_deathNotice == null || _host.Species == null) return;
+
+        var selected = session.State.Selected;
+        if (_camera.FollowEnabled && selected is { Dead: false })
+        {
+            _watchFollowDeathId = selected.Id;
+            return;
+        }
+
+        if (_deathNotice.Visible || _watchFollowDeathId == null) return;
+
+        Creature? dead = null;
+        foreach (var c in session.State.Creatures)
+        {
+            if (c.Id == _watchFollowDeathId && c.Dead)
+            {
+                dead = c;
+                break;
+            }
+        }
+
+        if (dead == null) return;
+
+        _deathNotice.ShowNotice(dead, _host.Species, session.State);
+        _camera.FollowEnabled = false;
+        _watchFollowDeathId = null;
+        SyncFollowButton();
+        _inspector.Refresh(dead, session.Creatures);
+    }
+
     private void OnProfilerToggled()
     {
         _profiler.PanelOpen = !_profiler.PanelOpen;
+        PerfProfiler.Instance.Enabled = _profiler.PanelOpen;
+        _tools.Visible = _profiler.PanelOpen;
         EcoSimThemeBuilder.StyleActiveButton(GetNode<Button>("%ProfilerBtn"), _profiler.PanelOpen);
-        if (_profiler.PanelOpen)
+        if (_profilerDetail!.PanelOpen)
         {
+            _profilerDetail.EnsureLayout(_profiler.PanelOpen ? _profiler : null);
             _profilerDetail.Refresh();
         }
     }
@@ -453,10 +624,9 @@ public partial class HudController : CanvasLayer
         double frameMs = PerfProfiler.Instance.FrameMsAvg;
         _simFpsLabel.Text = $"⚙ {fps:F0} FPS · {frameMs:F1}ms";
 
-        _speedValueLabel.Text = $"{session.State.Speed:0}×";
         _popHistory.SampleIfDue(session, _gameApp.Paused);
         _ecosystem.Refresh(session);
-        _inspector.Refresh(session.State.Selected);
+        _inspector.Refresh(session.State.Selected, session.Creatures);
         if (!string.IsNullOrEmpty(_ecosystem.LockedSpecies))
         {
             _speciesStats.ShowSpecies(_ecosystem.LockedSpecies, session, session.SpeciesStats);
@@ -490,6 +660,8 @@ public partial class HudController : CanvasLayer
         {
             _terrainTip.Visible = false;
             _creatureTip.Visible = false;
+            _lastTerrainTipBiome = -1;
+            _lastCreatureTipKey = "";
             return;
         }
 
@@ -499,38 +671,129 @@ public partial class HudController : CanvasLayer
         int tx = (int)Math.Floor(tile.X);
         int ty = (int)Math.Floor(tile.Y);
 
+        _terrainTip.Visible = true;
         if (tx >= 0 && ty >= 0 && tx < session.State.W && ty < session.State.H)
         {
             int i = ty * session.State.W + tx;
             byte biome = session.State.Biome[i];
             var info = BiomeData.Info[(Biome)biome];
-            _terrainTip.Text = $"{info.Name}  veg {(session.State.Veg[i] / Math.Max(0.001f, session.State.VegCap[i]) * 100):F0}%";
-            _terrainTip.GlobalPosition = GetViewport().GetMousePosition() + new Vector2(16, 16);
-            _terrainTip.Visible = true;
+            if (biome != _lastTerrainTipBiome)
+            {
+                _lastTerrainTipBiome = biome;
+                SetTerrainTipDot(info);
+            }
+
+            _terrainTipLabel.Text = $"{info.Name}  veg {(session.State.Veg[i] / Math.Max(0.001f, session.State.VegCap[i]) * 100):F0}%";
         }
-        else
+        else if (_lastTerrainTipBiome != -2)
         {
-            _terrainTip.Visible = false;
+            _lastTerrainTipBiome = -2;
+            _terrainTipDot.AddThemeStyleboxOverride("panel",
+                EcoSimThemeBuilder.MakeFlat(EcoSimThemeBuilder.Dim, EcoSimThemeBuilder.Edge, 2));
+            _terrainTipLabel.Text = "Off map";
         }
 
+        UpdateCreatureTooltip(session, tile);
+    }
+
+    private void UpdateCreatureTooltip(SimSession session, Vector2 tile)
+    {
         var sel = session.State.Selected;
-        Creature? hover = sel;
-        if (hover == null || hover.Dead)
+        Creature? target = null;
+
+        if (_camera.FollowEnabled && sel is { Dead: false })
         {
-            hover = PickHoverCreature(session, tile);
+            target = sel;
+        }
+        else if (IsMouseOverWorldViewport())
+        {
+            target = PickHoverCreature(session, tile);
+        }
+        else if (sel is { Dead: false })
+        {
+            target = sel;
         }
 
-        if (hover != null && !hover.Dead && _host.Species != null)
-        {
-            var def = _host.Species.Get(hover.Sp);
-            _creatureTip.Text = $"{def.Emoji} {def.Label} · {hover.State}";
-            _creatureTip.GlobalPosition = GetViewport().GetMousePosition() + new Vector2(16, -28);
-            _creatureTip.Visible = true;
-        }
-        else
+        if (target == null || target.Dead || _host.Species == null)
         {
             _creatureTip.Visible = false;
+            _lastCreatureTipKey = "";
+            return;
         }
+
+        var def = _host.Species.Get(target.Sp);
+        string key = $"{target.Id}:{target.State}";
+        if (key != _lastCreatureTipKey)
+        {
+            _lastCreatureTipKey = key;
+            _creatureTipDot.AddThemeStyleboxOverride("panel",
+                EcoSimThemeBuilder.MakeFlat(EcoSimThemeBuilder.SpeciesColor(def), EcoSimThemeBuilder.Edge, 1));
+            _creatureTipLabel.Text = $"{def.Emoji} {def.Label} · {CreatureStateLabel(target.State)}";
+        }
+
+        Vector2 screen = WorldTileToHudScreen(CreatureDrawUtil.DisplayPos(target));
+        float lift = ComputeCreatureTipLift(session, target);
+
+        _creatureTip.ResetSize();
+        Vector2 tipSize = _creatureTip.GetMinimumSize();
+        if (tipSize.X < 8f || tipSize.Y < 8f)
+        {
+            tipSize = new Vector2(140, 22);
+        }
+
+        _creatureTip.GlobalPosition = new Vector2(
+            screen.X - tipSize.X * 0.5f,
+            screen.Y - tipSize.Y - lift);
+        _creatureTip.Visible = true;
+    }
+
+    private bool IsMouseOverWorldViewport()
+    {
+        return _worldViewportContainer.GetGlobalRect().HasPoint(GetViewport().GetMousePosition());
+    }
+
+    private Vector2 WorldTileToHudScreen(Vector2 tilePos)
+    {
+        var subVp = (SubViewport)_world.GetViewport();
+        Vector2 worldPixel = tilePos * WorldRenderer.TilePixels;
+        Vector2 vpPos = _camera.GetCanvasTransform() * worldPixel;
+        Vector2 vpSize = subVp.Size;
+        if (vpSize.X < 1f || vpSize.Y < 1f)
+        {
+            vpSize = subVp.GetVisibleRect().Size;
+        }
+
+        Rect2 containerRect = _worldViewportContainer.GetGlobalRect();
+        Vector2 norm = new Vector2(vpPos.X / vpSize.X, vpPos.Y / vpSize.Y);
+        return containerRect.Position + norm * containerRect.Size;
+    }
+
+    private float ComputeCreatureTipLift(SimSession session, Creature creature)
+    {
+        float eSize = (float)session.Creatures.ESize(creature);
+        float s = Math.Max(2.5f, _camera.Zoom.X * 0.9f * eSize);
+        return Math.Max(8f, s * 0.75f + 5f);
+    }
+
+    private static string CreatureStateLabel(string state) => state switch
+    {
+        "wander" => "Wandering",
+        "flee" => "Fleeing!",
+        "thirst" => "Seeking water",
+        "graze" => "Grazing",
+        "hunt" => "Hunting",
+        "huntSearch" => "Stalking",
+        "mate" => "Mating",
+        "rest" => "Resting",
+        _ => state,
+    };
+
+    private void SetTerrainTipDot(BiomeInfo info)
+    {
+        byte[] rgb = info.ColorRgb;
+        var col = new Color(rgb[0] / 255f, rgb[1] / 255f, rgb[2] / 255f);
+        _terrainTipDot.AddThemeStyleboxOverride("panel",
+            EcoSimThemeBuilder.MakeFlat(col, EcoSimThemeBuilder.Edge, 2));
     }
 
     private static Creature? PickHoverCreature(SimSession session, Vector2 tile)

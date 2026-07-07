@@ -1,5 +1,6 @@
 using EcoSim.Core.Data;
 using Godot;
+using WildlandsEcoSim.Render;
 
 namespace WildlandsEcoSim.UI;
 
@@ -17,7 +18,8 @@ public static class EcoSimThemeBuilder
     public static readonly Color Hunger = new("d98a3a");
     public static readonly Color Thirst = new("3aa8d8");
     public static readonly Color Energy = new("d8c23a");
-    public static readonly Color PageBg = new("0c100a");
+    public static readonly Color PageBg = new("1e4878");
+    public static readonly Color UiShellBg = new("0c100a");
     public static readonly Color PopDeltaUp = new("3ecf6a");
     public static readonly Color PopDeltaDown = new("e04a3a");
 
@@ -65,8 +67,37 @@ public static class EcoSimThemeBuilder
 
         theme.SetStylebox("normal", "SpinBox", UiSliceCatalog.MakeInsetPanel());
         theme.SetStylebox("focus", "SpinBox", UiSliceCatalog.MakeInsetPanel());
+        theme.SetStylebox("normal", "LineEdit", UiSliceCatalog.MakeInsetPanel());
+        theme.SetStylebox("focus", "LineEdit", UiSliceCatalog.MakeInsetPanel());
+        theme.SetColor("font_color", "LineEdit", Text);
+        theme.SetStylebox("normal", "OptionButton", UiSliceCatalog.MakeInsetPanel());
+        theme.SetStylebox("hover", "OptionButton", UiSliceCatalog.MakeInsetPanel());
+        theme.SetStylebox("pressed", "OptionButton", UiSliceCatalog.MakeInsetPanel());
+        theme.SetStylebox("focus", "OptionButton", UiSliceCatalog.MakeInsetPanel());
+        theme.SetColor("font_color", "OptionButton", Text);
+        theme.SetColor("font_color", "CheckBox", Text);
+        theme.SetFontSize("font_size", "CheckBox", EcoSimFonts.Body);
 
         return theme;
+    }
+
+    public static void StyleDangerButton(Button button)
+    {
+        button.AddThemeStyleboxOverride("normal", MakeFlat(new Color("a64032"), new Color("4d1a14"), 2));
+        button.AddThemeStyleboxOverride("hover", MakeFlat(new Color("b84838"), new Color("4d1a14"), 2));
+        button.AddThemeStyleboxOverride("pressed", MakeFlat(new Color("963828"), new Color("4d1a14"), 2));
+        button.AddThemeColorOverride("font_color", new Color("fff4e6"));
+        EcoSimFonts.ApplyFont(button, EcoSimFonts.Body);
+    }
+
+    public static void StylePrimaryButton(Button button)
+    {
+        var gold = UiSliceCatalog.MakeButtonGold();
+        button.AddThemeStyleboxOverride("normal", gold);
+        button.AddThemeStyleboxOverride("hover", gold);
+        button.AddThemeStyleboxOverride("pressed", gold);
+        button.AddThemeColorOverride("font_color", new Color("2a2413"));
+        EcoSimFonts.ApplyFont(button, EcoSimFonts.Body);
     }
 
     public static Color SpeciesColor(SpeciesDefinition def)
@@ -79,6 +110,10 @@ public static class EcoSimThemeBuilder
 
         return new Color(col[0] / 255f, col[1] / 255f, col[2] / 255f);
     }
+
+    /// <summary>Per-species colour matching zoomed-out map circles.</summary>
+    public static Color SpeciesMapColor(string speciesKey, SpeciesDefinition def) =>
+        CreatureDrawUtil.SpeciesMapColor(speciesKey, def);
 
     public static void StyleActiveButton(Button button, bool active)
     {

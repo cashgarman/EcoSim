@@ -35,6 +35,8 @@ public partial class EcosystemPanel : DraggablePanel
     private const double FlashMs = 900;
     private readonly Dictionary<string, SpeciesPopFlash> _flashes = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Tween> _rowTweens = new(StringComparer.Ordinal);
+    private string? _lastRowClickSp;
+    private ulong _lastRowClickMs;
 
     private sealed class SpeciesPopFlash
     {
@@ -56,9 +58,13 @@ public partial class EcosystemPanel : DraggablePanel
         _panelBody = Req<VBoxContainer>("PanelBody");
         _rows.AddThemeConstantOverride("separation", 4);
         _panelBody.AddThemeConstantOverride("separation", 6);
+        _scroll.CustomMinimumSize = new Vector2(0, 160);
+        _scroll.VerticalScrollMode = ScrollContainer.ScrollMode.Auto;
+        CustomMinimumSize = new Vector2(NormalWidth, 300);
         _normalSize = Size;
 
         SetupMaxButton();
+        RefreshHeaderDrag();
         SetupGraphTooltip();
         BindGraphInput();
     }
@@ -126,6 +132,7 @@ public partial class EcosystemPanel : DraggablePanel
         }
 
         _graph.SetFocus(_lockedSpecies, _hoveredSpecies);
+        _graph.QueueRedraw();
 
         foreach (Node child in _rows.GetChildren())
         {
@@ -302,7 +309,8 @@ public partial class EcosystemPanel : DraggablePanel
             _normalSize = Size;
             float vpW = GetViewport().GetVisibleRect().Size.X;
             float w = Math.Min(680f, vpW * 0.72f);
-            Size = new Vector2(w, Size.Y);
+            float expandedH = Math.Max(Size.Y, 420f);
+            Size = new Vector2(w, expandedH);
             _graph.CustomMinimumSize = new Vector2(0, 220);
         }
         else
@@ -329,7 +337,10 @@ public partial class EcosystemPanel : DraggablePanel
 
     private PanelContainer BuildSpeciesRow(string sp, SpeciesDefinition def)
     {
-        var row = new PanelContainer();
+        var row = new PanelContainer
+        {
+            MouseFilter = MouseFilterEnum.Stop,
+        };
         row.AddThemeStyleboxOverride("panel", UiSliceCatalog.MakeInsetPanel());
         row.CustomMinimumSize = new Vector2(0, 24);
 
@@ -338,7 +349,7 @@ public partial class EcosystemPanel : DraggablePanel
 
         var dotWrap = new PanelContainer();
         dotWrap.AddThemeStyleboxOverride("panel",
-            EcoSimThemeBuilder.MakeFlat(EcoSimThemeBuilder.SpeciesColor(def), EcoSimThemeBuilder.Edge, 1));
+            EcoSimThemeBuilder.MakeFlat(EcoSimThemeBuilder.SpeciesMapColor(sp, def), EcoSimThemeBuilder.Edge, 1));
         dotWrap.CustomMinimumSize = new Vector2(10, 10);
 
         var name = new Label
@@ -365,6 +376,7 @@ public partial class EcosystemPanel : DraggablePanel
         row.SetMeta("species", sp);
         row.MouseEntered += () =>
         {
+            if (_hoveredSpecies == sp) return;
             _hoveredSpecies = sp;
             UpdateRowStyles();
             _graph.SetFocus(_lockedSpecies, _hoveredSpecies);
@@ -372,10 +384,11 @@ public partial class EcosystemPanel : DraggablePanel
         };
         row.MouseExited += () =>
         {
-            if (_hoveredSpecies == sp) _hoveredSpecies = null;
+            if (_hoveredSpecies != sp) return;
+            _hoveredSpecies = null;
             UpdateRowStyles();
             _graph.SetFocus(_lockedSpecies, _hoveredSpecies);
-            EmitSignal(SignalName.SpeciesHovered, _hoveredSpecies ?? "");
+            EmitSignal(SignalName.SpeciesHovered, "");
         };
         row.GuiInput += e => OnRowInput(e, sp, row);
         return row;
@@ -451,27 +464,35 @@ public partial class EcosystemPanel : DraggablePanel
 
         if (mb.ButtonIndex == MouseButton.Left)
         {
-            if (mb.DoubleClick)
-            {
-                _lockedSpecies = sp;
-                EmitSignal(SignalName.SpeciesLocked, sp);
-                EmitSignal(SignalName.SpeciesFollow, sp);
-                UpdateRowStyles();
-                return;
-            }
+            ulong now = Time.GetTicksMsec();
+            bool isDouble = (_lastRowClickSp == sp && now - _lastRowClickMs <= 350) || mb.DoubleClick;
+            _lastRowClickSp = sp;
+            _lastRowClickMs = now;
 
             _lockedSpecies = sp;
             _hoveredSpecies = null;
             EmitSignal(SignalName.SpeciesLocked, sp);
             EmitSignal(SignalName.SpeciesHovered, "");
             UpdateRowStyles();
+            _graph.SetFocus(_lockedSpecies, _hoveredSpecies);
+
+            if (isDouble)
+            {
+                EmitSignal(SignalName.SpeciesFollow, sp);
+            }
+
+            GetViewport().SetInputAsHandled();
         }
         else if (mb.ButtonIndex == MouseButton.Right)
         {
             _lockedSpecies = sp;
+            _hoveredSpecies = null;
             EmitSignal(SignalName.SpeciesLocked, sp);
+            EmitSignal(SignalName.SpeciesHovered, "");
             UpdateRowStyles();
+            _graph.SetFocus(_lockedSpecies, _hoveredSpecies);
             EmitSignal(SignalName.SpeciesGodMenu, sp, row.GlobalPosition);
+            GetViewport().SetInputAsHandled();
         }
     }
 

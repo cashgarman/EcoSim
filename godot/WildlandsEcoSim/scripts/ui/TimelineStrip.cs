@@ -19,6 +19,12 @@ public partial class TimelineStrip : Control
     [Signal]
     public delegate void PresentRequestedEventHandler();
 
+    [Signal]
+    public delegate void ScrubDragStartedEventHandler();
+
+    [Signal]
+    public delegate void ScrubDragEndedEventHandler();
+
     public override void _Ready()
     {
         CustomMinimumSize = new Vector2(200, 22);
@@ -50,16 +56,40 @@ public partial class TimelineStrip : Control
 
         if (@event is InputEventMouseButton mb && mb.ButtonIndex == MouseButton.Left)
         {
-            _dragging = mb.Pressed;
             if (mb.Pressed)
             {
+                _dragging = true;
+                EmitSignal(SignalName.ScrubDragStarted);
                 EmitSeek(mb.Position.X, minT, maxT);
+                AcceptEvent();
+            }
+            else if (_dragging)
+            {
+                EndScrubDrag();
+                AcceptEvent();
             }
         }
         else if (@event is InputEventMouseMotion mm && _dragging)
         {
             EmitSeek(mm.Position.X, minT, maxT);
+            AcceptEvent();
         }
+    }
+
+    public override void _Input(InputEvent @event)
+    {
+        if (!_dragging) return;
+        if (@event is InputEventMouseButton mb && mb.ButtonIndex == MouseButton.Left && !mb.Pressed)
+        {
+            EndScrubDrag();
+        }
+    }
+
+    private void EndScrubDrag()
+    {
+        if (!_dragging) return;
+        _dragging = false;
+        EmitSignal(SignalName.ScrubDragEnded);
     }
 
     private void EmitSeek(float localX, double minT, double maxT)

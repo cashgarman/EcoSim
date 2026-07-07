@@ -100,7 +100,6 @@ public partial class DraggablePanel : PanelContainer
 
         var strip = new PanelHeaderStrip();
         strip.SizeFlagsHorizontal = SizeFlags.ExpandFill;
-        strip.MouseFilter = MouseFilterEnum.Pass;
         strip.AddChild(_header);
         parent.AddChild(strip);
         parent.MoveChild(strip, index);
@@ -166,17 +165,14 @@ public partial class DraggablePanel : PanelContainer
 
     private void BindHeaderDrag()
     {
-        HBoxContainer? headHBox = GetPanelHeadHBox();
-        if (headHBox == null) return;
+        if (_header == null) return;
+        PanelHeaderDrag.ConfigureStrip(_header, GetPanelHeadHBox(), OnHeaderGuiInput);
+    }
 
-        foreach (Node child in headHBox.GetChildren())
-        {
-            if (child is not Label title) continue;
-
-            title.MouseFilter = MouseFilterEnum.Stop;
-            title.MouseDefaultCursorShape = CursorShape.Move;
-            title.GuiInput += OnHeaderGuiInput;
-        }
+    /// <summary>Call after adding buttons to <c>PanelHead</c> (e.g. maximize).</summary>
+    protected void RefreshHeaderDrag()
+    {
+        PanelHeaderDrag.ConfigureHeadChildren(GetPanelHeadHBox());
     }
 
     private HBoxContainer? GetPanelHeadHBox()

@@ -97,10 +97,44 @@ public partial class WorldCamera : Camera2D
 
         if (_followEnabled && _followTarget != null && !_followTarget.Dead)
         {
-            var target = new Vector2((float)_followTarget.X, (float)_followTarget.Y);
+            Vector2 target = CreatureDrawUtil.DisplayPos(_followTarget);
             Position = Position.Lerp(target, (float)Math.Min(1, delta * 4));
             ClampToLand();
         }
+    }
+
+    public void FocusCreature(Creature c, bool ensureMinZoom = true)
+    {
+        if (c.Dead) return;
+
+        _followTarget = c;
+        Position = CreatureDrawUtil.DisplayPos(c);
+
+        if (ensureMinZoom)
+        {
+            float minZoom = ComputeMinFollowZoom();
+            if (Zoom.X < minZoom)
+            {
+                Zoom = new Vector2(minZoom, minZoom);
+            }
+        }
+
+        ClampToLand();
+    }
+
+    private float ComputeMinFollowZoom()
+    {
+        var session = _host.Session;
+        if (session == null) return 3f;
+
+        var bounds = session.State.LandBounds;
+        float landW = Math.Max(1f, bounds.MaxX - bounds.MinX);
+        float landH = Math.Max(1f, bounds.MaxY - bounds.MinY);
+        Vector2 vp = GetViewport().GetVisibleRect().Size;
+        float scale = ParentScale();
+        float zToPanX = vp.X / (landW * 0.92f * scale);
+        float zToPanY = vp.Y / (landH * 0.92f * scale);
+        return Math.Clamp(Math.Max(Math.Max(zToPanX, zToPanY), MinZoom.X * 1.25f), MinZoom.X, MaxZoom.X);
     }
 
     public void CenterOnWorld()

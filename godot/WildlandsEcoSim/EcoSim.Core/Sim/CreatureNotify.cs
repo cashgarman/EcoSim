@@ -7,10 +7,50 @@ public static class CreatureNotify
     public static string RefineDeathCause(Creature c)
     {
         if (c.Cause != "exhaustion") return c.Cause;
+        if (c.Age >= c.Genome.Lifespan) return "old age";
+        if (c.Hunger <= 0 && c.Thirst <= 0) return "starvation and dehydration";
         if (c.Hunger <= 0) return "starvation";
         if (c.Thirst <= 0) return "dehydration";
-        if (c.Age >= c.Genome.Lifespan) return "old age";
         return c.Cause;
+    }
+
+    public static string DeathCausePhrase(string cause) => cause switch
+    {
+        "predation" => "was killed by a predator",
+        "starvation" => "starved",
+        "dehydration" => "died of thirst",
+        "starvation and dehydration" => "starved and died of thirst",
+        "old age" => "died of old age",
+        "exhaustion" => "succumbed to exhaustion",
+        "meteor" => "was killed by a meteor",
+        "removed" => "was removed",
+        _ => $"died ({cause})",
+    };
+
+    public static string SexSymbol(string sex) => sex == "male" ? "♂" : "♀";
+
+    public static string FormatFollowedDeathMessage(SpeciesCatalog catalog, Creature c, SimState state)
+    {
+        var def = catalog.Get(c.Sp);
+        string sex = SexSymbol(c.Sex);
+        string cause = RefineDeathCause(c);
+        int? killerId = InferKillerId(c, state);
+        if (killerId != null)
+        {
+            var killer = state.Creatures.FirstOrDefault(x => x.Id == killerId);
+            if (killer != null)
+            {
+                var kdef = catalog.Get(killer.Sp);
+                return $"{def.Emoji} {def.Label} {sex} (#{c.Id}) was preyed on by {kdef.Emoji} {kdef.Label} #{killer.Id}.";
+            }
+        }
+
+        if (cause == "predation")
+        {
+            return $"{def.Emoji} {def.Label} {sex} (#{c.Id}) was killed by a predator.";
+        }
+
+        return $"{def.Emoji} {def.Label} {sex} (#{c.Id}) {DeathCausePhrase(cause)}.";
     }
 
     public static int? InferKillerId(Creature prey, SimState state)

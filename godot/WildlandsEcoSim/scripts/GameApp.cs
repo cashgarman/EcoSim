@@ -1,5 +1,6 @@
 using EcoSim.Core.Sim;
 using Godot;
+using WildlandsEcoSim.UI;
 
 namespace WildlandsEcoSim;
 
@@ -26,6 +27,8 @@ public partial class GameApp : Node
         }
 
         _host = GetNode<EcoSimHost>("/root/EcoSimHost");
+        AddChild(new ProfilerFrameDriver());
+        ProcessPriority = -64;
     }
 
     public override void _Process(double delta)
@@ -34,8 +37,7 @@ public partial class GameApp : Node
         var session = _host.Session;
         if (session == null || !session.State.Ready) return;
 
-        double frameStart = Time.GetTicksMsec();
-        double simMs = 0;
+        var profiler = PerfProfiler.Instance;
         double speed = Paused ? 0 : session.State.Speed;
         if (_scrub != null && _scrub.ScrubActive)
         {
@@ -44,23 +46,25 @@ public partial class GameApp : Node
 
         if (speed > 0)
         {
-            double simStart = Time.GetTicksMsec();
-            double sdt = delta * speed;
-            int steps = Math.Min(6, (int)Math.Ceiling(speed));
-            double stepDt = sdt / steps;
-            for (int i = 0; i < steps; i++)
+            profiler.Timed("frame.sim", () =>
             {
-                session.State.TGlobal += stepDt;
-                session.Simulation.Tick(stepDt);
-            }
-            simMs = Time.GetTicksMsec() - simStart;
-            _scrub?.CaptureIfDue();
+                profiler.Timed("sim", () =>
+                {
+                    double sdt = delta * speed;
+                    int steps = Math.Min(6, (int)Math.Ceiling(speed));
+                    double stepDt = sdt / steps;
+                    for (int i = 0; i < steps; i++)
+                    {
+                        session.State.TGlobal += stepDt;
+                        profiler.Timed("sim.tick", () => session.Simulation.Tick(stepDt));
+                    }
+                });
+
+                profiler.Timed("snapshot", () => _scrub?.CaptureIfDue());
+            });
         }
 
         EmitSignal(SignalName.SimTicked);
-
-        double frameMs = Time.GetTicksMsec() - frameStart;
-        UI.PerfProfiler.Instance.RecordFrame(frameMs, simMs, frameMs * 0.35, frameMs * 0.15);
     }
 
     public override void _PhysicsProcess(double delta)
@@ -70,13 +74,16 @@ public partial class GameApp : Node
         if (session == null || !session.State.Ready) return;
 
         bool scrubbing = _scrub?.ScrubActive ?? false;
+        var profiler = PerfProfiler.Instance;
         if (!Paused && !scrubbing && session.State.Speed > 0)
         {
-            session.Creatures.AdvanceDisplayPositions(delta, scrubbing);
+            profiler.Timed("displaySmooth", () =>
+                session.Creatures.AdvanceDisplayPositions(delta, scrubbing));
         }
         else if (scrubbing)
         {
-            session.Creatures.AdvanceDisplayPositions(delta, scrubbing: true);
+            profiler.Timed("displaySmooth", () =>
+                session.Creatures.AdvanceDisplayPositions(delta, scrubbing: true));
         }
     }
 
@@ -96,5 +103,19 @@ public partial class GameApp : Node
             Paused = true;
             session.State.Speed = 0;
         }
+    }
+
+    public void PauseForTimeline()
+    {
+        var session = _host.Session;
+        if (session == null) return;
+
+        if (!Paused && session.State.Speed > 0)
+        {
+            LastSpeedBeforePause = session.State.Speed;
+        }
+
+        Paused = true;
+        session.State.Speed = 0;
     }
 }
