@@ -1,5 +1,4 @@
-using EcoSim.Core.Data;
-using EcoSim.Core.Numerics;
+using EcoSim.Core.Sim;
 using Godot;
 using WildlandsEcoSim;
 using WildlandsEcoSim.UI;
@@ -7,48 +6,69 @@ using WildlandsEcoSim.UI;
 namespace WildlandsEcoSim.Render;
 
 /// <summary>
-/// Cached deep-ocean backdrop outside the sim grid (JS drawInfiniteOcean parity).
-/// Rebakes a tile texture when the camera viewport or water frame changes — not every frame.
+/// Deep-ocean backdrop outside the sim grid — baked terrain base + GPU-animated water overlay.
 /// </summary>
 public partial class InfiniteOceanOverlay : Node2D
 {
     private const int PadTiles = 6;
+    private const int BoundsSnapTiles = 8;
     private const int MaxBakeTiles = 2048;
 
+    private static readonly StringName AnimPhaseParam = "anim_phase";
+    private static readonly StringName TileOriginParam = "tile_origin";
+
     private WorldCamera? _camera;
+    private SimState? _state;
     private int _worldW;
     private int _worldH;
-    private double _waterAnim;
 
-    private Sprite2D _sprite = null!;
+    private Sprite2D _terrainSprite = null!;
+    private Sprite2D _waterSprite = null!;
+    private ShaderMaterial _waterMaterial = null!;
     private string _cacheKey = "";
-    private Vector2 _lastCamPos = new(float.NaN, float.NaN);
-    private float _lastZoom = float.NaN;
-    private int _lastWaterFrame = -1;
-
-    private static readonly byte[] DeepRgb = BiomeData.Info[Biome.Deep].ColorRgb;
+    private (int x0, int y0, int iw, int ih) _lastBounds = (0, 0, 0, 0);
+    private float _lastZoomSample = float.NaN;
+    private int _zoomStableFrames;
 
     public override void _Ready()
     {
-        ZIndex = 0;
-        _sprite = new Sprite2D
+        ZIndex = -1;
+        _terrainSprite = new Sprite2D
         {
             Centered = false,
             TextureFilter = TextureFilterEnum.Nearest,
         };
-        AddChild(_sprite);
+        var waterShader = GD.Load<Shader>("res://shaders/water_overlay.gdshader");
+        _waterMaterial = new ShaderMaterial { Shader = waterShader };
+        _waterSprite = new Sprite2D
+        {
+            Centered = false,
+            TextureFilter = TextureFilterEnum.Nearest,
+            Material = _waterMaterial,
+        };
+        AddChild(_terrainSprite);
+        AddChild(_waterSprite);
     }
 
-    public void Bind(WorldCamera camera, int worldW, int worldH)
+    public void Bind(WorldCamera camera, SimState state, int worldW, int worldH)
     {
         _camera = camera;
+        _state = state;
         _worldW = worldW;
         _worldH = worldH;
         _cacheKey = "";
-        RebuildIfNeeded(force: true);
+        _lastBounds = (0, 0, 0, 0);
+        _lastZoomSample = float.NaN;
+        _zoomStableFrames = 0;
+        RebuildIfNeeded(VisibleTileBounds(), force: true);
+        SyncWaterShader();
     }
 
-    public void SetWaterAnim(double anim) => _waterAnim = anim;
+    public void SetAnimPhase(float phase)
+    {
+        if (_waterMaterial == null) return;
+        _waterMaterial.SetShaderParameter(AnimPhaseParam, phase);
+    }
 
     public void Invalidate() => _cacheKey = "";
 
@@ -56,53 +76,73 @@ public partial class InfiniteOceanOverlay : Node2D
     {
         if (_camera == null || _worldW <= 0 || _worldH <= 0) return;
 
-        int waterFrame = (int)(_waterAnim * 4);
-        bool camMoved = _lastCamPos.DistanceSquaredTo(_camera.Position) > 0.0001f
-            || Math.Abs(_lastZoom - _camera.Zoom.X) > 0.0001f;
-        bool waterChanged = waterFrame != _lastWaterFrame;
-
-        if (camMoved || waterChanged)
+        float zoom = _camera.Zoom.X;
+        if (float.IsNaN(_lastZoomSample) || Math.Abs(zoom - _lastZoomSample) > 0.01f)
         {
-            RebuildIfNeeded(force: waterChanged);
+            _lastZoomSample = zoom;
+            _zoomStableFrames = 0;
         }
+        else
+        {
+            _zoomStableFrames++;
+        }
+
+        var bounds = VisibleTileBounds();
+        if (bounds.iw <= 0 || bounds.ih <= 0) return;
+        if (bounds == _lastBounds) return;
+        if (_zoomStableFrames < 2) return;
+
+        RebuildIfNeeded(bounds);
     }
 
-    private void RebuildIfNeeded(bool force)
+    private void SyncWaterShader()
     {
-        if (_camera == null) return;
+        if (_waterMaterial == null) return;
+        _waterMaterial.SetShaderParameter(TileOriginParam, _terrainSprite.Position);
+    }
 
-        var (x0, y0, iw, ih) = VisibleTileBounds();
-        if (iw <= 0 || ih <= 0) return;
+    private void RebuildIfNeeded((int x0, int y0, int iw, int ih) bounds, bool force = false)
+    {
+        if (_camera == null || _state == null) return;
 
-        int waterFrame = (int)(_waterAnim * 4);
-        string key = $"{x0},{y0},{iw},{ih},{waterFrame},{_worldW},{_worldH}";
+        var (x0, y0, iw, ih) = bounds;
+
+        string key = $"{x0},{y0},{iw},{ih},{_worldW},{_worldH}";
         if (!force && key == _cacheKey) return;
 
         PerfProfiler.Instance.Timed("render.oceanBake", () =>
         {
-        var img = Image.CreateEmpty(iw, ih, false, Image.Format.Rgba8);
-        for (int j = 0; j < ih; j++)
-        {
-            int wy = y0 + j;
-            for (int i = 0; i < iw; i++)
+            int stride = iw * 4;
+            byte[] terrainData = new byte[stride * ih];
+            byte[] maskData = new byte[stride * ih];
+            for (int j = 0; j < ih; j++)
             {
-                int wx = x0 + i;
-                if (wx >= 0 && wx < _worldW && wy >= 0 && wy < _worldH)
+                int wy = y0 + j;
+                int row = j * stride;
+                for (int i = 0; i < iw; i++)
                 {
-                    img.SetPixel(i, j, Colors.Transparent);
-                    continue;
+                    int wx = x0 + i;
+                    int o = row + i * 4;
+                    if (wx >= 0 && wx < _worldW && wy >= 0 && wy < _worldH) continue;
+
+                    TerrainBaker.WriteOceanTerrainPixel(terrainData, o, wx, wy, _state);
+                    maskData[o] = 255;
+                    maskData[o + 1] = 255;
+                    maskData[o + 2] = 255;
+                    maskData[o + 3] = 255;
                 }
-
-                img.SetPixel(i, j, SampleDeepOceanTile(wx, wy, waterFrame));
             }
-        }
 
-        _sprite.Texture = ImageTexture.CreateFromImage(img);
-        _sprite.Position = new Vector2(x0, y0);
-        _cacheKey = key;
-        _lastCamPos = _camera.Position;
-        _lastZoom = _camera.Zoom.X;
-        _lastWaterFrame = waterFrame;
+            var terrainImg = Image.CreateFromData(iw, ih, false, Image.Format.Rgba8, terrainData);
+            var maskImg = Image.CreateFromData(iw, ih, false, Image.Format.Rgba8, maskData);
+            var pos = new Vector2(x0, y0);
+            _terrainSprite.Texture = ImageTexture.CreateFromImage(terrainImg);
+            _terrainSprite.Position = pos;
+            _waterSprite.Texture = ImageTexture.CreateFromImage(maskImg);
+            _waterSprite.Position = pos;
+            _cacheKey = key;
+            _lastBounds = bounds;
+            SyncWaterShader();
         });
     }
 
@@ -114,10 +154,10 @@ public partial class InfiniteOceanOverlay : Node2D
         float vw = vp.X / (zoom * tileScale);
         float vh = vp.Y / (zoom * tileScale);
 
-        int x0 = (int)Math.Floor(_camera.Position.X - vw * 0.5f) - PadTiles;
-        int y0 = (int)Math.Floor(_camera.Position.Y - vh * 0.5f) - PadTiles;
-        int x1 = (int)Math.Ceiling(_camera.Position.X + vw * 0.5f) + PadTiles;
-        int y1 = (int)Math.Ceiling(_camera.Position.Y + vh * 0.5f) + PadTiles;
+        int x0 = SnapDown((int)Math.Floor(_camera.Position.X - vw * 0.5f) - PadTiles);
+        int y0 = SnapDown((int)Math.Floor(_camera.Position.Y - vh * 0.5f) - PadTiles);
+        int x1 = SnapUp((int)Math.Ceiling(_camera.Position.X + vw * 0.5f) + PadTiles);
+        int y1 = SnapUp((int)Math.Ceiling(_camera.Position.Y + vh * 0.5f) + PadTiles);
 
         int iw = Math.Max(1, x1 - x0);
         int ih = Math.Max(1, y1 - y0);
@@ -138,19 +178,9 @@ public partial class InfiniteOceanOverlay : Node2D
         return (x0, y0, iw, ih);
     }
 
-    private static Color SampleDeepOceanTile(int tx, int ty, int waterFrame)
-    {
-        double h = EcoSim.Core.Numerics.Noise.HashN(tx * TerrainBaker.Tx, ty * TerrainBaker.Tx, 7);
-        float shade = 0.9f + (float)((h - 0.5) * 0.14);
+    private static int SnapDown(int v) =>
+        (int)Math.Floor(v / (double)BoundsSnapTiles) * BoundsSnapTiles;
 
-        float phase = waterFrame * 0.25f;
-        float shimmer = 0.12f + (float)(Math.Sin((tx + ty) * 0.3 + phase) * 0.5 + 0.5) * 0.1f;
-        shimmer += (float)EcoSim.Core.Numerics.Noise.HashN(tx, ty, 17) * 0.06f;
-
-        float r = Math.Clamp((DeepRgb[0] + 38) / 255f * shade + shimmer * 0.08f, 0f, 1f);
-        float g = Math.Clamp((DeepRgb[1] + 34) / 255f * shade + shimmer * 0.1f, 0f, 1f);
-        float b = Math.Clamp((DeepRgb[2] + 28) / 255f * shade + shimmer * 0.12f, 0f, 1f);
-
-        return new Color(r, g, b);
-    }
+    private static int SnapUp(int v) =>
+        (int)Math.Ceiling(v / (double)BoundsSnapTiles) * BoundsSnapTiles;
 }

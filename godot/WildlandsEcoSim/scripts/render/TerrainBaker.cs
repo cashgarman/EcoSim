@@ -65,7 +65,7 @@ public static class TerrainBaker
         return img;
     }
 
-    public static Image BakeWaterImage(SimState state, double animPhase)
+    public static Image BakeWaterMaskImage(SimState state)
     {
         var img = Image.CreateEmpty(state.W, state.H, false, Image.Format.Rgba8);
         for (int y = 0; y < state.H; y++)
@@ -79,10 +79,7 @@ public static class TerrainBaker
                     continue;
                 }
 
-                double n = EcoSim.Core.Numerics.Noise.HashN(x, y, 13);
-                float shimmer = 0.15f + (float)(Math.Sin((x + y) * 0.3 + animPhase) * 0.5 + 0.5) * 0.2f;
-                float alpha = (float)(0.25 + n * 0.15) + shimmer * 0.3f;
-                img.SetPixel(x, y, new Color(0.2f, 0.55f, 0.9f, Math.Clamp(alpha, 0f, 0.65f)));
+                img.SetPixel(x, y, Colors.White);
             }
         }
         return img;
@@ -94,5 +91,21 @@ public static class TerrainBaker
             Math.Clamp(rgb[0] / 255f * mult, 0f, 1f),
             Math.Clamp(rgb[1] / 255f * mult, 0f, 1f),
             Math.Clamp(rgb[2] / 255f * mult, 0f, 1f));
+    }
+
+    /// <summary>Deep-ocean terrain pixel outside the grid — elevation clamped to nearest in-bounds tile.</summary>
+    public static void WriteOceanTerrainPixel(byte[] data, int o, int tx, int ty, SimState state)
+    {
+        var info = BiomeData.Info[Biome.Deep];
+        double hN = EcoSim.Core.Numerics.Noise.HashN(tx * Tx, ty * Tx, 7);
+        int ex = Math.Clamp(tx, 0, state.W - 1);
+        int ey = Math.Clamp(ty, 0, state.H - 1);
+        float e = state.Elev[GridHelpers.Idx(state, ex, ey)];
+        float shd = 0.9f + (e - 0.5f) * 0.28f + ((float)hN - 0.5f) * 0.14f;
+        var c = Shade(info.ColorRgb, shd);
+        data[o] = (byte)(c.R8);
+        data[o + 1] = (byte)(c.G8);
+        data[o + 2] = (byte)(c.B8);
+        data[o + 3] = 255;
     }
 }

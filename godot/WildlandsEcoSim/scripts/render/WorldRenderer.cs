@@ -9,23 +9,28 @@ namespace WildlandsEcoSim.Render;
 public partial class WorldRenderer : Node2D
 {
     public const float TilePixels = 4f;
+    private const float WaterAnimSpeed = 2.5f;
+
+    private static readonly StringName AnimPhaseParam = "anim_phase";
+    private static readonly StringName TileOriginParam = "tile_origin";
 
     private InfiniteOceanOverlay _infiniteOcean = null!;
-    private Node2D _backdropLayer = null!;
     private Sprite2D _terrain = null!;
     private Sprite2D _veg = null!;
     private Sprite2D _water = null!;
+    private ShaderMaterial _waterMaterial = null!;
     private CreaturePedigreeOverlay _pedigree = null!;
     private CreatureRenderer _creatures = null!;
     private CreatureHighlightOverlay _highlights = null!;
     private ToolFxOverlay _toolFx = null!;
     private Node2D _terrainLayer = null!;
+    private GameApp _gameApp = null!;
     private SimSession? _session;
     private Func<string>? _activeTool;
     private Action<double, double>? _toolApply;
     private bool _painting;
     private int _vegRefreshCounter;
-    private double _waterAnim;
+    private float _waterAnimPhase;
     private string? _lockedSpecies;
     private string? _hoveredSpecies;
     private double _lastClickTime;
@@ -33,18 +38,23 @@ public partial class WorldRenderer : Node2D
 
     public override void _Ready()
     {
-        _backdropLayer = new Node2D();
-        AddChild(_backdropLayer);
-
-        _infiniteOcean = new InfiniteOceanOverlay();
-        _backdropLayer.AddChild(_infiniteOcean);
-
         _terrainLayer = new Node2D();
         AddChild(_terrainLayer);
 
+        _infiniteOcean = new InfiniteOceanOverlay();
+        _terrainLayer.AddChild(_infiniteOcean);
+        _terrainLayer.MoveChild(_infiniteOcean, 0);
+
         _terrain = new Sprite2D { Centered = false, TextureFilter = CanvasItem.TextureFilterEnum.Nearest };
         _veg = new Sprite2D { Centered = false, TextureFilter = CanvasItem.TextureFilterEnum.Nearest };
-        _water = new Sprite2D { Centered = false, TextureFilter = CanvasItem.TextureFilterEnum.Nearest };
+        var waterShader = GD.Load<Shader>("res://shaders/water_overlay.gdshader");
+        _waterMaterial = new ShaderMaterial { Shader = waterShader };
+        _water = new Sprite2D
+        {
+            Centered = false,
+            TextureFilter = CanvasItem.TextureFilterEnum.Nearest,
+            Material = _waterMaterial,
+        };
         _terrainLayer.AddChild(_terrain);
         _terrainLayer.AddChild(_veg);
         _terrainLayer.AddChild(_water);
@@ -58,8 +68,8 @@ public partial class WorldRenderer : Node2D
         AddChild(_highlights);
         AddChild(_toolFx);
 
-        var gameApp = GetNode<GameApp>("/root/GameApp");
-        gameApp.SimTicked += OnSimTicked;
+        _gameApp = GetNode<GameApp>("/root/GameApp");
+        _gameApp.SimTicked += OnSimTicked;
     }
 
     public override void _Process(double delta)
@@ -67,12 +77,17 @@ public partial class WorldRenderer : Node2D
         PerfProfiler.Instance.Timed("render", () =>
         PerfProfiler.Instance.Timed("frame.render", () =>
         {
-            _waterAnim += delta * 2.5;
             if (_session != null && _session.State.Ready)
             {
-                PerfProfiler.Instance.Timed("render.water", () => RefreshWater());
+                if (!_gameApp.Paused)
+                {
+                    _waterAnimPhase += (float)(delta * WaterAnimSpeed);
+                }
+
+                PushWaterAnimPhase();
+
+                UpdateDayNight();
                 UpdateRenderContext();
-                PerfProfiler.Instance.Timed("render.ocean", UpdateInfiniteOcean);
                 UpdateToolFx();
                 if (_painting && Input.IsMouseButtonPressed(MouseButton.Left))
                 {
@@ -80,6 +95,12 @@ public partial class WorldRenderer : Node2D
                 }
             }
         }));
+    }
+
+    private void PushWaterAnimPhase()
+    {
+        _waterMaterial.SetShaderParameter(AnimPhaseParam, _waterAnimPhase);
+        _infiniteOcean.SetAnimPhase(_waterAnimPhase);
     }
 
     private void UpdateToolFx()
@@ -215,11 +236,15 @@ public partial class WorldRenderer : Node2D
         var vegImg = TerrainBaker.BakeVegImage(session.State);
         _veg.Texture = ImageTexture.CreateFromImage(vegImg);
 
-        RefreshWater(force: true);
+        var waterMaskImg = TerrainBaker.BakeWaterMaskImage(session.State);
+        _water.Texture = ImageTexture.CreateFromImage(waterMaskImg);
+        _waterMaterial.SetShaderParameter(TileOriginParam, Vector2.Zero);
+
         var camera = GetNode<WorldCamera>("Camera2D");
-        _infiniteOcean.Bind(camera, session.State.W, session.State.H);
-        _infiniteOcean.SetWaterAnim(_waterAnim);
+        _infiniteOcean.Bind(camera, session.State, session.State.W, session.State.H);
         _infiniteOcean.Invalidate();
+        PushWaterAnimPhase();
+
         _creatures.Bind(session, catalog);
         _pedigree.Bind(session);
         _highlights.Bind(session);
@@ -255,14 +280,6 @@ public partial class WorldRenderer : Node2D
         });
     }
 
-    private void RefreshWater(bool force = false)
-    {
-        if (_session == null) return;
-        if (!force && (int)(_waterAnim * 4) % 4 != 0) return;
-        var waterImg = TerrainBaker.BakeWaterImage(_session.State, _waterAnim);
-        _water.Texture = ImageTexture.CreateFromImage(waterImg);
-    }
-
     private void OnSimTicked()
     {
         RefreshVegIfDirty();
@@ -270,19 +287,11 @@ public partial class WorldRenderer : Node2D
         UpdateRenderContext();
     }
 
-    private void UpdateInfiniteOcean()
-    {
-        if (_session == null) return;
-        _infiniteOcean.SetWaterAnim(_waterAnim);
-    }
-
     private void UpdateDayNight()
     {
         if (_session == null) return;
         float light = (float)_session.State.LightLevel;
-        var tint = new Color(light, light, light * 0.95f);
-        _backdropLayer.Modulate = tint;
-        _terrainLayer.Modulate = tint;
+        _terrainLayer.Modulate = new Color(light, light, light * 0.95f);
     }
 
     public Vector2 WorldToTile(Vector2 worldPos) => worldPos / TilePixels;

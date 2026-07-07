@@ -105,10 +105,14 @@ Loaded via `DataPaths` / `EcoSimBootstrap.LoadBaseData()`:
 
 | Component | Role |
 |-----------|------|
-| `TerrainBaker` | TX=4 terrain bake, veg overlay, water shimmer |
+| `TerrainBaker` | TX=4 terrain bake, veg overlay, static water-tile mask (`BakeWaterMaskImage`) |
+| `InfiniteOceanOverlay` | Deep-ocean backdrop outside grid; terrain base CPU bake on pan, water via GPU shader |
+| `water_overlay.gdshader` | Shared GPU water shimmer (inner grid + infinite outer ocean); `anim_phase` uniform |
 | `CreatureRenderer` | `MultiMeshInstance2D` species-colored dots |
-| `WorldRenderer` | Terrain/veg/water layers, day/night `CanvasModulate`, click-to-select |
+| `WorldRenderer` | Terrain/veg/water layers, day/night modulate on `_terrainLayer`, click-to-select |
 | `WorldCamera` | Pan/zoom, follow selected (F / Follow button) |
+
+Water animation is fully GPU-driven: CPU bakes biome masks once per world gen (and outer terrain on viewport bounds change), then pushes a single frozen-when-paused `anim_phase` uniform per frame.
 
 ---
 
