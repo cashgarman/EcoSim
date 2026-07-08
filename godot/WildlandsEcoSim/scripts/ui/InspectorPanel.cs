@@ -24,7 +24,7 @@ public partial class InspectorPanel : DraggablePanel
     private ProgressBar _energy = null!;
     private GridContainer _genes = null!;
     private RichTextLabel _storyLog = null!;
-    private RichTextLabel _parentsRow = null!;
+    private RichTextLabel _lineageLog = null!;
     private SpeciesCatalog? _catalog;
     private bool _storyMode;
 
@@ -60,31 +60,57 @@ public partial class InspectorPanel : DraggablePanel
         StyleNeedLabels(_statsTab);
         EcoSimFonts.StyleTabButton(_statsTabBtn);
         EcoSimFonts.StyleTabButton(_storyTabBtn);
-        SetupParentsRow();
+        SetupLineagePanel();
         SetTab(false);
     }
 
-    private void SetupParentsRow()
+    private void SetupLineagePanel()
     {
-        var tabRow = Req<HBoxContainer>("TabRow");
-        _parentsRow = new RichTextLabel
+        _statsTab.SizeFlagsVertical = SizeFlags.ExpandFill;
+
+        var bottomRow = new HBoxContainer
         {
-            Name = "ParentsRow",
-            BbcodeEnabled = true,
-            FitContent = true,
-            ScrollActive = false,
-            SizeFlagsHorizontal = SizeFlags.ExpandFill,
-            AutowrapMode = TextServer.AutowrapMode.Off,
-            MouseFilter = MouseFilterEnum.Stop,
-            Visible = false,
+            Name = "StatsBottomRow",
+            SizeFlagsVertical = SizeFlags.ExpandFill,
         };
-        EcoSimFonts.ApplyFont(_parentsRow, EcoSimFonts.Scaled6);
-        _parentsRow.AddThemeColorOverride("default_color", EcoSimThemeBuilder.Dim);
-        _parentsRow.MetaClicked += OnParentMetaClicked;
-        tabRow.AddChild(_parentsRow);
+        bottomRow.AddThemeConstantOverride("separation", 8);
+
+        int geneIndex = _genes.GetIndex();
+        _genes.GetParent()?.RemoveChild(_genes);
+        _genes.SizeFlagsHorizontal = SizeFlags.ShrinkBegin;
+        bottomRow.AddChild(_genes);
+
+        var lineagePanel = new PanelContainer
+        {
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ExpandFill,
+        };
+        lineagePanel.AddThemeStyleboxOverride("panel", UiSliceCatalog.MakeInsetPanel());
+        lineagePanel.AddThemeConstantOverride("margin_left", 6);
+        lineagePanel.AddThemeConstantOverride("margin_right", 6);
+        lineagePanel.AddThemeConstantOverride("margin_top", 6);
+        lineagePanel.AddThemeConstantOverride("margin_bottom", 6);
+
+        _lineageLog = new RichTextLabel
+        {
+            BbcodeEnabled = true,
+            FitContent = false,
+            ScrollActive = true,
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ExpandFill,
+            MouseFilter = MouseFilterEnum.Stop,
+        };
+        EcoSimFonts.ApplyFont(_lineageLog, EcoSimFonts.Scaled6);
+        _lineageLog.AddThemeColorOverride("default_color", EcoSimThemeBuilder.Text);
+        _lineageLog.MetaClicked += OnLineageMetaClicked;
+
+        lineagePanel.AddChild(_lineageLog);
+        bottomRow.AddChild(lineagePanel);
+        _statsTab.AddChild(bottomRow);
+        _statsTab.MoveChild(bottomRow, geneIndex);
     }
 
-    private void OnParentMetaClicked(Variant meta)
+    private void OnLineageMetaClicked(Variant meta)
     {
         if (!int.TryParse(meta.AsString(), out int creatureId)) return;
         EmitSignal(SignalName.CreatureLinkPressed, creatureId);
@@ -150,8 +176,7 @@ public partial class InspectorPanel : DraggablePanel
         if (c == null || _catalog == null || c.Dead)
         {
             Visible = false;
-            _parentsRow.Visible = false;
-            _parentsRow.Text = "";
+            _lineageLog.Text = "";
             return;
         }
 
@@ -160,7 +185,7 @@ public partial class InspectorPanel : DraggablePanel
         var def = _catalog.Get(c.Sp);
         string sex = c.Sex == "male" ? "♂" : "♀";
         _header.Text = $"{def.Emoji} {def.Label} #{c.Id} {sex}  gen {c.Gen}  {c.State}";
-        RefreshParents(c, creatures);
+        RefreshLineage(c, creatures);
         SetBar(_hp, _hpVal, c.Hp);
         SetBar(_hunger, _hunVal, c.Hunger);
         SetBar(_thirst, _thiVal, c.Thirst);
@@ -188,36 +213,66 @@ public partial class InspectorPanel : DraggablePanel
         }
     }
 
-    private void RefreshParents(Creature c, CreatureSystem? creatures)
+    private void RefreshLineage(Creature c, CreatureSystem? creatures)
     {
-        if (creatures == null || c.ParentIds.Count == 0)
+        if (creatures == null)
         {
-            _parentsRow.Visible = false;
-            _parentsRow.Text = "";
+            _lineageLog.Text = "";
             return;
         }
 
-        var links = new List<string>();
-        foreach (int pid in c.ParentIds)
+        bool hasParents = c.ParentIds.Count > 0;
+        bool hasOffspring = c.OffspringIds.Count > 0;
+        if (!hasParents && !hasOffspring)
         {
-            var parent = creatures.GetById(pid);
-            if (parent == null) continue;
-            var parentDef = _catalog!.Get(parent.Sp);
-            string parentSex = parent.Sex == "male" ? "♂" : "♀";
-            string suffix = parent.Dead ? " †" : "";
-            links.Add(
-                $"[url={pid}][u]{parentDef.Emoji} {parentDef.Label} #{pid} {parentSex}{suffix}[/u][/url]");
-        }
-
-        if (links.Count == 0)
-        {
-            _parentsRow.Visible = false;
-            _parentsRow.Text = "";
+            _lineageLog.Text = "[color=#8a9a7a]No lineage recorded.[/color]";
             return;
         }
 
-        _parentsRow.Visible = true;
-        _parentsRow.Text = $"[color=#8a9a7a]Parents:[/color] [color=#ffdc3c]{string.Join(" · ", links)}[/color]";
+        var lines = new List<string>();
+        if (hasParents)
+        {
+            lines.Add("[color=#8a9a7a]Parents[/color]");
+            foreach (int pid in c.ParentIds)
+            {
+                lines.Add(FormatLineageEntry(creatures.GetById(pid), pid));
+            }
+        }
+
+        if (hasOffspring)
+        {
+            if (hasParents)
+            {
+                lines.Add("");
+            }
+
+            lines.Add("[color=#8a9a7a]Offspring[/color]");
+            foreach (int oid in c.OffspringIds)
+            {
+                lines.Add(FormatLineageEntry(creatures.GetById(oid), oid));
+            }
+        }
+
+        _lineageLog.Text = string.Join("\n", lines);
+    }
+
+    private string FormatLineageEntry(Creature? rel, int fallbackId)
+    {
+        if (rel == null)
+        {
+            return $"[color=#666666]Unknown #{fallbackId} †[/color]";
+        }
+
+        var def = _catalog!.Get(rel.Sp);
+        string sex = rel.Sex == "male" ? "♂" : "♀";
+        string label = $"{def.Emoji} {def.Label} #{rel.Id} {sex}";
+
+        if (rel.Dead)
+        {
+            return $"[color=#666666]{label} †[/color]";
+        }
+
+        return $"[url={rel.Id}][u][color=#ffdc3c]{label}[/color][/u][/url]";
     }
 
     private static void SetBar(ProgressBar bar, Label label, double value)

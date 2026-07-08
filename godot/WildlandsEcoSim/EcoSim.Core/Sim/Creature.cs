@@ -34,6 +34,7 @@ public sealed class Creature
     public Genome? MatePartner { get; set; }
     public int? MatePartnerId { get; set; }
     public string? BtNodeId { get; set; }
+    public string? BtBranchUid { get; set; }
     public JsonObject? BtAction { get; set; }
     public double StateCommittedSince { get; set; }
     public double BtSpeedMult { get; set; } = 1;

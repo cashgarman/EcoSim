@@ -52,8 +52,10 @@ export function buildBehaviorContext(creature, creatureSystem)
     }
     if (o.sp === creature.sp && o.sex !== creature.sex && creatureSystem.isAdult(o) && selfAdult
       && o.mateCd <= 0 && creature.mateCd <= 0
-      && o.pregnant <= 0 && creature.pregnant <= 0 && o.energy > 45 && creature.energy > 45)
+      && o.pregnant <= 0 && creature.pregnant <= 0)
     {
+      const energyMin = threshold({ thresholds: S.behaviorConfig?.thresholds || {} }, 'mateEnergyMin', 45);
+      if (o.energy <= energyMin || creature.energy <= energyMin) continue;
       if (d2 < mdist2)
       {
         mdist2 = d2;

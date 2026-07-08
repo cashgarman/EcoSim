@@ -433,7 +433,8 @@ export function applyDecisionWithContext(creature, decision, ctx, creatureSystem
 {
   perfProfiler.scope('behavior.applyDecision', () =>
   {
-    const { action, nodeId } = decision;
+    const { action, nodeId, branchUid } = decision;
+    const prevState = creature.state;
     let goals;
     if (shouldReuseGoals(creature, decision, ctx))
     {
@@ -449,8 +450,15 @@ export function applyDecisionWithContext(creature, decision, ctx, creatureSystem
       goals = resolveGoals(action, ctx, creatureSystem);
     }
 
+    if (action.state !== prevState)
+    {
+      creature.stateCommittedSince = state.tGlobal;
+    }
+
     creature.state = action.state;
     creature.btNodeId = nodeId;
+    creature.btBranchUid = branchUid ?? creature.btBranchUid ?? null;
+    creature.btAction = action;
     creature.gpuStateCode = stateToGpuCode(action.state);
     creature.tx = goals.goalX;
     creature.ty = goals.goalY;

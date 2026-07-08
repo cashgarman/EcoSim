@@ -233,7 +233,10 @@ Hybrid JSON-driven behavior trees in [`data/behaviors/`](data/behaviors/) + [`js
 - **`library.json`** — shared conditions, actions, thresholds, base tree templates (`herbivore_prey`, `carnivore`, `omnivore`)
 - **`{species}.json`** — `extends` template, threshold overrides, action tweaks, tree insert/remove patches
 - Each species in [`data/species.json`](data/species.json) has a `"behavior"` key pointing to its behavior file stem
-- **`BehaviorTree.tick()`** — builds perception context (`nearby` scan), walks selector/sequence nodes, returns first succeeding action
+- **`BehaviorTree.tick()`** — builds perception context (`nearby` scan), walks selector/sequence nodes, returns first succeeding action; **`shouldApplyDecision`** (C# `BehaviorTree` / JS `priority.js`) gates state commits by **interrupt tier** instead of a flat 2.5 s debounce
+- **Interrupt tiers** (`interruptTier` on actions in `library.json`): `0` flee · `1` survival (thirst/graze/hunt/rest) · `2` discretionary (mate/stalk) · `3` wander. Lower tier always preempts higher; urgent needs (`hungerUrgent` / `thirstUrgent` / `energyUrgent`) bypass discretionary commits; tier ≥2 same-state actions respect `minCommitSec` (~0.5 s) anti-flicker dwell
+- **Need hysteresis:** `Thirsty`, `HungryHerbivore`/`HungryCarnivore*`, `Exhausted` use `*BelowOrState` ops — enter at graze/rest thresholds, stay until `hungerExit` / `thirstExit` / `energyExit`
+- **Editor foundations (Godot/C#):** `data/behaviors/schema.json`, `BehaviorValidator`, `BehaviorCompiler`, `BehaviorGraphAdapter` (nested JSON ↔ flat nodes/edges), stable per-node `Uid` on compiled trees, optional `data/behaviors/_editor/*.layout.json` sidecars; creatures track `BtBranchUid` for future live BT debug
 - **CPU path:** BT sets state + goals, then `applyActionEffects` runs graze/hunt/mate/etc.; **`resolveMovementTarget`** picks direct pursuit (live target position within ~4 tiles / LOS) or **`planGridStep`** (A*) for movement
 - **GPU path:** BT runs on CPU each tick (`tickDecisionOnly`); `uploadBehaviorDecisions()` writes behavior goal to `sv.x/y`, target slot + state to `tv.z/w` (waypoints stay in `tv.x/y`); GPU runs `claimBehaviorTargets` → **`planNavStep` (A*)** → `resolveIntegrate` → **`resolveHuntDamage`** (predation). Hunt/mate use live target positions in `resolveIntegrate`; flee uses `sv` flee goals (not threat position).
 
@@ -683,7 +686,8 @@ Key timing buckets: `frameTotal`, `sim`, `snapshot`, `displaySmooth`, `render`, 
 | `autoMigrationEnabled` | `state.js` | Sandbox migrant reseed gate (default `false`) |
 | `perf-policy.js` helpers | `perf-policy.js` | High-speed snapshot/readback/timeline scaling |
 | `gpuDisplayExtrapolate` | `state.js` | GPU position extrapolation between readbacks |
-| `DECISION_DEBOUNCE_SEC` | `life-story.js` | Min time in a behavior before logging a decision |
+| `interruptTier` / `minCommitSec` | `data/behaviors/library.json` | Action priority + same-tier anti-flicker dwell |
+| `hungerUrgent` / `hungerExit` / `energyUrgent` / `energyExit` | `library.json` | Need interrupt urgency + graze/rest hysteresis |
 | `MAX_LIFE_EVENTS` | `life-story.js` | Per-creature event ring buffer size |
 | Species `base` / `hunts` / `preyOf` | `data.js` | Food web balance |
 

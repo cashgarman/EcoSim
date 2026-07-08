@@ -29,7 +29,7 @@ public class EcologyRegressionTests
         harness.Run(new BatchRunOptions { TargetDays = 5, MaxWallMs = 120_000, SampleEveryDays = 5 });
 
         int endRabbits = session.State.Creatures.Count(c => c.Sp == "rabbit" && !c.Dead);
-        int predationDeaths = session.State.Creatures.Count(c => c.Sp == "rabbit" && c.Dead && c.Cause == "predation");
+        int predationDeaths = session.SpeciesStats.Get("rabbit").DeathsByKey.GetValueOrDefault("predation", 0);
 
         Assert.That(endRabbits, Is.LessThan(startRabbits),
             "seed 42 day 5 should reduce rabbit population via predation");

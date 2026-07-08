@@ -9,8 +9,10 @@ let behaviorOverrides = { library: {}, species: {} };
 
 const FUZZ_ACTION_KEYS = ['Flee', 'HuntNearby', 'Wander'];
 const THRESHOLD_KEYS = [
-  'thirstUrgent', 'thirstExit', 'hungerGraze', 'hungerHunt',
-  'restEnergy', 'nightWanderRestEnergy',
+  'thirstUrgent', 'thirstExit',
+  'hungerUrgent', 'hungerGraze', 'hungerExit', 'hungerHunt',
+  'energyUrgent', 'restEnergy', 'energyExit',
+  'nightWanderRestEnergy',
   'mateHungerMin', 'mateThirstMin', 'mateEnergyMin',
 ];
 

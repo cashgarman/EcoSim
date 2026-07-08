@@ -44,5 +44,10 @@ public static class DataPaths
 
     public static string BehaviorLibraryJson => Path.Combine(BehaviorsDirectory, "library.json");
 
+    public static string BehaviorSchemaJson => Path.Combine(BehaviorsDirectory, "schema.json");
+
     public static string BehaviorFile(string stem) => Path.Combine(BehaviorsDirectory, stem + ".json");
+
+    public static string BehaviorEditorLayout(string stem) =>
+        Path.Combine(BehaviorsDirectory, "_editor", stem + ".layout.json");
 }

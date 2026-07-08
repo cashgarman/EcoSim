@@ -120,6 +120,7 @@ public static class BehaviorExecutor
 
         creature.State = newState;
         creature.BtNodeId = decision.NodeId;
+        creature.BtBranchUid = decision.BranchUid;
         creature.BtAction = decision.Action;
         creature.Tx = goals.GoalX;
         creature.Ty = goals.GoalY;

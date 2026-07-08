@@ -6,81 +6,107 @@ namespace EcoSim.Core.Behavior;
 
 public sealed class BehaviorTree
 {
-    private readonly SimState _state;
-    private readonly SpeciesCatalog _catalog;
+  private readonly SimState _state;
+  private readonly SpeciesCatalog _catalog;
 
-    public BehaviorTree(SimState state, SpeciesCatalog catalog)
+  public BehaviorTree(SimState state, SpeciesCatalog catalog)
+  {
+    _state = state;
+    _catalog = catalog;
+  }
+
+  public BehaviorDecision? Decide(Creature creature, CreatureSystem creatures)
+  {
+    var cfg = _catalog.Get(creature.Sp).BehaviorConfig;
+    if (cfg == null) return null;
+    var ctx = BehaviorContextBuilder.Build(creature, creatures, _state, _catalog);
+    var result = BehaviorEvaluator.EvaluateTree(_state, cfg.Root, ctx);
+    if (result?.Action == null) return null;
+    return new BehaviorDecision
     {
-        _state = state;
-        _catalog = catalog;
+      NodeId = result.NodeId,
+      BranchUid = result.BranchUid,
+      Action = result.Action,
+      Ctx = ctx,
+    };
+  }
+
+  public BehaviorDecision? Tick(Creature creature, double dt, CreatureSystem creatures, bool executeActions = true)
+  {
+    var proposed = Decide(creature, creatures);
+    if (proposed == null) return null;
+
+    BehaviorDecision effective;
+    if (ShouldApplyDecision(creature, proposed))
+    {
+      effective = proposed;
+      BehaviorExecutor.ApplyDecision(creature, effective, creatures, _state);
+    }
+    else
+    {
+      effective = BuildCommittedDecision(creature, creatures);
     }
 
-    public BehaviorDecision? Decide(Creature creature, CreatureSystem creatures)
+    double speed = creature.Genome.Speed;
+    if (!creatures.IsAdult(creature)) speed *= 0.8;
+    if (_state.IsNight) speed *= 0.6;
+
+    if (executeActions)
     {
-        var cfg = _catalog.Get(creature.Sp).BehaviorConfig;
-        if (cfg == null) return null;
-        var ctx = BehaviorContextBuilder.Build(creature, creatures, _state, _catalog);
-        var result = BehaviorEvaluator.EvaluateTree(_state, cfg.Root, ctx);
-        if (result?.Action == null) return null;
-        return new BehaviorDecision { NodeId = result.NodeId, Action = result.Action, Ctx = ctx };
+      BehaviorExecutor.ApplyActionEffects(_catalog, _state, effective.Action, effective.Ctx, creatures, dt, speed);
     }
 
-    public BehaviorDecision? Tick(Creature creature, double dt, CreatureSystem creatures, bool executeActions = true)
+    return effective;
+  }
+
+  private bool ShouldApplyDecision(Creature creature, BehaviorDecision proposed)
+  {
+    string proposedState = proposed.Action["state"]?.GetValue<string>() ?? creature.State;
+    if (creature.State == "flee" || proposedState == "flee") return true;
+    if (creature.BtAction == null) return true;
+
+    int currentTier = BehaviorPriority.GetTier(creature.BtAction);
+    int proposedTier = BehaviorPriority.GetTier(proposed.Action);
+    if (proposedTier < currentTier) return true;
+    if (BehaviorPriority.IsUrgentNeed(creature, proposed.Ctx)) return true;
+
+    if (proposedState == creature.State && proposedTier == currentTier && proposedTier >= 2)
     {
-        var proposed = Decide(creature, creatures);
-        if (proposed == null) return null;
-
-        BehaviorDecision effective;
-        if (ShouldApplyDecision(creature, proposed))
-        {
-            effective = proposed;
-            BehaviorExecutor.ApplyDecision(creature, effective, creatures, _state);
-        }
-        else
-        {
-            effective = BuildCommittedDecision(creature, creatures);
-        }
-
-        double speed = creature.Genome.Speed;
-        if (!creatures.IsAdult(creature)) speed *= 0.8;
-        if (_state.IsNight) speed *= 0.6;
-
-        if (executeActions)
-        {
-            BehaviorExecutor.ApplyActionEffects(_catalog, _state, effective.Action, effective.Ctx, creatures, dt, speed);
-        }
-
-        return effective;
+      double dwell = Math.Max(
+        BehaviorPriority.GetMinCommitSec(creature.BtAction),
+        BehaviorPriority.SameTierDwellSec);
+      double elapsed = creature.StateCommittedSince <= 0
+        ? 0
+        : _state.TGlobal - creature.StateCommittedSince;
+      if (elapsed < dwell)
+      {
+        return false;
+      }
     }
 
-    private bool ShouldApplyDecision(Creature creature, BehaviorDecision proposed)
+    if (proposedState == creature.State) return true;
+
+    if (proposedTier == currentTier)
     {
-        string proposedState = proposed.Action["state"]?.GetValue<string>() ?? creature.State;
-        if (proposedState == creature.State) return true;
-        if (creature.State == "flee" || proposedState == "flee") return true;
-        if (creature.BtAction == null) return true;
-        if (IsImmediateStateChange(creature, proposedState, proposed)) return true;
-        if (creature.StateCommittedSince <= 0) return true;
-        return _state.TGlobal - creature.StateCommittedSince >= LifeStory.BehaviorCommitDebounceSec;
+      double dwell = Math.Max(
+        BehaviorPriority.GetMinCommitSec(creature.BtAction),
+        BehaviorPriority.SameTierDwellSec);
+      if (creature.StateCommittedSince <= 0) return true;
+      return _state.TGlobal - creature.StateCommittedSince >= dwell;
     }
 
-    private bool IsImmediateStateChange(Creature creature, string proposedState, BehaviorDecision proposed)
-    {
-        return proposedState switch
-        {
-            "thirst" => creature.Thirst < 30,
-            _ => false,
-        };
-    }
+    return false;
+  }
 
-    private BehaviorDecision BuildCommittedDecision(Creature creature, CreatureSystem creatures)
+  private BehaviorDecision BuildCommittedDecision(Creature creature, CreatureSystem creatures)
+  {
+    var action = creature.BtAction ?? new JsonObject { ["state"] = creature.State };
+    return new BehaviorDecision
     {
-        var action = creature.BtAction ?? new JsonObject { ["state"] = creature.State };
-        return new BehaviorDecision
-        {
-            NodeId = creature.BtNodeId ?? "",
-            Action = action,
-            Ctx = BehaviorContextBuilder.Build(creature, creatures, _state, _catalog),
-        };
-    }
+      NodeId = creature.BtNodeId ?? "",
+      BranchUid = creature.BtBranchUid ?? "",
+      Action = action,
+      Ctx = BehaviorContextBuilder.Build(creature, creatures, _state, _catalog),
+    };
+  }
 }

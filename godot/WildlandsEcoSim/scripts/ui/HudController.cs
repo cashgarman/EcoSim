@@ -44,6 +44,7 @@ public partial class HudController : CanvasLayer
     private TimelineDbPanel? _timelineDbPanel;
     private ProfilerDetailPanel? _profilerDetail;
     private DeathNoticePanel? _deathNotice;
+    private PauseMenuPanel? _pauseMenu;
     private Button? _cpuGpuBtn;
     private int? _watchFollowDeathId;
     private TimelineDb? _timelineDb;
@@ -132,6 +133,11 @@ public partial class HudController : CanvasLayer
         _deathNotice = new DeathNoticePanel();
         _deathNotice.Theme = uiTheme;
         AddChild(_deathNotice);
+        _pauseMenu = new PauseMenuPanel();
+        _pauseMenu.Theme = uiTheme;
+        _pauseMenu.Resumed += OnPauseMenuResume;
+        _pauseMenu.QuitRequested += OnPauseMenuQuit;
+        AddChild(_pauseMenu);
 
         _panels = [_gen, _ecosystem, _inspector, GetNode<StoryPanel>("%StoryPanel"), _speciesStats, _profiler, _timelineDbPanel];
 
@@ -224,9 +230,7 @@ public partial class HudController : CanvasLayer
     {
         if (what == NotificationWMCloseRequest)
         {
-            PanelLayoutService.SaveAll(_panels);
-            _profilerDetail?.SaveLayout();
-            _timelineDb?.Dispose();
+            SaveBeforeQuit();
         }
     }
 
@@ -245,9 +249,20 @@ public partial class HudController : CanvasLayer
                 OnProfilerToggled();
                 GetViewport().SetInputAsHandled();
             }
-            else if (key.Keycode == Key.Escape && _deathNotice != null && _deathNotice.Visible)
+            else if (key.Keycode == Key.Escape)
             {
-                _deathNotice.HideNotice();
+                if (_deathNotice != null && _deathNotice.Visible)
+                {
+                    _deathNotice.HideNotice();
+                }
+                else if (_pauseMenu != null && _pauseMenu.IsOpen)
+                {
+                    OnPauseMenuResume();
+                }
+                else
+                {
+                    OpenPauseMenu();
+                }
                 GetViewport().SetInputAsHandled();
             }
             else if (key.Keycode == Key.F)
@@ -356,6 +371,7 @@ public partial class HudController : CanvasLayer
         _story.Reset();
         _ecosystem.Reset();
         _deathNotice?.HideNotice();
+        _pauseMenu?.HideMenu();
         _watchFollowDeathId = null;
         _story.LogGodAction($"Day 0: World generated ({cfg.Size}, seed {seed})", session);
         RefreshHud();
@@ -609,6 +625,41 @@ public partial class HudController : CanvasLayer
         if (session == null) return;
         double speed = session.State.Speed;
         _speedControl.SetValueNoSignal(speed);
+    }
+
+    private void OpenPauseMenu()
+    {
+        if (!_gameApp.Paused)
+        {
+            _gameApp.TogglePause();
+            SyncSpeedSliderFromSession();
+        }
+
+        _pauseMenu?.ShowMenu();
+    }
+
+    private void OnPauseMenuResume()
+    {
+        _pauseMenu?.HideMenu();
+        if (_gameApp.Paused)
+        {
+            _gameApp.TogglePause();
+            SyncSpeedSliderFromSession();
+        }
+    }
+
+    private void OnPauseMenuQuit()
+    {
+        SaveBeforeQuit();
+        GetTree().Quit();
+    }
+
+    private void SaveBeforeQuit()
+    {
+        PanelLayoutService.SaveAll(_panels);
+        _profilerDetail?.SaveLayout();
+        _timelineDb?.Dispose();
+        _timelineDb = null;
     }
 
     private void OnTimelinePresent()
