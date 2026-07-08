@@ -1,0 +1,441 @@
+{
+  "defaultStyle": "kenney_round_outline",
+  "species": {
+    "rabbit": {
+      "file": "rabbit.png",
+      "scale": 0.92,
+      "anchor": [
+        0.5,
+        0.88
+      ],
+      "content": [
+        0,
+        0,
+        137,
+        184
+      ]
+    },
+    "mouse": {
+      "file": "mouse.png",
+      "scale": 0.88,
+      "anchor": [
+        0.5,
+        0.88
+      ],
+      "content": [
+        0,
+        0,
+        137,
+        136
+      ]
+    },
+    "deer": {
+      "file": "deer.png",
+      "scale": 1.0,
+      "anchor": [
+        0.5,
+        0.88
+      ],
+      "content": [
+        0,
+        0,
+        192,
+        179
+      ]
+    },
+    "elk": {
+      "file": "elk.png",
+      "scale": 1.05,
+      "anchor": [
+        0.5,
+        0.88
+      ],
+      "content": [
+        0,
+        0,
+        277,
+        170
+      ]
+    },
+    "beaver": {
+      "file": "beaver.png",
+      "scale": 1.0,
+      "anchor": [
+        0.5,
+        0.88
+      ],
+      "content": [
+        0,
+        0,
+        137,
+        136
+      ]
+    },
+    "boar": {
+      "file": "boar.png",
+      "scale": 1.02,
+      "anchor": [
+        0.5,
+        0.88
+      ],
+      "content": [
+        0,
+        0,
+        152,
+        136
+      ]
+    },
+    "wolf": {
+      "file": "wolf.png",
+      "scale": 0.98,
+      "anchor": [
+        0.5,
+        0.88
+      ],
+      "content": [
+        0,
+        0,
+        137,
+        165
+      ]
+    },
+    "hawk": {
+      "file": "hawk.png",
+      "scale": 0.94,
+      "anchor": [
+        0.5,
+        0.88
+      ],
+      "content": [
+        0,
+        0,
+        137,
+        136
+      ]
+    },
+    "owl": {
+      "file": "owl.png",
+      "scale": 0.94,
+      "anchor": [
+        0.5,
+        0.88
+      ],
+      "content": [
+        0,
+        0,
+        136,
+        136
+      ]
+    },
+    "bear": {
+      "file": "bear.png",
+      "scale": 1.08,
+      "anchor": [
+        0.5,
+        0.88
+      ],
+      "content": [
+        0,
+        0,
+        162,
+        140
+      ]
+    },
+    "fox": {
+      "file": "fox.png",
+      "scale": 0.96,
+      "anchor": [
+        0.5,
+        0.88
+      ],
+      "content": [
+        23,
+        14,
+        17,
+        43
+      ]
+    }
+  },
+  "extras": {
+    "buffalo": {
+      "file": "extra_buffalo.png",
+      "scale": 1.0,
+      "anchor": [
+        0.5,
+        0.88
+      ],
+      "content": [
+        0,
+        0,
+        191,
+        160
+      ]
+    },
+    "chicken": {
+      "file": "extra_chicken.png",
+      "scale": 1.0,
+      "anchor": [
+        0.5,
+        0.88
+      ],
+      "content": [
+        0,
+        0,
+        136,
+        153
+      ]
+    },
+    "cow": {
+      "file": "extra_cow.png",
+      "scale": 1.0,
+      "anchor": [
+        0.5,
+        0.88
+      ],
+      "content": [
+        0,
+        0,
+        153,
+        136
+      ]
+    },
+    "crocodile": {
+      "file": "extra_crocodile.png",
+      "scale": 1.0,
+      "anchor": [
+        0.5,
+        0.88
+      ],
+      "content": [
+        0,
+        0,
+        137,
+        136
+      ]
+    },
+    "elephant": {
+      "file": "extra_elephant.png",
+      "scale": 1.0,
+      "anchor": [
+        0.5,
+        0.88
+      ],
+      "content": [
+        0,
+        0,
+        191,
+        162
+      ]
+    },
+    "frog": {
+      "file": "extra_frog.png",
+      "scale": 1.0,
+      "anchor": [
+        0.5,
+        0.88
+      ],
+      "content": [
+        0,
+        0,
+        138,
+        152
+      ]
+    },
+    "giraffe": {
+      "file": "extra_giraffe.png",
+      "scale": 1.0,
+      "anchor": [
+        0.5,
+        0.88
+      ],
+      "content": [
+        0,
+        0,
+        162,
+        170
+      ]
+    },
+    "gorilla": {
+      "file": "extra_gorilla.png",
+      "scale": 1.0,
+      "anchor": [
+        0.5,
+        0.88
+      ],
+      "content": [
+        0,
+        0,
+        137,
+        136
+      ]
+    },
+    "hippo": {
+      "file": "extra_hippo.png",
+      "scale": 1.0,
+      "anchor": [
+        0.5,
+        0.88
+      ],
+      "content": [
+        0,
+        0,
+        162,
+        136
+      ]
+    },
+    "horse": {
+      "file": "extra_horse.png",
+      "scale": 1.0,
+      "anchor": [
+        0.5,
+        0.88
+      ],
+      "content": [
+        0,
+        0,
+        137,
+        149
+      ]
+    },
+    "monkey": {
+      "file": "extra_monkey.png",
+      "scale": 1.0,
+      "anchor": [
+        0.5,
+        0.88
+      ],
+      "content": [
+        0,
+        0,
+        182,
+        136
+      ]
+    },
+    "narwhal": {
+      "file": "extra_narwhal.png",
+      "scale": 1.0,
+      "anchor": [
+        0.5,
+        0.88
+      ],
+      "content": [
+        0,
+        0,
+        146,
+        163
+      ]
+    },
+    "panda": {
+      "file": "extra_panda.png",
+      "scale": 1.0,
+      "anchor": [
+        0.5,
+        0.88
+      ],
+      "content": [
+        0,
+        0,
+        182,
+        136
+      ]
+    },
+    "penguin": {
+      "file": "extra_penguin.png",
+      "scale": 1.0,
+      "anchor": [
+        0.5,
+        0.88
+      ],
+      "content": [
+        0,
+        0,
+        148,
+        136
+      ]
+    },
+    "rhino": {
+      "file": "extra_rhino.png",
+      "scale": 1.0,
+      "anchor": [
+        0.5,
+        0.88
+      ],
+      "content": [
+        0,
+        0,
+        162,
+        136
+      ]
+    },
+    "sloth": {
+      "file": "extra_sloth.png",
+      "scale": 1.0,
+      "anchor": [
+        0.5,
+        0.88
+      ],
+      "content": [
+        0,
+        0,
+        137,
+        136
+      ]
+    },
+    "snake": {
+      "file": "extra_snake.png",
+      "scale": 1.0,
+      "anchor": [
+        0.5,
+        0.88
+      ],
+      "content": [
+        0,
+        0,
+        136,
+        150
+      ]
+    },
+    "walrus": {
+      "file": "extra_walrus.png",
+      "scale": 1.0,
+      "anchor": [
+        0.5,
+        0.88
+      ],
+      "content": [
+        0,
+        0,
+        136,
+        146
+      ]
+    },
+    "whale": {
+      "file": "extra_whale.png",
+      "scale": 1.0,
+      "anchor": [
+        0.5,
+        0.88
+      ],
+      "content": [
+        0,
+        0,
+        146,
+        162
+      ]
+    },
+    "zebra": {
+      "file": "extra_zebra.png",
+      "scale": 1.0,
+      "anchor": [
+        0.5,
+        0.88
+      ],
+      "content": [
+        0,
+        0,
+        136,
+        149
+      ]
+    }
+  }
+}
