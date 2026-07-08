@@ -30,6 +30,8 @@ public partial class WorldRenderer : Node2D
     private Action<double, double>? _toolApply;
     private bool _painting;
     private int _vegRefreshCounter;
+    private double _scrubVegBakeAt;
+    private const double ScrubVegBakeMs = 320;
     private float _waterAnimPhase;
     private string? _lockedSpecies;
     private string? _hoveredSpecies;
@@ -251,6 +253,41 @@ public partial class WorldRenderer : Node2D
         session.Creatures.SnapAllDisplayPositions();
         UpdateDayNight();
         UpdateRenderContext();
+    }
+
+    public void ApplyScrubState(SimSession session, SpeciesCatalog catalog, bool light)
+    {
+        _session = session;
+        PerfProfiler.Instance.Timed("scrub.applyVisuals", () =>
+        {
+            UpdateDayNight();
+
+            if (session.State.VegDirty)
+            {
+                double nowMs = Time.GetTicksMsec();
+                bool blocked = light && (nowMs - _scrubVegBakeAt) < ScrubVegBakeMs;
+                if (!blocked)
+                {
+                    PerfProfiler.Instance.Timed("scrub.vegBake", () =>
+                    {
+                        var vegImg = TerrainBaker.BakeVegImage(session.State);
+                        _veg.Texture = ImageTexture.CreateFromImage(vegImg);
+                        session.State.VegDirty = false;
+                        if (light) _scrubVegBakeAt = nowMs;
+                    });
+                }
+            }
+
+            _creatures.Invalidate();
+            _pedigree.Bind(session);
+            _highlights.Bind(session);
+            if (!light)
+            {
+                session.Creatures.SnapAllDisplayPositions();
+            }
+
+            UpdateRenderContext();
+        });
     }
 
     public void SetLockedSpecies(string? speciesKey)

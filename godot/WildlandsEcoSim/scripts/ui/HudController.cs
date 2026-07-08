@@ -50,6 +50,10 @@ public partial class HudController : CanvasLayer
     private TimeScrubController? _scrub;
     private double _heartbeatIntervalSec = 5;
     private long _lastHeartbeatBucket = -1;
+    private double _scrubStripLastRefreshMs;
+    private bool _timelineDragging;
+    private bool _seekDeferred;
+    private double? _pendingSeekT;
     private DraggablePanel[] _panels = [];
     private PopHistoryTracker _popHistory = new();
 
@@ -270,15 +274,42 @@ public partial class HudController : CanvasLayer
             profiler.Timed("ui", () =>
             {
                 UpdateTooltips();
-                RefreshHud();
+                if (_scrub != null && _scrub.ScrubActive)
+                {
+                    RefreshScrubChrome();
+                }
+                else
+                {
+                    RefreshHud();
+                }
             });
             _profiler.Refresh();
             if (_profilerDetail.PanelOpen)
             {
                 _profilerDetail.Refresh();
             }
-            RefreshTimelineStrip();
+            RefreshTimelineStripIfDue();
         });
+    }
+
+    private void RefreshTimelineStripIfDue()
+    {
+        var session = _host.Session;
+        if (session == null || _scrub == null) return;
+
+        double nowMs = Time.GetTicksMsec();
+        bool force = !_timelineDragging && _scrub.ScrubActive;
+        if (!force && nowMs - _scrubStripLastRefreshMs < PerfPolicy.EffectiveScrubTickRefreshMs())
+        {
+            if (_timelineDragging)
+            {
+                _timeline.SetPlayheadPreview(_scrub.ScrubTargetT);
+            }
+            return;
+        }
+
+        _scrubStripLastRefreshMs = nowMs;
+        RefreshTimelineStrip();
     }
 
     private void OnCpuGpuToggled()
@@ -318,6 +349,7 @@ public partial class HudController : CanvasLayer
         _timelineDb?.BeginRun(runId);
         var initialSnap = SnapshotService.Capture(session.State);
         _timelineDb?.SaveSnapshot(initialSnap, TimeScrubController.DefaultSnapshotIntervalSec);
+        _scrub?.RegisterSnapshot(initialSnap);
 
         _world.BindWorld(session, _host.Species!);
         _camera.CenterOnWorld();
@@ -476,22 +508,93 @@ public partial class HudController : CanvasLayer
     private void OnTimelineScrubDragStarted()
     {
         PauseSimulationForTimeline();
+        _timelineDragging = true;
         _scrub?.SetDragging(true);
+        _scrub?.PrewarmCache();
     }
 
     private void OnTimelineScrubDragEnded()
     {
+        _timelineDragging = false;
         _scrub?.SetDragging(false);
+        if (_pendingSeekT != null)
+        {
+            RunPendingSeek(full: true);
+        }
+        else
+        {
+            FinalizeScrubSeek();
+        }
+    }
+
+    private void FinalizeScrubSeek()
+    {
+        if (_scrub == null) return;
+        var session = _host.Session;
+        if (session == null || _host.Species == null) return;
+
+        bool applied = false;
+        PerfProfiler.Instance.Timed("scrub.seek", () =>
+        {
+            applied = _scrub.SeekTo(_scrub.ScrubTargetT, light: false);
+        });
+        if (!applied && !_scrub.IsViewingPast()) return;
+
+        _world.ApplyScrubState(session, _host.Species, light: false);
+        RefreshHud();
+        RefreshTimelineStrip();
     }
 
     private void OnTimelineSeek(double targetT)
     {
         PauseSimulationForTimeline();
-        _scrub?.SeekTo(targetT);
+        _pendingSeekT = targetT;
+        _timeline.SetPlayheadPreview(targetT);
+        if (!_seekDeferred)
+        {
+            _seekDeferred = true;
+            CallDeferred(MethodName.ProcessPendingSeek);
+        }
+    }
+
+    private void ProcessPendingSeek()
+    {
+        _seekDeferred = false;
+        RunPendingSeek(full: !_timelineDragging);
+        if (_pendingSeekT != null)
+        {
+            _seekDeferred = true;
+            CallDeferred(MethodName.ProcessPendingSeek);
+        }
+    }
+
+    private void RunPendingSeek(bool full)
+    {
+        if (_pendingSeekT == null || _scrub == null) return;
+        double targetT = _pendingSeekT.Value;
+        _pendingSeekT = null;
+
+        var profiler = PerfProfiler.Instance;
+        bool applied = false;
+        profiler.Timed("scrub.seek", () =>
+        {
+            applied = _scrub.SeekTo(targetT, light: !full);
+        });
+        if (!applied) return;
+
         var session = _host.Session;
-        if (session == null) return;
-        _world.BindWorld(session, _host.Species!);
-        RefreshHud();
+        if (session == null || _host.Species == null) return;
+        _world.ApplyScrubState(session, _host.Species, light: !full);
+
+        if (full)
+        {
+            RefreshHud();
+            RefreshTimelineStrip();
+        }
+        else
+        {
+            RefreshScrubChrome();
+        }
     }
 
     private void PauseSimulationForTimeline()
@@ -510,11 +613,12 @@ public partial class HudController : CanvasLayer
 
     private void OnTimelinePresent()
     {
-        _scrub?.GoToPresent();
+        PerfProfiler.Instance.Timed("scrub.seek", () => _scrub?.GoToPresent());
         var session = _host.Session;
-        if (session == null) return;
-        _world.BindWorld(session, _host.Species!);
+        if (session == null || _host.Species == null) return;
+        _world.ApplyScrubState(session, _host.Species, light: false);
         RefreshHud();
+        RefreshTimelineStrip();
     }
 
     private void OnSimTicked()
@@ -601,6 +705,21 @@ public partial class HudController : CanvasLayer
         _timelineDb.AppendHeartbeat(session.State.TGlobal, session.State.Day, json);
     }
 
+    private void RefreshScrubChrome()
+    {
+        var session = _host.Session;
+        if (session == null) return;
+
+        var phase = SimMath.DayPhaseFromTimeOfDay(session.State.TimeOfDay);
+        _dayIcon.Text = phase.Icon;
+        _clockLabel.Text = SimMath.FormatTimeOfDay12(session.State.TimeOfDay);
+        _dayLabel.Text = $"Day {session.State.Day}";
+
+        double fps = PerfProfiler.Instance.FrameMsAvg > 0 ? 1000.0 / PerfProfiler.Instance.FrameMsAvg : 0;
+        double frameMs = PerfProfiler.Instance.FrameMsAvg;
+        _simFpsLabel.Text = $"⚙ {fps:F0} FPS · {frameMs:F1}ms";
+    }
+
     private void RefreshHud()
     {
         var session = _host.Session;
@@ -637,7 +756,13 @@ public partial class HudController : CanvasLayer
     {
         var session = _host.Session;
         if (session == null || _scrub == null) return;
-        _timeline.SetSnapshots(_scrub.SnapshotTimes(), session.State.TGlobal, _scrub.BaselineT, _gameApp.Paused, 0.3);
+        double currentT = _scrub.ScrubActive ? _scrub.ScrubTargetT : session.State.TGlobal;
+        _timeline.SetSnapshots(
+            _scrub.SnapshotTimes(),
+            currentT,
+            _scrub.BaselineT,
+            _gameApp.Paused,
+            0.3);
     }
 
     private static double ComputeVegPercent(SimState state)

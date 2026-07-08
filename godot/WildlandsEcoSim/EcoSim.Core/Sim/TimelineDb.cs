@@ -10,7 +10,10 @@ public sealed class TimelineDb : IDisposable
     public void Open(string dbPath)
     {
         _conn?.Dispose();
-        _conn = new SqliteConnection($"Data Source={dbPath}");
+        string connStr = dbPath.Contains("Data Source=", StringComparison.OrdinalIgnoreCase)
+            ? dbPath
+            : $"Data Source={dbPath}";
+        _conn = new SqliteConnection(connStr);
         _conn.Open();
         EnsureSchema();
     }
@@ -27,11 +30,17 @@ public sealed class TimelineDb : IDisposable
     {
         if (_conn == null || string.IsNullOrEmpty(_runId)) return;
         snap.RunId = _runId;
-        long bucket = (long)Math.Floor(snap.T / intervalSec);
+        long bucket = SnapshotCache.BucketFor(snap.T, intervalSec);
         string json = SnapshotService.Serialize(snap);
+        var meta = SnapshotService.ToMeta(snap);
+        string metaJson = SnapshotService.SerializeMeta(meta);
+        string creaturesJson = SnapshotService.SerializeCreatures(snap.Creatures);
+        byte[] vegBlob = SnapshotService.PackVegBlob(snap.Veg, snap.VegCap);
         Execute(
-            "INSERT OR REPLACE INTO snapshots(runId, tickBucket, t, day, json) VALUES($r, $b, $t, $d, $j)",
-            ("$r", _runId), ("$b", bucket), ("$t", snap.T), ("$d", snap.Day), ("$j", json));
+            "INSERT OR REPLACE INTO snapshots(runId, tickBucket, t, day, json, metaJson, creaturesJson, vegBlob) " +
+            "VALUES($r, $b, $t, $d, $j, $m, $c, $v)",
+            ("$r", _runId), ("$b", bucket), ("$t", snap.T), ("$d", snap.Day),
+            ("$j", json), ("$m", metaJson), ("$c", creaturesJson), ("$v", vegBlob));
     }
 
     public WorldSnapshot? LoadNearestSnapshot(double targetT)
@@ -39,12 +48,57 @@ public sealed class TimelineDb : IDisposable
         if (_conn == null || string.IsNullOrEmpty(_runId)) return null;
         using var cmd = _conn.CreateCommand();
         cmd.CommandText =
-            "SELECT json FROM snapshots WHERE runId = $r AND t <= $t ORDER BY t DESC LIMIT 1";
+            "SELECT json, metaJson, creaturesJson, vegBlob FROM snapshots " +
+            "WHERE runId = $r AND t <= $t ORDER BY t DESC LIMIT 1";
         cmd.Parameters.AddWithValue("$r", _runId);
         cmd.Parameters.AddWithValue("$t", targetT);
-        var result = cmd.ExecuteScalar();
-        if (result is not string json) return null;
-        return SnapshotService.Deserialize(json);
+        using var reader = cmd.ExecuteReader();
+        if (!reader.Read()) return null;
+
+        string? metaJson = reader.IsDBNull(1) ? null : reader.GetString(1);
+        string? creaturesJson = reader.IsDBNull(2) ? null : reader.GetString(2);
+        byte[]? vegBlob = reader.IsDBNull(3) ? null : (byte[])reader.GetValue(3);
+        if (metaJson != null && creaturesJson != null && vegBlob != null)
+        {
+            var meta = SnapshotService.DeserializeMeta(metaJson);
+            if (meta != null)
+            {
+                var split = SnapshotService.AssembleFromSplit(meta, creaturesJson, vegBlob);
+                if (split != null)
+                {
+                    split.RunId = _runId;
+                    return split;
+                }
+            }
+        }
+
+        if (reader.IsDBNull(0)) return null;
+        var legacy = SnapshotService.Deserialize(reader.GetString(0));
+        if (legacy != null) legacy.RunId = _runId;
+        return legacy;
+    }
+
+    public List<WorldSnapshot> LoadRecentSnapshots(double beforeT, int limit)
+    {
+        var list = new List<WorldSnapshot>();
+        if (_conn == null || string.IsNullOrEmpty(_runId) || limit <= 0) return list;
+
+        using var cmd = _conn.CreateCommand();
+        cmd.CommandText =
+            "SELECT json, metaJson, creaturesJson, vegBlob FROM snapshots " +
+            "WHERE runId = $r AND t <= $t ORDER BY t DESC LIMIT $l";
+        cmd.Parameters.AddWithValue("$r", _runId);
+        cmd.Parameters.AddWithValue("$t", beforeT);
+        cmd.Parameters.AddWithValue("$l", limit);
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            var snap = ReadSnapshotRow(reader);
+            if (snap != null) list.Add(snap);
+        }
+
+        list.Reverse();
+        return list;
     }
 
     public List<(double T, int Day)> ListSnapshotTimes()
@@ -84,6 +138,7 @@ public sealed class TimelineDb : IDisposable
             "runId TEXT, tickBucket INTEGER, t REAL, day INTEGER, json TEXT, " +
             "PRIMARY KEY(runId, tickBucket))");
         Execute("CREATE INDEX IF NOT EXISTS idx_snap_run_t ON snapshots(runId, t)");
+        MigrateSnapshotColumns();
         Execute(
             "CREATE TABLE IF NOT EXISTS worldEvents(" +
             "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
@@ -98,6 +153,60 @@ public sealed class TimelineDb : IDisposable
             "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
             "runId TEXT, creatureId INTEGER, t REAL, day INTEGER, kind TEXT, json TEXT)");
         Execute("CREATE INDEX IF NOT EXISTS idx_creature_run ON creatureEvents(runId, creatureId)");
+    }
+
+    private void MigrateSnapshotColumns()
+    {
+        if (_conn == null) return;
+        if (!ColumnExists("snapshots", "metaJson"))
+        {
+            Execute("ALTER TABLE snapshots ADD COLUMN metaJson TEXT");
+        }
+
+        if (!ColumnExists("snapshots", "creaturesJson"))
+        {
+            Execute("ALTER TABLE snapshots ADD COLUMN creaturesJson TEXT");
+        }
+
+        if (!ColumnExists("snapshots", "vegBlob"))
+        {
+            Execute("ALTER TABLE snapshots ADD COLUMN vegBlob BLOB");
+        }
+    }
+
+    private bool ColumnExists(string table, string column)
+    {
+        if (_conn == null) return false;
+        using var cmd = _conn.CreateCommand();
+        cmd.CommandText = $"PRAGMA table_info({table})";
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            if (string.Equals(reader.GetString(1), column, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static WorldSnapshot? ReadSnapshotRow(SqliteDataReader reader)
+    {
+        string? metaJson = reader.IsDBNull(1) ? null : reader.GetString(1);
+        string? creaturesJson = reader.IsDBNull(2) ? null : reader.GetString(2);
+        byte[]? vegBlob = reader.IsDBNull(3) ? null : (byte[])reader.GetValue(3);
+        if (metaJson != null && creaturesJson != null && vegBlob != null)
+        {
+            var meta = SnapshotService.DeserializeMeta(metaJson);
+            if (meta != null)
+            {
+                return SnapshotService.AssembleFromSplit(meta, creaturesJson, vegBlob);
+            }
+        }
+
+        if (reader.IsDBNull(0)) return null;
+        return SnapshotService.Deserialize(reader.GetString(0));
     }
 
     public void SaveMeta(string key, string value)

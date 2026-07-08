@@ -26,6 +26,8 @@ public partial class CreatureRenderer : Node2D
 
     public void SetLockedSpecies(string? speciesKey) => _lockedSpecies = speciesKey;
 
+    public void Invalidate() => QueueRedraw();
+
     public void SetCameraZoom(float zoom) => _camZoom = Math.Max(0.25f, zoom);
 
     public override void _Process(double delta)

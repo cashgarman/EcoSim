@@ -35,7 +35,7 @@ public sealed class PerfProfiler
         "frameTotal", "sim", "render",
     };
 
-    private static readonly string[] FrameKeys = ["sim", "snapshot", "displaySmooth", "render", "ui", "other"];
+    private static readonly string[] FrameKeys = ["sim", "snapshot", "scrub", "displaySmooth", "render", "ui", "other"];
 
     private readonly Dictionary<string, double> _timers = new(StringComparer.Ordinal);
     private readonly Dictionary<string, double> _timerStarts = new(StringComparer.Ordinal);

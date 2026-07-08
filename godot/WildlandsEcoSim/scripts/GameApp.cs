@@ -61,6 +61,7 @@ public partial class GameApp : Node
                 });
 
                 profiler.Timed("snapshot", () => _scrub?.CaptureIfDue());
+                _scrub?.NoteLiveAdvance();
             });
         }
 

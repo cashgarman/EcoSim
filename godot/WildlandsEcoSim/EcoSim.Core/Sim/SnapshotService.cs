@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Text.Json;
 
 namespace EcoSim.Core.Sim;
@@ -53,6 +54,11 @@ public sealed class CreatureSnapshot
 
 public static class SnapshotService
 {
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+    };
+
     public static WorldSnapshot Capture(SimState state)
     {
         var snap = new WorldSnapshot
@@ -84,7 +90,147 @@ public static class SnapshotService
         return snap;
     }
 
-    public static void Restore(SimState state, WorldSnapshot snap)
+    public static void Restore(SimState state, WorldSnapshot snap, bool light = false, bool preserveDisplay = false)
+    {
+        RestoreScalars(state, snap);
+
+        if (snap.Veg.Length == state.Veg.Length)
+        {
+            Array.Copy(snap.Veg, state.Veg, snap.Veg.Length);
+            Array.Copy(snap.VegCap, state.VegCap, snap.VegCap.Length);
+        }
+
+        state.VegDirty = true;
+
+        int? selectedId = state.Selected?.Id;
+        if (light)
+        {
+            RestoreCreaturesLight(state, snap, preserveDisplay);
+        }
+        else
+        {
+            RestoreCreaturesFull(state, snap);
+        }
+
+        if (selectedId.HasValue)
+        {
+            state.Selected = state.Creatures.FirstOrDefault(c => c.Id == selectedId.Value);
+        }
+    }
+
+    public static string Serialize(WorldSnapshot snap) => JsonSerializer.Serialize(snap, JsonOptions);
+
+    public static WorldSnapshot? Deserialize(string json) =>
+        JsonSerializer.Deserialize<WorldSnapshot>(json, JsonOptions);
+
+    public static SnapshotMeta ToMeta(WorldSnapshot snap) => new()
+    {
+        T = snap.T,
+        Day = snap.Day,
+        TimeOfDay = snap.TimeOfDay,
+        NextId = snap.NextId,
+        GenerationMax = snap.GenerationMax,
+        GrowRow = snap.GrowRow,
+        W = snap.W,
+        H = snap.H,
+    };
+
+    public static string SerializeMeta(SnapshotMeta meta) =>
+        JsonSerializer.Serialize(meta, JsonOptions);
+
+    public static SnapshotMeta? DeserializeMeta(string json) =>
+        JsonSerializer.Deserialize<SnapshotMeta>(json, JsonOptions);
+
+    public static string SerializeCreatures(IReadOnlyList<CreatureSnapshot> creatures) =>
+        JsonSerializer.Serialize(creatures, JsonOptions);
+
+    public static List<CreatureSnapshot>? DeserializeCreatures(string json) =>
+        JsonSerializer.Deserialize<List<CreatureSnapshot>>(json, JsonOptions);
+
+    public static byte[] PackVegBlob(float[] veg, float[] vegCap)
+    {
+        int n = Math.Min(veg.Length, vegCap.Length);
+        var blob = new byte[n * 8];
+        for (int i = 0; i < n; i++)
+        {
+            BinaryPrimitives.WriteSingleLittleEndian(blob.AsSpan(i * 8), veg[i]);
+            BinaryPrimitives.WriteSingleLittleEndian(blob.AsSpan(i * 8 + 4), vegCap[i]);
+        }
+
+        return blob;
+    }
+
+    public static (float[] Veg, float[] VegCap) UnpackVegBlob(byte[] blob, int expectedLen)
+    {
+        var veg = new float[expectedLen];
+        var vegCap = new float[expectedLen];
+        int pairs = Math.Min(expectedLen, blob.Length / 8);
+        for (int i = 0; i < pairs; i++)
+        {
+            veg[i] = BinaryPrimitives.ReadSingleLittleEndian(blob.AsSpan(i * 8));
+            vegCap[i] = BinaryPrimitives.ReadSingleLittleEndian(blob.AsSpan(i * 8 + 4));
+        }
+
+        return (veg, vegCap);
+    }
+
+    public static WorldSnapshot? AssembleFromSplit(SnapshotMeta meta, string creaturesJson, byte[] vegBlob)
+    {
+        var creatures = DeserializeCreatures(creaturesJson);
+        if (creatures == null) return null;
+
+        int len = meta.W * meta.H;
+        var (veg, vegCap) = UnpackVegBlob(vegBlob, len);
+        return new WorldSnapshot
+        {
+            T = meta.T,
+            Day = meta.Day,
+            TimeOfDay = meta.TimeOfDay,
+            NextId = meta.NextId,
+            GenerationMax = meta.GenerationMax,
+            GrowRow = meta.GrowRow,
+            W = meta.W,
+            H = meta.H,
+            Veg = veg,
+            VegCap = vegCap,
+            Creatures = creatures,
+        };
+    }
+
+    public static CreatureSnapshot CloneCreatureSnapshot(CreatureSnapshot cs) => new()
+    {
+        Id = cs.Id,
+        Sp = cs.Sp,
+        Sex = cs.Sex,
+        X = cs.X,
+        Y = cs.Y,
+        Vx = cs.Vx,
+        Vy = cs.Vy,
+        Dir = cs.Dir,
+        Genome = cs.Genome,
+        Gen = cs.Gen,
+        Age = cs.Age,
+        Hp = cs.Hp,
+        Hunger = cs.Hunger,
+        Thirst = cs.Thirst,
+        Energy = cs.Energy,
+        State = cs.State,
+        Tx = cs.Tx,
+        Ty = cs.Ty,
+        Target = cs.Target,
+        MateCd = cs.MateCd,
+        Pregnant = cs.Pregnant,
+        LitterQ = cs.LitterQ,
+        Walk = cs.Walk,
+        Dead = cs.Dead,
+        Cause = cs.Cause,
+        ParentIds = cs.ParentIds.ToList(),
+        OffspringIds = cs.OffspringIds.ToList(),
+        Rx = cs.Rx,
+        Ry = cs.Ry,
+    };
+
+    private static void RestoreScalars(SimState state, WorldSnapshot snap)
     {
         state.TGlobal = snap.T;
         state.Day = snap.Day;
@@ -92,30 +238,95 @@ public static class SnapshotService
         state.NextId = snap.NextId;
         state.GenerationMax = snap.GenerationMax;
         state.GrowRow = snap.GrowRow;
-        if (snap.Veg.Length == state.Veg.Length)
-        {
-            Array.Copy(snap.Veg, state.Veg, snap.Veg.Length);
-            Array.Copy(snap.VegCap, state.VegCap, snap.VegCap.Length);
-        }
-        state.VegDirty = true;
+    }
 
-        int? selectedId = state.Selected?.Id;
+    private static void RestoreCreaturesFull(SimState state, WorldSnapshot snap)
+    {
         state.Creatures.Clear();
         state.Grid.Clear();
         foreach (var cs in snap.Creatures)
         {
             state.Creatures.Add(FromSnapshot(cs));
         }
-        if (selectedId.HasValue)
+    }
+
+    private static void RestoreCreaturesLight(SimState state, WorldSnapshot snap, bool preserveDisplay)
+    {
+        var prevDisplay = preserveDisplay
+            ? state.Creatures.Where(c => !c.Dead).ToDictionary(c => c.Id, c => (c.Rx, c.Ry))
+            : null;
+
+        var existing = state.Creatures.ToDictionary(c => c.Id);
+        var incomingIds = new HashSet<int>(snap.Creatures.Select(c => c.Id));
+
+        for (int i = state.Creatures.Count - 1; i >= 0; i--)
         {
-            state.Selected = state.Creatures.FirstOrDefault(c => c.Id == selectedId.Value);
+            if (!incomingIds.Contains(state.Creatures[i].Id))
+            {
+                state.Creatures.RemoveAt(i);
+            }
+        }
+
+        existing = state.Creatures.ToDictionary(c => c.Id);
+        foreach (var cs in snap.Creatures)
+        {
+            if (existing.TryGetValue(cs.Id, out var creature))
+            {
+                ApplySnapshotToCreature(creature, cs);
+                if (prevDisplay != null && prevDisplay.TryGetValue(cs.Id, out var prev))
+                {
+                    creature.Rx = prev.Rx;
+                    creature.Ry = prev.Ry;
+                }
+            }
+            else
+            {
+                state.Creatures.Add(FromSnapshot(cs));
+            }
         }
     }
 
-    public static string Serialize(WorldSnapshot snap) => JsonSerializer.Serialize(snap);
-
-    public static WorldSnapshot? Deserialize(string json) =>
-        JsonSerializer.Deserialize<WorldSnapshot>(json);
+    private static void ApplySnapshotToCreature(Creature creature, CreatureSnapshot cs)
+    {
+        creature.Sp = cs.Sp;
+        creature.Sex = cs.Sex;
+        creature.X = cs.X;
+        creature.Y = cs.Y;
+        creature.Vx = cs.Vx;
+        creature.Vy = cs.Vy;
+        creature.Dir = cs.Dir;
+        creature.Genome = cs.Genome;
+        creature.Gen = cs.Gen;
+        creature.Age = cs.Age;
+        creature.Hp = cs.Hp;
+        creature.Hunger = cs.Hunger;
+        creature.Thirst = cs.Thirst;
+        creature.Energy = cs.Energy;
+        creature.State = cs.State;
+        creature.Tx = cs.Tx;
+        creature.Ty = cs.Ty;
+        creature.Target = cs.Target;
+        creature.MateCd = cs.MateCd;
+        creature.Pregnant = cs.Pregnant;
+        creature.LitterQ = cs.LitterQ;
+        creature.Walk = cs.Walk;
+        creature.Dead = cs.Dead;
+        creature.Cause = cs.Cause;
+        creature.ParentIds.Clear();
+        creature.ParentIds.AddRange(cs.ParentIds);
+        creature.OffspringIds.Clear();
+        creature.OffspringIds.AddRange(cs.OffspringIds);
+        if (cs.Rx != 0 || cs.Ry != 0)
+        {
+            creature.Rx = cs.Rx;
+            creature.Ry = cs.Ry;
+        }
+        else
+        {
+            creature.Rx = cs.X;
+            creature.Ry = cs.Y;
+        }
+    }
 
     private static CreatureSnapshot ToSnapshot(Creature c) => new()
     {
@@ -177,7 +388,7 @@ public static class SnapshotService
         Walk = cs.Walk,
         Dead = cs.Dead,
         Cause = cs.Cause,
-        Rx = cs.Rx,
-        Ry = cs.Ry,
+        Rx = cs.Rx != 0 || cs.Ry != 0 ? cs.Rx : cs.X,
+        Ry = cs.Rx != 0 || cs.Ry != 0 ? cs.Ry : cs.Y,
     };
 }
