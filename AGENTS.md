@@ -32,6 +32,7 @@ EcoSim/
 ├── EcoSim.BatchCli/         # Headless batch runner → reports/*.json
 ├── godot/WildlandsEcoSim/
 │   ├── EcoSim.Core/        # Pure C# sim (world, creatures, BT, batch harness)
+│   ├── assets/creatures/   # CC0 Kenney species sprites + manifest.json (Godot zoomed-in LOD)
 │   └── …                   # Godot 4.3 project scaffold (Phase 0+)
 ├── tests/
 │   ├── time-scrub.test.js  # Snapshot/scrub unit tests (console)

@@ -16,6 +16,7 @@ public partial class CreatureRenderer : Node2D
     public override void _Ready()
     {
         ZIndex = 2;
+        CreatureSpriteCatalog.EnsureLoaded();
     }
 
     public void Bind(SimSession session, SpeciesCatalog catalog)
@@ -88,8 +89,21 @@ public partial class CreatureRenderer : Node2D
             if (detail >= 2 && _camZoom > 4.2f)
             {
                 bool moving = Math.Sqrt(c.Vx * c.Vx + c.Vy * c.Vy) > 0.02;
-                CreatureDrawUtil.DrawSprite(this, pos, s, c.Dir, def.Shape, rgb, dk, moving, c.Walk,
-                    !creatures.IsAdult(c), bright);
+                bool juvenile = !creatures.IsAdult(c);
+                if (CreatureSpriteCatalog.TryGetSpeciesSprite(c.Sp, out var spriteDef))
+                {
+                    CreatureDrawUtil.DrawTexturedSprite(this, spriteDef.Texture, pos, s, c.Dir, moving, c.Walk,
+                        bright, spriteDef.Anchor, spriteDef.Scale, spriteDef.ContentRegion);
+                    if (juvenile)
+                    {
+                        CreatureDrawUtil.DrawJuvenileCap(this, pos, s, c.Dir, moving, c.Walk, bright);
+                    }
+                }
+                else
+                {
+                    CreatureDrawUtil.DrawSprite(this, pos, s, c.Dir, def.Shape, rgb, dk, moving, c.Walk,
+                        juvenile, bright);
+                }
             }
             else
             {

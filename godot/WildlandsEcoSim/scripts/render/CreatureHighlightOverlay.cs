@@ -14,6 +14,7 @@ public partial class CreatureHighlightOverlay : Node2D
     public override void _Ready()
     {
         ZIndex = 4;
+        CreatureSpriteCatalog.EnsureLoaded();
     }
 
     public void Bind(SimSession session) => _session = session;
@@ -44,46 +45,34 @@ public partial class CreatureHighlightOverlay : Node2D
 
         var selected = _session.State.Selected;
         var creatures = _session.Creatures;
+        var catalog = _session.Species;
+        int detailTier = PerfProfiler.Instance.DetailTier;
         double now = Time.GetTicksMsec() * 0.001;
 
         foreach (var c in _session.State.Creatures)
         {
             if (c.Dead) continue;
             Vector2 pos = CreatureDrawUtil.DisplayPos(c);
+            string shape = catalog.Get(c.Sp).Shape;
+            CreatureSpriteCatalog.TryGetSpeciesSprite(c.Sp, out var spriteDef);
 
             bool isLocked = c.Sp == _lockedSpecies;
             bool isHovered = c.Sp == _hoveredSpecies && !isLocked;
             if ((isLocked || isHovered) && selected?.Id != c.Id)
             {
                 string rgb = isLocked ? "242,181,62" : "87,184,232";
-                float radius = HighlightRadiusTiles(c, creatures, speciesPanelFocus: true);
+                var bounds = CreatureDrawUtil.GetHighlightBounds(c, creatures, _camZoom, detailTier, shape, spriteDef);
                 int drawTier = Math.Max(highlightTier, 2);
-                DrawGlow(pos, radius, strong: isLocked, now, c.Id + 13, rgb, drawTier);
+                DrawGlow(pos + bounds.CenterOffset, bounds.RadiusTiles, strong: isLocked, now, c.Id + 13, rgb, drawTier);
             }
 
             if (selected?.Id == c.Id)
             {
-                float radius = HighlightRadiusTiles(c, creatures, speciesPanelFocus: false);
-                DrawGlow(pos, radius, strong: true, now, c.Id + 37, "242,181,62", highlightTier);
+                var bounds = CreatureDrawUtil.GetHighlightBounds(c, creatures, _camZoom, detailTier, shape, spriteDef);
+                DrawGlow(pos + bounds.CenterOffset, bounds.RadiusTiles, strong: true, now, c.Id + 37, "242,181,62", highlightTier);
             }
         }
         }));
-    }
-
-    private bool UseMapHighlightScale => _camZoom < 3.5f;
-
-    private float HighlightRadiusTiles(Creature c, CreatureSystem creatures, bool speciesPanelFocus)
-    {
-        float eSize = CreatureDrawUtil.EffectiveSize(creatures, c);
-        float genomeSize = (float)c.Genome.Size;
-
-        if (UseMapHighlightScale || speciesPanelFocus)
-        {
-            return CreatureDrawUtil.MapCircleRadiusTiles(_camZoom, genomeSize, eSize) * 1.22f;
-        }
-
-        float screenSize = Math.Max(8f, _camZoom * 0.9f * eSize);
-        return screenSize / (WorldRenderer.TilePixels * Math.Max(0.15f, _camZoom));
     }
 
     private float LineWidthTiles(bool strong) =>

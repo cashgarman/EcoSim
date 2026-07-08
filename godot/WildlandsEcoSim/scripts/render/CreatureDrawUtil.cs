@@ -128,6 +128,162 @@ public static class CreatureDrawUtil
         canvas.DrawRect(new Rect2(pos.X - body * 0.5f, pos.Y - body * 0.4f, body, body * 0.8f), col);
     }
 
+    private const float SpriteMaxWidthToHeight = 1.22f;
+    private const float HighlightRadiusPadding = 1.08f;
+
+    public readonly struct CreatureHighlightBounds
+    {
+        public Vector2 CenterOffset { get; init; }
+        public float RadiusTiles { get; init; }
+    }
+
+    public static float CreatureDrawSizeTiles(Creature c, CreatureSystem creatures, float camZoom, int detailTier)
+    {
+        float eSize = EffectiveSize(creatures, c);
+        float baseRadius = 0.35f + (float)c.Genome.Size * 0.12f;
+        if (detailTier >= 2 && camZoom > 4.2f)
+        {
+            return Math.Max(baseRadius, camZoom * 0.22f * eSize);
+        }
+
+        return baseRadius;
+    }
+
+    public static CreatureHighlightBounds GetHighlightBounds(
+        Creature c,
+        CreatureSystem creatures,
+        float camZoom,
+        int detailTier,
+        string shape,
+        CreatureSpriteDef? spriteDef)
+    {
+        if (camZoom < 3.5f || detailTier <= 0)
+        {
+            float mapR = MapCircleRadiusTiles(camZoom, (float)c.Genome.Size, EffectiveSize(creatures, c)) * 1.22f;
+            return new CreatureHighlightBounds { CenterOffset = Vector2.Zero, RadiusTiles = mapR };
+        }
+
+        float sizeTiles = CreatureDrawSizeTiles(c, creatures, camZoom, detailTier);
+
+        if (detailTier >= 2 && camZoom > 4.2f)
+        {
+            if (spriteDef != null)
+            {
+                return SpriteHighlightBounds(c, sizeTiles, spriteDef);
+            }
+
+            return ProceduralSpriteHighlightBounds(sizeTiles, shape);
+        }
+
+        float body = Math.Max(0.25f, sizeTiles * 0.65f);
+        float bodyH = body * 0.8f;
+        float radius = Math.Max(body * 0.5f, bodyH * 0.5f) * 1.12f;
+        return new CreatureHighlightBounds
+        {
+            CenterOffset = new Vector2(0f, -body * 0.4f + bodyH * 0.5f),
+            RadiusTiles = radius,
+        };
+    }
+
+    public static float HighlightRadiusTiles(
+        Creature c,
+        CreatureSystem creatures,
+        float camZoom,
+        int detailTier,
+        string shape,
+        CreatureSpriteDef? spriteDef) =>
+        GetHighlightBounds(c, creatures, camZoom, detailTier, shape, spriteDef).RadiusTiles;
+
+    private static CreatureHighlightBounds SpriteHighlightBounds(Creature c, float sizeTiles, CreatureSpriteDef def)
+    {
+        Rect2 src = def.ContentRegion;
+        if (src.Size.X <= 0f || src.Size.Y <= 0f)
+        {
+            Vector2 texSize = def.Texture.GetSize();
+            src = new Rect2(0f, 0f, texSize.X, texSize.Y);
+        }
+
+        float contentW = Math.Max(1f, src.Size.X);
+        float contentH = Math.Max(1f, src.Size.Y);
+        float heightTiles = Math.Max(0.35f, sizeTiles * 1.2f * def.Scale);
+        float widthRatio = Math.Min(contentW / contentH, SpriteMaxWidthToHeight);
+        float widthTiles = heightTiles * widthRatio;
+
+        bool moving = Math.Sqrt(c.Vx * c.Vx + c.Vy * c.Vy) > 0.02;
+        float bob = moving ? Math.Abs((float)Math.Sin(c.Walk)) * sizeTiles * 0.06f : 0f;
+        float centerYOffset = heightTiles * (0.5f - def.Anchor.Y) - bob;
+        float halfW = widthTiles * 0.5f;
+        float halfH = heightTiles * 0.5f;
+        float radius = Mathf.Sqrt(halfW * halfW + halfH * halfH) * HighlightRadiusPadding;
+
+        return new CreatureHighlightBounds
+        {
+            CenterOffset = new Vector2(0f, centerYOffset),
+            RadiusTiles = radius,
+        };
+    }
+
+    private static CreatureHighlightBounds ProceduralSpriteHighlightBounds(float sizeTiles, string shape)
+    {
+        float bl = shape == "tall" ? 0.78f : shape == "stocky" ? 0.95f : 0.7f;
+        float bh = shape == "tall" ? 0.5f : shape == "stocky" ? 0.62f : 0.5f;
+        if (shape == "bird")
+        {
+            bl = 0.56f;
+            bh = 0.5f;
+        }
+
+        float w = sizeTiles * bl;
+        float h = sizeTiles * (bh + 0.42f);
+        float radius = Mathf.Sqrt((w * 0.5f) * (w * 0.5f) + (h * 0.5f) * (h * 0.5f)) * HighlightRadiusPadding;
+        return new CreatureHighlightBounds
+        {
+            CenterOffset = new Vector2(0f, -h * 0.28f),
+            RadiusTiles = radius,
+        };
+    }
+
+    public static void DrawTexturedSprite(
+        CanvasItem canvas,
+        Texture2D texture,
+        Vector2 pos,
+        float sizeTiles,
+        int dir,
+        bool moving,
+        double walk,
+        float brightness,
+        Vector2 anchor,
+        float speciesScale,
+        Rect2 contentRegion)
+    {
+        float bob = moving ? Math.Abs((float)Math.Sin(walk)) * sizeTiles * 0.06f : 0f;
+        Vector2 drawPos = pos with { Y = pos.Y - bob };
+
+        Vector2 texSize = texture.GetSize();
+        if (texSize.X <= 0f || texSize.Y <= 0f)
+        {
+            return;
+        }
+
+        Rect2 src = contentRegion.Size.X > 0f && contentRegion.Size.Y > 0f
+            ? contentRegion
+            : new Rect2(0f, 0f, texSize.X, texSize.Y);
+
+        float contentW = Math.Max(1f, src.Size.X);
+        float contentH = Math.Max(1f, src.Size.Y);
+        float heightTiles = Math.Max(0.35f, sizeTiles * 1.2f * speciesScale);
+        float widthRatio = Math.Min(contentW / contentH, SpriteMaxWidthToHeight);
+        float widthTiles = heightTiles * widthRatio;
+        Vector2 size = new(widthTiles, heightTiles);
+        float flip = dir >= 0 ? 1f : -1f;
+        Vector2 localOrigin = new(-size.X * anchor.X, -size.Y * anchor.Y);
+        Color modulate = ApplyBrightness(Colors.White, brightness);
+
+        canvas.DrawSetTransform(drawPos, 0f, new Vector2(flip, 1f));
+        canvas.DrawTextureRectRegion(texture, new Rect2(localOrigin.X, localOrigin.Y, size.X, size.Y), src, modulate);
+        canvas.DrawSetTransform(Vector2.Zero);
+    }
+
     public static void DrawSprite(
         CanvasItem canvas,
         Vector2 pos,
@@ -181,9 +337,24 @@ public static class CreatureDrawUtil
         canvas.DrawRect(new Rect2(origin.X + d * (size * bl / 2f + size * 0.14f), origin.Y - size * 0.4f - bob, size * 0.08f, size * 0.08f), new Color("#111111"));
         if (juvenile)
         {
-            canvas.DrawRect(new Rect2(origin.X + d * -size * 0.05f, origin.Y - size * 0.9f - bob, size * 0.1f, size * 0.1f),
-                new Color(1, 1, 1, 0.6f));
+            DrawJuvenileCap(canvas, origin, size, dir, moving, walk, brightness);
         }
+    }
+
+    public static void DrawJuvenileCap(
+        CanvasItem canvas,
+        Vector2 pos,
+        float size,
+        int dir,
+        bool moving,
+        double walk,
+        float brightness)
+    {
+        float bob = moving ? Math.Abs((float)Math.Sin(walk)) * size * 0.06f : 0f;
+        float d = dir >= 0 ? 1f : -1f;
+        Vector2 origin = pos;
+        Color col = ApplyBrightness(new Color(1, 1, 1, 0.6f), brightness);
+        canvas.DrawRect(new Rect2(origin.X + d * -size * 0.05f, origin.Y - size * 0.9f - bob, size * 0.1f, size * 0.1f), col);
     }
 
     public static string? StateEmoji(string state) => state switch
