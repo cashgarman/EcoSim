@@ -127,6 +127,93 @@ public static class ConditionEvaluator
     return c.Hunger < graze;
   }
 
+  public static string Describe(SimState state, string conditionId, JsonObject conditionDef, BehaviorContext ctx, bool result)
+  {
+    var c = ctx.Creature;
+    var S = ctx.Species;
+    string op = conditionDef["op"]?.GetValue<string>() ?? "";
+
+    switch (op)
+    {
+      case "hasThreat":
+        return ctx.Threat != null
+          ? $"threat id={ctx.Threat.Id} dist={ctx.Tdist:F1}"
+          : "no threat";
+
+      case "atWaterEdge":
+      {
+        bool atEdge = Navigation.AtWaterEdge(state, c.X, c.Y);
+        return $"atWaterEdge={atEdge} pos=({c.X:F1},{c.Y:F1})";
+      }
+
+      case "thirstBelow":
+      {
+        string key = conditionDef["key"]?.GetValue<string>() ?? "thirstExit";
+        double threshold = BehaviorContextBuilder.Threshold(ctx, key, 55);
+        return $"thirst={c.Thirst:F0} {(result ? "<" : ">=")} {key}={threshold:F0}";
+      }
+
+      case "thirstBelowWhileState":
+      {
+        string key = conditionDef["key"]?.GetValue<string>() ?? "thirstExit";
+        string stateName = conditionDef["state"]?.GetValue<string>() ?? "";
+        double threshold = BehaviorContextBuilder.Threshold(ctx, key, 55);
+        return $"state={c.State} thirst={c.Thirst:F0} need state={stateName} & thirst {(result ? "<" : ">=")} {threshold:F0}";
+      }
+
+      case "thirstBelowOrState":
+      {
+        double urgent = BehaviorContextBuilder.Threshold(ctx, conditionDef["key"]?.GetValue<string>() ?? "thirstUrgent", 30);
+        double exit = BehaviorContextBuilder.Threshold(ctx, conditionDef["exitKey"]?.GetValue<string>() ?? "thirstExit", 55);
+        string stateName = conditionDef["state"]?.GetValue<string>() ?? "thirst";
+        return $"thirst={c.Thirst:F0} urgent={urgent:F0} exit={exit:F0} state={c.State} (need thirst<{urgent:F0} or state={stateName} & thirst<{exit:F0})";
+      }
+
+      case "hungerBelow":
+      {
+        double threshold = BehaviorContextBuilder.Threshold(ctx, conditionDef["key"]?.GetValue<string>() ?? "hungerGraze", 55);
+        return $"hunger={c.Hunger:F0} diet={S.Diet} {(result ? "<" : ">=")} {threshold:F0}";
+      }
+
+      case "hungerBelowOrState":
+        return $"hunger={c.Hunger:F0} state={c.State} diet={S.Diet}";
+
+      case "hungerBelowNoPrey":
+        return $"hunger={c.Hunger:F0} prey={(ctx.Prey != null ? ctx.Prey.Id.ToString() : "none")}";
+
+      case "hungerBelowNoPreyOrState":
+      case "hungerBelowWithPrey":
+      case "hungerBelowWithPreyOrState":
+        return $"hunger={c.Hunger:F0} prey={(ctx.Prey != null ? ctx.Prey.Id.ToString() : "none")} state={c.State}";
+
+      case "energyBelow":
+      {
+        double threshold = BehaviorContextBuilder.Threshold(ctx, conditionDef["key"]?.GetValue<string>() ?? "restEnergy", 18);
+        return $"energy={c.Energy:F0} {(result ? "<" : ">=")} {threshold:F0}";
+      }
+
+      case "energyBelowOrState":
+      {
+        double entry = BehaviorContextBuilder.Threshold(ctx, conditionDef["key"]?.GetValue<string>() ?? "restEnergy", 18);
+        double exit = BehaviorContextBuilder.Threshold(ctx, conditionDef["exitKey"]?.GetValue<string>() ?? "energyExit", 30);
+        string stateName = conditionDef["state"]?.GetValue<string>() ?? "rest";
+        return $"energy={c.Energy:F0} entry={entry:F0} exit={exit:F0} state={c.State}";
+      }
+
+      case "canMate":
+        return $"mate={(ctx.Mate != null ? ctx.Mate.Id.ToString() : "none")} hunger={c.Hunger:F0} thirst={c.Thirst:F0} energy={c.Energy:F0} pregnant={c.Pregnant:F1}";
+
+      case "nightWanderTired":
+      {
+        double threshold = BehaviorContextBuilder.Threshold(ctx, "nightWanderRestEnergy", 75);
+        return $"night={ctx.IsNight} energy={c.Energy:F0} {(result ? "<" : ">=")} {threshold:F0}";
+      }
+
+      default:
+        return $"op={op} result={result}";
+    }
+  }
+
   private static bool EvaluateHungerHysteresis(JsonObject conditionDef, BehaviorContext ctx, Creature c, bool requirePrey)
   {
     double urgent = BehaviorContextBuilder.Threshold(ctx, conditionDef["key"]?.GetValue<string>() ?? "hungerUrgent", 25);

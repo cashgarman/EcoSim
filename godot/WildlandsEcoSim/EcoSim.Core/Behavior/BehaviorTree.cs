@@ -31,6 +31,30 @@ public sealed class BehaviorTree
     };
   }
 
+  public BehaviorEvalTrace EvaluateWithTrace(Creature creature, CreatureSystem creatures)
+  {
+    var cfg = _catalog.Get(creature.Sp).BehaviorConfig;
+    if (cfg?.Root == null)
+    {
+      return new BehaviorEvalTrace();
+    }
+
+    var ctx = BehaviorContextBuilder.Build(creature, creatures, _state, _catalog);
+    return BehaviorEvaluator.EvaluateTreeWithTrace(_state, cfg.Root, ctx);
+  }
+
+  public (BehaviorDecision? proposed, bool wouldApply) PeekDecision(Creature creature, CreatureSystem creatures)
+  {
+    var proposed = Decide(creature, creatures);
+    if (proposed == null) return (null, false);
+    return (proposed, WouldApplyDecision(creature, proposed));
+  }
+
+  public bool WouldApplyDecision(Creature creature, BehaviorDecision proposed)
+  {
+    return ShouldApplyDecision(creature, proposed);
+  }
+
   public BehaviorDecision? Tick(Creature creature, double dt, CreatureSystem creatures, bool executeActions = true)
   {
     var proposed = Decide(creature, creatures);

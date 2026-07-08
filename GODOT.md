@@ -123,6 +123,7 @@ Water animation is fully GPU-driven: CPU bakes biome masks once per world gen (a
 | World Generator | `GenPanel` — sliders, size km² buttons, Generate / Restock |
 | Ecosystem | `EcosystemPanel` + `PopGraph` + shared `PopHistoryTracker` (~1 Hz sampling) |
 | Inspector | `InspectorPanel` — Stats + Life Story tabs |
+| Behavior Tree | `BtObservePanel` — top-bar **BT** toggle; animated node-edge BT graph for selected creature (committed path pulse, eval sweep, flow dots) |
 | Species Stats | `SpeciesStatsPanel` — on species row lock |
 | World Story | `WorldStoryTracker` |
 | Profiler | `ProfilerPanel` — F2 toggle |

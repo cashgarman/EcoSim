@@ -139,6 +139,11 @@ unique_name_in_owner = true
 layout_mode = 2
 text = "Profiler"
 
+[node name="BtObserveBtn" type="Button" parent="Hud/TopBar/VBox/Row1/Actions" unique_id=884210331]
+unique_name_in_owner = true
+layout_mode = 2
+text = "BT"
+
 [node name="TestRunnerBtn" type="Button" parent="Hud/TopBar/VBox/Row1/Actions" unique_id=1643432154]
 unique_name_in_owner = true
 layout_mode = 2

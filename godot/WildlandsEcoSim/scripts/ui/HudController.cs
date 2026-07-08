@@ -43,9 +43,11 @@ public partial class HudController : CanvasLayer
 
     private TimelineDbPanel? _timelineDbPanel;
     private ProfilerDetailPanel? _profilerDetail;
+    private BtObservePanel? _btObserve;
     private DeathNoticePanel? _deathNotice;
     private PauseMenuPanel? _pauseMenu;
     private Button? _cpuGpuBtn;
+    private Button? _btObserveBtn;
     private int? _watchFollowDeathId;
     private TimelineDb? _timelineDb;
     private TimeScrubController? _scrub;
@@ -128,6 +130,9 @@ public partial class HudController : CanvasLayer
         _profilerDetail.Theme = uiTheme;
         _profilerDetail.PanelClosed += OnProfilerDetailClosed;
         AddChild(_profilerDetail);
+        _btObserve = new BtObservePanel();
+        _btObserve.Theme = uiTheme;
+        AddChild(_btObserve);
         _timelineDbPanel = new TimelineDbPanel();
         AddChild(_timelineDbPanel);
         _deathNotice = new DeathNoticePanel();
@@ -139,7 +144,7 @@ public partial class HudController : CanvasLayer
         _pauseMenu.QuitRequested += OnPauseMenuQuit;
         AddChild(_pauseMenu);
 
-        _panels = [_gen, _ecosystem, _inspector, GetNode<StoryPanel>("%StoryPanel"), _speciesStats, _profiler, _timelineDbPanel];
+        _panels = [_gen, _ecosystem, _inspector, GetNode<StoryPanel>("%StoryPanel"), _speciesStats, _profiler, _timelineDbPanel, _btObserve!];
 
         _gen.GenerateRequested += OnGenerate;
         _gen.RestockRequested += OnRestock;
@@ -157,6 +162,7 @@ public partial class HudController : CanvasLayer
 
         GetNode<Button>("%FollowBtn").Pressed += OnFollowToggled;
         GetNode<Button>("%ProfilerBtn").Pressed += OnProfilerToggled;
+        GetNode<Button>("%BtObserveBtn").Pressed += OnBtObserveToggled;
         GetNode<Button>("%TestRunnerBtn").Disabled = false;
         GetNode<Button>("%TestRunnerBtn").TooltipText = "Open batch test runner";
         GetNode<Button>("%TestRunnerBtn").Pressed += () => GetTree().ChangeSceneToFile("res://scenes/BatchTest.tscn");
@@ -745,6 +751,18 @@ public partial class HudController : CanvasLayer
         }
     }
 
+    private void OnBtObserveToggled()
+    {
+        if (_btObserve == null) return;
+        bool open = !_btObserve.Visible;
+        _btObserve.Visible = open;
+        EcoSimThemeBuilder.StyleActiveButton(GetNode<Button>("%BtObserveBtn"), open);
+        if (open)
+        {
+            _btObserve.Refresh(_host.Session);
+        }
+    }
+
     private void CaptureHeartbeatIfDue(SimSession session)
     {
         if (_timelineDb == null) return;
@@ -797,6 +815,10 @@ public partial class HudController : CanvasLayer
         _popHistory.SampleIfDue(session, _gameApp.Paused);
         _ecosystem.Refresh(session);
         _inspector.Refresh(session.State.Selected, session.Creatures);
+        if (_btObserve != null && _btObserve.Visible)
+        {
+            _btObserve.Refresh(session);
+        }
         if (!string.IsNullOrEmpty(_ecosystem.LockedSpecies))
         {
             _speciesStats.ShowSpecies(_ecosystem.LockedSpecies, session, session.SpeciesStats);
