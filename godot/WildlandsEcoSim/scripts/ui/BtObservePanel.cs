@@ -13,6 +13,7 @@ public partial class BtObservePanel : DraggablePanel
     private Label _emptyLabel = null!;
     private VBoxContainer _content = null!;
     private Label _statusLabel = null!;
+    private Label _legendLabel = null!;
     private ScrollContainer _graphScroll = null!;
     private BtGraphView _graphView = null!;
 
@@ -20,7 +21,7 @@ public partial class BtObservePanel : DraggablePanel
     {
         LayoutKey = "btobserve";
         Visible = false;
-        CustomMinimumSize = new Vector2(520, 560);
+        CustomMinimumSize = new Vector2(480, 520);
         ZIndex = 55;
 
         var rootVBox = new VBoxContainer();
@@ -68,11 +69,16 @@ public partial class BtObservePanel : DraggablePanel
         _statusLabel.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         _content.AddChild(_statusLabel);
 
+        _legendLabel = MakeInfoLabel();
+        _legendLabel.Text = "● committed path   ○ eval sweep   green=passed   red=failed   gold=selected";
+        _legendLabel.AddThemeColorOverride("font_color", EcoSimThemeBuilder.Dim);
+        _content.AddChild(_legendLabel);
+
         _graphScroll = new ScrollContainer
         {
             SizeFlagsVertical = SizeFlags.ExpandFill,
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
-            CustomMinimumSize = new Vector2(0, 380),
+            CustomMinimumSize = new Vector2(0, 320),
             HorizontalScrollMode = ScrollContainer.ScrollMode.Auto,
             VerticalScrollMode = ScrollContainer.ScrollMode.Auto,
         };
@@ -82,12 +88,7 @@ public partial class BtObservePanel : DraggablePanel
             SizeFlagsVertical = SizeFlags.ShrinkBegin,
         };
         _graphScroll.AddChild(_graphView);
-        var graphFrame = new PanelContainer();
-        graphFrame.SizeFlagsVertical = SizeFlags.ExpandFill;
-        graphFrame.SizeFlagsHorizontal = SizeFlags.ExpandFill;
-        graphFrame.AddThemeStyleboxOverride("panel", UiSliceCatalog.MakeInsetPanel());
-        graphFrame.AddChild(_graphScroll);
-        _content.AddChild(graphFrame);
+        _content.AddChild(_graphScroll);
     }
 
     private static Label MakeInfoLabel()
@@ -106,7 +107,7 @@ public partial class BtObservePanel : DraggablePanel
             _emptyLabel.Visible = true;
             _content.Visible = false;
             _title.Text = "Behavior Tree";
-            _graphView.SetDocument(null, null, null, null, null);
+            _graphView.SetDocument(null, null, null, null);
             return;
         }
 
@@ -120,7 +121,7 @@ public partial class BtObservePanel : DraggablePanel
         if (cfg == null)
         {
             _statusLabel.Text = "No behavior config for species.";
-            _graphView.SetDocument(null, null, null, null, null);
+            _graphView.SetDocument(null, null, null, null);
             return;
         }
 
@@ -142,7 +143,7 @@ public partial class BtObservePanel : DraggablePanel
         }
 
         _statusLabel.Text =
-            $"Committed: {CreatureBehaviorLabels.GetDisplayLabel(creature, session.State)} · {committedAction} · dwell {dwell:F1}s\n" +
+            $"Committed: {creature.State} · {committedAction} · dwell {dwell:F1}s\n" +
             $"Proposed: {proposedText} · thirst {creature.Thirst:F0} hunger {creature.Hunger:F0} energy {creature.Energy:F0} · water {atWater} · tier {tier}";
 
         var doc = BehaviorGraphAdapter.ToFlatDocument(cfg);
@@ -150,7 +151,6 @@ public partial class BtObservePanel : DraggablePanel
         BehaviorGraphLayout.ApplyAutoLayout(doc);
         _graphView.SetDocument(
             doc,
-            cfg,
             creature.BtBranchUid,
             proposed?.BranchUid,
             trace.Steps);

@@ -129,12 +129,6 @@ layout_mode = 2
 theme_override_constants/separation = 8
 alignment = 2
 
-[node name="WorldGenBtn" type="Button" parent="Hud/TopBar/VBox/Row1/Actions" unique_id=2103847291]
-unique_name_in_owner = true
-layout_mode = 2
-tooltip_text = "World Generator"
-text = "World Gen"
-
 [node name="FollowBtn" type="Button" parent="Hud/TopBar/VBox/Row1/Actions" unique_id=1967997718]
 unique_name_in_owner = true
 layout_mode = 2
@@ -172,7 +166,6 @@ text = "Present"
 
 [node name="GenPanel" type="PanelContainer" parent="Hud" unique_id=1477167189]
 unique_name_in_owner = true
-visible = false
 offset_left = 10.0
 offset_top = 100.0
 offset_right = 260.0

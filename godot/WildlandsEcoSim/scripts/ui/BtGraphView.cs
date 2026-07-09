@@ -1,4 +1,3 @@
-using System.Text.Json.Nodes;
 using EcoSim.Core.Behavior;
 using Godot;
 
@@ -6,33 +5,13 @@ namespace WildlandsEcoSim.UI;
 
 public partial class BtGraphView : Control
 {
-    private static readonly Color BgColor = new("1b1b22");
-    private static readonly Color GridDot = new("333340");
-    private static readonly Color BodyBg = new("2c2c34");
-    private static readonly Color BodyBorder = new("4a4a56");
-    private static readonly Color HeaderRoot = new("3dba6a");
-    private static readonly Color HeaderSelector = new("e8914f");
-    private static readonly Color HeaderSequence = new("a66bd4");
-    private static readonly Color HeaderLeaf = new("4f4f57");
-    private static readonly Color EdgeColor = new("dcdce6");
-    private static readonly Color TextPrimary = new("ececf2");
-    private static readonly Color TextMuted = new("9a9aaa");
-
-    private const float HeaderH = 24f;
-    private const float Pad = 10f;
-    private const float Corner = 8f;
-
     private BehaviorFlatDocument? _doc;
-    private BehaviorConfig? _cfg;
     private string? _committedUid;
     private string? _proposedUid;
-    private string? _rootUid;
     private IReadOnlyList<BehaviorTraceStep> _traceSteps = [];
     private readonly Dictionary<string, BehaviorTraceStep> _stepByUid = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, double> _nodeHeights = new(StringComparer.Ordinal);
     private readonly HashSet<(string From, string To)> _committedPathEdges = new();
     private readonly HashSet<(string From, string To)> _activeTraceEdges = new();
-    private readonly Dictionary<(string From, string To), string> _edgeLabels = new();
     private double _animTime;
     private int _hoverNode = -1;
 
@@ -41,6 +20,7 @@ public partial class BtGraphView : Control
         SetProcess(true);
         ClipContents = false;
         MouseFilter = MouseFilterEnum.Stop;
+        MouseEntered += () => _animTime = 0;
     }
 
     public override void _Process(double delta)
@@ -52,77 +32,41 @@ public partial class BtGraphView : Control
 
     public void SetDocument(
         BehaviorFlatDocument? doc,
-        BehaviorConfig? cfg,
         string? committedUid,
         string? proposedUid,
         IReadOnlyList<BehaviorTraceStep>? traceSteps)
     {
         _doc = doc;
-        _cfg = cfg;
         _committedUid = committedUid;
         _proposedUid = proposedUid;
         _traceSteps = traceSteps ?? [];
         _stepByUid.Clear();
-        _nodeHeights.Clear();
         _committedPathEdges.Clear();
         _activeTraceEdges.Clear();
-        _edgeLabels.Clear();
-        _rootUid = null;
 
         foreach (var step in _traceSteps)
         {
             _stepByUid[step.Uid] = step;
         }
 
-        if (_doc == null || _doc.Nodes.Count == 0 || _cfg == null)
+        if (_doc == null || _doc.Nodes.Count == 0)
         {
-            CustomMinimumSize = new Vector2(320, 120);
+            CustomMinimumSize = new Vector2(280, 100);
             QueueRedraw();
             return;
         }
 
-        var incoming = new HashSet<string>(_doc.Edges.Select(e => e.To), StringComparer.Ordinal);
-        _rootUid = _doc.Nodes.FirstOrDefault(n => !incoming.Contains(n.Uid))?.Uid;
-
-        foreach (var node in _doc.Nodes)
-        {
-            _nodeHeights[node.Uid] = ComputeNodeHeight(node);
-        }
-
-        BehaviorGraphLayout.ApplyAutoLayout(_doc, n => _nodeHeights[n.Uid]);
         BuildPathEdges(committedUid);
         BuildTraceFlowEdges();
-        BuildEdgeLabels();
 
         double maxX = _doc.Nodes.Max(n => n.X) + BehaviorGraphLayout.NodeWidth;
-        double maxY = _doc.Nodes.Max(n => n.Y + _nodeHeights[n.Uid]);
+        double maxY = _doc.Nodes.Max(n => n.Y) + BehaviorGraphLayout.NodeHeight;
+        bool hasDetails = _traceSteps.Any(s => !string.IsNullOrEmpty(s.Detail));
+        float detailPad = hasDetails ? 20f : 0f;
         CustomMinimumSize = new Vector2(
-            (float)Math.Max(400, maxX + 32),
-            (float)Math.Max(280, maxY + 32));
+            (float)Math.Max(320, maxX + 24),
+            (float)Math.Max(200, maxY + 24 + detailPad));
         QueueRedraw();
-    }
-
-    private double ComputeNodeHeight(BehaviorFlatNode node)
-    {
-        var display = BuildDisplay(node);
-        int bodyLines = string.IsNullOrEmpty(display.BodyLine2) ? 1 : 2;
-        return HeaderH + Pad + bodyLines * 16 + Pad;
-    }
-
-    private void BuildEdgeLabels()
-    {
-        if (_doc == null) return;
-
-        foreach (var edge in _doc.Edges)
-        {
-            var parent = _doc.Nodes.FirstOrDefault(n => n.Uid == edge.From);
-            var child = _doc.Nodes.FirstOrDefault(n => n.Uid == edge.To);
-            if (parent?.Type != "selector" || child == null) continue;
-
-            string label = child.Id ?? child.Ref ?? $"branch {edge.Order + 1}";
-            if (label.Length > 18) label = label[..16] + "…";
-            _edgeLabels[(edge.From, edge.To)] = label;
-        }
     }
 
     private void BuildPathEdges(string? committedUid)
@@ -179,41 +123,28 @@ public partial class BtGraphView : Control
         if (_doc == null) return -1;
         for (int i = _doc.Nodes.Count - 1; i >= 0; i--)
         {
-            if (NodeRect(_doc.Nodes[i]).HasPoint(localPos)) return i;
+            var node = _doc.Nodes[i];
+            var rect = NodeRect(node);
+            if (rect.HasPoint(localPos)) return i;
         }
         return -1;
     }
 
     public override void _Draw()
     {
-        DrawRect(new Rect2(Vector2.Zero, Size), BgColor, true);
-        DrawDotGrid();
-
         if (_doc == null || _doc.Nodes.Count == 0)
         {
-            DrawString(Theme.DefaultFont, new Vector2(16, 28), "No behavior tree", HorizontalAlignment.Left, -1, 13, TextMuted);
+            DrawString(Theme.DefaultFont, new Vector2(8, 24), "No behavior tree", HorizontalAlignment.Left, -1, 12, EcoSimThemeBuilder.Dim);
             return;
         }
 
         DrawEdges();
         for (int i = 0; i < _doc.Nodes.Count; i++)
         {
-            DrawNodeCard(_doc.Nodes[i], i == _hoverNode);
+            DrawNode(_doc.Nodes[i], i == _hoverNode);
         }
 
         DrawEvalSweep();
-    }
-
-    private void DrawDotGrid()
-    {
-        const float spacing = 18f;
-        for (float x = spacing; x < Size.X; x += spacing)
-        {
-            for (float y = spacing; y < Size.Y; y += spacing)
-            {
-                DrawCircle(new Vector2(x, y), 1.2f, GridDot);
-            }
-        }
     }
 
     private void DrawEdges()
@@ -231,252 +162,186 @@ public partial class BtGraphView : Control
             bool onCommittedPath = _committedPathEdges.Contains((edge.From, edge.To));
             bool onTrace = _activeTraceEdges.Contains((edge.From, edge.To));
 
-            Color lineColor = onCommittedPath ? EcoSimThemeBuilder.Gold : onTrace ? EcoSimThemeBuilder.Hp : EdgeColor;
-            float width = onCommittedPath ? 3f : onTrace ? 2.2f : 2f;
+            Color lineColor = EcoSimThemeBuilder.Edge.Lightened(0.15f);
+            float width = 1.5f;
+            if (onTrace && !onCommittedPath)
+            {
+                lineColor = EcoSimThemeBuilder.Hp.Darkened(0.2f);
+                width = 2f;
+            }
+            if (onCommittedPath)
+            {
+                lineColor = EcoSimThemeBuilder.Gold;
+                width = 2.5f;
+            }
 
-            DrawConnector(start, end, lineColor, width);
-            DrawArrowHead(end, start, lineColor);
+            DrawBezierEdge(start, end, lineColor, width);
 
             if (onCommittedPath || onTrace)
             {
                 DrawFlowDot(start, end, onCommittedPath ? EcoSimThemeBuilder.Gold : EcoSimThemeBuilder.Hp);
             }
-
-            if (_edgeLabels.TryGetValue((edge.From, edge.To), out var label))
-            {
-                var mid = new Vector2((start.X + end.X) * 0.5f, (start.Y + end.Y) * 0.5f);
-                DrawBranchPill(mid, label, onCommittedPath || onTrace);
-            }
         }
     }
 
-    private void DrawConnector(Vector2 start, Vector2 end, Color color, float width)
+    private void DrawBezierEdge(Vector2 start, Vector2 end, Color color, float width)
     {
-        var elbow = new Vector2(end.X, start.Y + (end.Y - start.Y) * 0.45f);
-        DrawLine(start, elbow, color, width);
-        DrawLine(elbow, end, color, width);
-    }
-
-    private void DrawArrowHead(Vector2 tip, Vector2 from, Color color)
-    {
-        var dir = (tip - from).Normalized();
-        if (dir.LengthSquared() < 0.01f) dir = Vector2.Down;
-        var left = tip - dir * 9f + dir.Orthogonal() * 5f;
-        var right = tip - dir * 9f - dir.Orthogonal() * 5f;
-        DrawColoredPolygon(new[] { tip, left, right }, color);
-    }
-
-    private void DrawBranchPill(Vector2 center, string label, bool active)
-    {
-        var font = Theme.DefaultFont;
-        var textSize = font.GetStringSize(label, HorizontalAlignment.Left, -1, 10);
-        var rect = new Rect2(center - new Vector2(textSize.X * 0.5f + 8, 9), new Vector2(textSize.X + 16, 18));
-        DrawRect(rect, active ? HeaderSelector.Darkened(0.1f) : HeaderLeaf, true);
-        DrawRect(rect, BodyBorder, false, 1f);
-        DrawString(font, rect.Position + new Vector2(8, 13), label, HorizontalAlignment.Left, -1, 10, TextPrimary);
+        var mid = new Vector2(start.X, (start.Y + end.Y) * 0.5f);
+        int segments = 12;
+        Vector2 prev = start;
+        for (int i = 1; i <= segments; i++)
+        {
+            float t = i / (float)segments;
+            float u = 1f - t;
+            var point = u * u * start + 2f * u * t * mid + t * t * end;
+            DrawLine(prev, point, color, width);
+            prev = point;
+        }
     }
 
     private void DrawFlowDot(Vector2 start, Vector2 end, Color color)
     {
-        var elbow = new Vector2(end.X, start.Y + (end.Y - start.Y) * 0.45f);
-        float t = (float)(_animTime % 1.4 / 1.4);
-        Vector2 pos = t < 0.5f
-            ? start.Lerp(elbow, t * 2f)
-            : elbow.Lerp(end, (t - 0.5f) * 2f);
-        float pulse = 0.5f + 0.5f * Mathf.Sin((float)_animTime * 7f);
-        DrawCircle(pos, 3.5f + pulse, color);
+        var mid = new Vector2(start.X, (start.Y + end.Y) * 0.5f);
+        float t = (float)(_animTime % 1.2 / 1.2);
+        float u = 1f - t;
+        var pos = u * u * start + 2f * u * t * mid + t * t * end;
+        float pulse = 0.5f + 0.5f * Mathf.Sin((float)_animTime * 8f);
+        DrawCircle(pos, 3f + pulse, color);
+        DrawCircle(pos, 5f + pulse * 2f, new Color(color, 0.25f));
     }
 
     private void DrawEvalSweep()
     {
-        if (_traceSteps.Count == 0 || _doc == null) return;
+        if (_traceSteps.Count == 0) return;
 
-        int sweepIdx = (int)(_animTime / 0.14) % _traceSteps.Count;
+        int sweepIdx = (int)(_animTime / 0.12) % _traceSteps.Count;
         var step = _traceSteps[sweepIdx];
-        var node = _doc.Nodes.FirstOrDefault(n => n.Uid == step.Uid);
+        var node = _doc?.Nodes.FirstOrDefault(n => n.Uid == step.Uid);
         if (node == null) return;
 
         var rect = NodeRect(node);
-        float ring = 6f + (float)(_animTime % 0.7 / 0.7) * 14f;
+        var center = rect.GetCenter();
+        float ring = 8f + (float)(_animTime % 0.6 / 0.6) * 12f;
         Color ringColor = step.Outcome switch
         {
             TraceOutcome.Failed => EcoSimThemeBuilder.PopDeltaDown,
             TraceOutcome.Selected => EcoSimThemeBuilder.Gold,
             TraceOutcome.Passed => EcoSimThemeBuilder.Hp,
-            _ => TextMuted,
+            _ => EcoSimThemeBuilder.Dim,
         };
-        DrawArc(rect.GetCenter(), ring, 0, Mathf.Tau, 36, ringColor, 2f);
+        DrawArc(center, ring, 0, Mathf.Tau, 32, ringColor, 2f);
     }
 
-    private void DrawNodeCard(BehaviorFlatNode node, bool hovered)
+    private void DrawNode(BehaviorFlatNode node, bool hovered)
     {
         var rect = NodeRect(node);
         _stepByUid.TryGetValue(node.Uid, out var step);
-        var display = BuildDisplay(node);
 
         bool isCommitted = node.Uid == _committedUid;
         bool isProposed = node.Uid == _proposedUid && node.Uid != _committedUid;
-        bool isFailed = step?.Outcome == TraceOutcome.Failed;
-        bool isPassed = step?.Outcome is TraceOutcome.Passed or TraceOutcome.Selected;
+
+        Color fill = EcoSimThemeBuilder.PanelDark;
+        if (step != null)
+        {
+            fill = step.Outcome switch
+            {
+                TraceOutcome.Passed => new Color("2a3d2a"),
+                TraceOutcome.Failed => new Color("3d2424"),
+                TraceOutcome.Selected => new Color("3d3520"),
+                TraceOutcome.Skipped => EcoSimThemeBuilder.PanelDarker,
+                _ => fill,
+            };
+        }
 
         if (isCommitted)
         {
-            float glow = 5f + Mathf.Sin((float)_animTime * 4.5f) * 3f;
-            DrawRect(rect.Grow(glow), new Color(EcoSimThemeBuilder.Gold, 0.22f), false, 2f);
+            float pulse = 0.5f + 0.5f * Mathf.Sin((float)_animTime * 4f);
+            fill = EcoSimThemeBuilder.Gold.Darkened(0.45f - pulse * 0.08f);
         }
 
-        Color header = display.HeaderColor;
-        if (isFailed) header = header.Darkened(0.25f);
-        else if (isPassed) header = header.Lightened(0.08f);
+        DrawNodeBody(rect, fill, node.Type);
 
-        DrawRoundedCard(rect, header, BodyBg, isCommitted ? EcoSimThemeBuilder.Gold : isProposed ? EcoSimThemeBuilder.Blue : BodyBorder,
-            isCommitted ? 2.5f : hovered ? 2f : 1.2f);
-
-        DrawString(Theme.DefaultFont, rect.Position + new Vector2(Pad, 17), display.HeaderTitle,
-            HorizontalAlignment.Left, -1, 11, TextPrimary);
-
-        float bodyY = rect.Position.Y + HeaderH + 14;
-        DrawString(Theme.DefaultFont, rect.Position + new Vector2(Pad, bodyY), display.BodyLine1,
-            HorizontalAlignment.Left, -1, 11, TextPrimary);
-        if (!string.IsNullOrEmpty(display.BodyLine2))
+        Color border = EcoSimThemeBuilder.Edge.Lightened(0.2f);
+        if (isProposed)
         {
-            Color detailColor = isFailed ? EcoSimThemeBuilder.PopDeltaDown : TextMuted;
-            DrawString(Theme.DefaultFont, rect.Position + new Vector2(Pad, bodyY + 16), display.BodyLine2,
-                HorizontalAlignment.Left, -1, 10, detailColor);
+            border = EcoSimThemeBuilder.Blue;
+        }
+        else if (step != null)
+        {
+            border = step.Outcome switch
+            {
+                TraceOutcome.Passed => EcoSimThemeBuilder.Hp,
+                TraceOutcome.Failed => EcoSimThemeBuilder.PopDeltaDown,
+                TraceOutcome.Selected => EcoSimThemeBuilder.Gold,
+                _ => border,
+            };
         }
 
-        if (node.Type == "conditionRef")
+        float borderW = isCommitted ? 3f : hovered ? 2.5f : 1.5f;
+        if (isCommitted)
         {
-            DrawResultToggle(new Vector2(rect.End.X - 34, rect.Position.Y + HeaderH + 14), isPassed, isFailed);
+            float glow = 4f + Mathf.Sin((float)_animTime * 5f) * 2f;
+            DrawRect(rect.Grow(glow), new Color(EcoSimThemeBuilder.Gold, 0.18f), false, 1f);
         }
-        else if (node.Type == "actionRef" && isCommitted)
-        {
-            DrawActiveBadge(new Vector2(rect.End.X - 52, rect.Position.Y + 8));
-        }
-    }
 
-    private void DrawRoundedCard(Rect2 rect, Color header, Color body, Color border, float borderW)
-    {
-        DrawRect(rect, body, true);
-        DrawRect(new Rect2(rect.Position, new Vector2(rect.Size.X, HeaderH)), header, true);
         DrawRect(rect, border, false, borderW);
 
-        float r = Corner;
-        DrawLine(rect.Position, rect.Position + new Vector2(r, 0), border, borderW);
-        DrawLine(rect.Position + new Vector2(rect.Size.X - r, 0), rect.Position + new Vector2(rect.Size.X, 0), border, borderW);
-    }
+        string badge = TypeBadge(node.Type);
+        DrawString(Theme.DefaultFont, rect.Position + new Vector2(6, 14), badge, HorizontalAlignment.Left, -1, 9, EcoSimThemeBuilder.Dim);
 
-    private void DrawResultToggle(Vector2 pos, bool passed, bool failed)
-    {
-        var track = new Rect2(pos, new Vector2(28, 14));
-        DrawRect(track, failed ? new Color("5a3030") : passed ? new Color("2f5a38") : new Color("3a3a44"), true);
-        DrawRect(track, BodyBorder, false, 1f);
-        float knobX = passed ? track.End.X - 9 : track.Position.X + 5;
-        DrawCircle(new Vector2(knobX, track.GetCenter().Y), 5f, passed ? EcoSimThemeBuilder.Hp : failed ? EcoSimThemeBuilder.PopDeltaDown : TextMuted);
-    }
-
-    private void DrawActiveBadge(Vector2 pos)
-    {
-        var rect = new Rect2(pos, new Vector2(44, 16));
-        DrawRect(rect, EcoSimThemeBuilder.Gold.Darkened(0.2f), true);
-        DrawString(Theme.DefaultFont, rect.Position + new Vector2(5, 12), "ACTIVE", HorizontalAlignment.Left, -1, 9, TextPrimary);
-    }
-
-    private BtNodeDisplay BuildDisplay(BehaviorFlatNode node)
-    {
-        _stepByUid.TryGetValue(node.Uid, out var step);
-        string? refId = node.Ref ?? node.Id;
-
-        switch (node.Type)
+        string label = node.Id ?? node.Ref ?? node.Type;
+        if (label.Length > 16)
         {
-            case "selector":
-            {
-                bool isRoot = node.Uid == _rootUid;
-                return new BtNodeDisplay(
-                    isRoot ? "Behavior Tree" : "Branch on",
-                    isRoot ? HeaderRoot : HeaderSelector,
-                    isRoot ? "Evaluate survival branches" : FormatBranchName(node.Id),
-                    null);
-            }
-            case "sequence":
-                return new BtNodeDisplay(
-                    "Then",
-                    HeaderSequence,
-                    FormatBranchName(node.Id),
-                    "All children must succeed");
-            case "conditionRef":
-                return new BtNodeDisplay(
-                    node.Id ?? "Condition",
-                    HeaderLeaf,
-                    FormatConditionSummary(refId),
-                    step?.Detail);
-            case "actionRef":
-            {
-                string label = refId ?? "Action";
-                string? state = null;
-                string? goal = null;
-                if (refId != null && _cfg?.Actions.TryGetValue(refId, out var action) == true)
-                {
-                    label = action["label"]?.GetValue<string>() ?? label;
-                    state = action["state"]?.GetValue<string>();
-                    goal = action["goal"]?.GetValue<string>();
-                }
-                string body = state != null ? $"state: {state}" : label;
-                string? body2 = goal != null ? $"goal: {goal}" : step?.Detail;
-                return new BtNodeDisplay(label, HeaderLeaf, body, body2);
-            }
-            default:
-                return new BtNodeDisplay(node.Type, HeaderLeaf, node.Id ?? "node", step?.Detail);
+            label = label[..14] + "…";
+        }
+        DrawString(Theme.DefaultFont, rect.Position + new Vector2(6, 30), label, HorizontalAlignment.Left, -1, 12, EcoSimThemeBuilder.Text);
+
+        if (step != null && !string.IsNullOrEmpty(step.Detail) && (hovered || isCommitted || step.Outcome == TraceOutcome.Failed))
+        {
+            string detail = step.Detail;
+            if (detail.Length > 38) detail = detail[..36] + "…";
+            DrawString(Theme.DefaultFont, rect.Position + new Vector2(4, rect.Size.Y + 12), detail, HorizontalAlignment.Left, -1, 9,
+                step.Outcome == TraceOutcome.Failed ? EcoSimThemeBuilder.PopDeltaDown : EcoSimThemeBuilder.Dim);
         }
     }
 
-    private string FormatBranchName(string? id)
+    private void DrawNodeBody(Rect2 rect, Color fill, string type)
     {
-        if (string.IsNullOrEmpty(id)) return "branch";
-        return id.Replace('_', ' ');
-    }
-
-    private string FormatConditionSummary(string? refId)
-    {
-        if (refId == null || _cfg == null || !_cfg.Conditions.TryGetValue(refId, out var cond))
+        DrawRect(rect, fill, true);
+        if (type is "selector" or "sequence")
         {
-            return refId ?? "condition";
+            float inset = 4f;
+            DrawRect(rect.Grow(-inset), fill.Lightened(0.06f), true);
         }
-
-        string op = cond["op"]?.GetValue<string>() ?? "";
-        return op switch
-        {
-            "hasThreat" => "Has threat nearby",
-            "atWaterEdge" => "At water edge",
-            "thirstBelowOrState" => "Thirst below urgent threshold",
-            "thirstBelow" => "Thirst below exit threshold",
-            "hungerBelowOrState" => "Hunger below graze threshold",
-            "hungerBelowWithPrey" => "Hungry with prey visible",
-            "hungerBelowNoPrey" => "Hungry without prey",
-            "energyBelowOrState" => "Energy below rest threshold",
-            "canMate" => "Can mate with partner",
-            "nightWanderTired" => "Night wander tired",
-            _ => refId,
-        };
     }
 
-    private Rect2 NodeRect(BehaviorFlatNode node)
+    private static string TypeBadge(string type) => type switch
     {
-        double h = _nodeHeights.TryGetValue(node.Uid, out var height) ? height : BehaviorGraphLayout.NodeHeight;
-        return new Rect2((float)node.X, (float)node.Y, (float)BehaviorGraphLayout.NodeWidth, (float)h);
+        "selector" => "SEL",
+        "sequence" => "SEQ",
+        "conditionRef" => "IF",
+        "actionRef" => "ACT",
+        _ => "NODE",
+    };
+
+    private static Rect2 NodeRect(BehaviorFlatNode node)
+    {
+        return new Rect2(
+            (float)node.X,
+            (float)node.Y,
+            (float)BehaviorGraphLayout.NodeWidth,
+            (float)BehaviorGraphLayout.NodeHeight);
     }
 
-    private Vector2 EdgeStart(BehaviorFlatNode from)
+    private static Vector2 EdgeStart(BehaviorFlatNode from)
     {
         var rect = NodeRect(from);
         return new Vector2(rect.Position.X + rect.Size.X * 0.5f, rect.End.Y);
     }
 
-    private Vector2 EdgeEnd(BehaviorFlatNode to)
+    private static Vector2 EdgeEnd(BehaviorFlatNode to)
     {
         var rect = NodeRect(to);
         return new Vector2(rect.Position.X + rect.Size.X * 0.5f, rect.Position.Y);
     }
-
-    private readonly record struct BtNodeDisplay(string HeaderTitle, Color HeaderColor, string BodyLine1, string? BodyLine2);
 }

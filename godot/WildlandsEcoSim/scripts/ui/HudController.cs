@@ -160,7 +160,6 @@ public partial class HudController : CanvasLayer
         _timeline.ScrubDragStarted += OnTimelineScrubDragStarted;
         _timeline.ScrubDragEnded += OnTimelineScrubDragEnded;
 
-        GetNode<Button>("%WorldGenBtn").Pressed += OnWorldGenToggled;
         GetNode<Button>("%FollowBtn").Pressed += OnFollowToggled;
         GetNode<Button>("%ProfilerBtn").Pressed += OnProfilerToggled;
         GetNode<Button>("%BtObserveBtn").Pressed += OnBtObserveToggled;
@@ -476,7 +475,7 @@ public partial class HudController : CanvasLayer
         _watchFollowDeathId = nearest.Id;
         SyncFollowButton();
         _camera.FocusCreature(nearest);
-        _inspector.Refresh(nearest, session.Creatures, session.State);
+        _inspector.Refresh(nearest, session.Creatures);
     }
 
     private void DeselectFromPanel()
@@ -511,7 +510,7 @@ public partial class HudController : CanvasLayer
             _camera.FocusCreature(creature);
         }
 
-        _inspector.Refresh(creature, session.Creatures, session.State);
+        _inspector.Refresh(creature, session.Creatures);
     }
 
     private void OnToolApply(double wx, double wy)
@@ -736,7 +735,7 @@ public partial class HudController : CanvasLayer
         _camera.FollowEnabled = false;
         _watchFollowDeathId = null;
         SyncFollowButton();
-        _inspector.Refresh(dead, session.Creatures, session.State);
+        _inspector.Refresh(dead, session.Creatures);
     }
 
     private void OnProfilerToggled()
@@ -761,17 +760,6 @@ public partial class HudController : CanvasLayer
         if (open)
         {
             _btObserve.Refresh(_host.Session);
-        }
-    }
-
-    private void OnWorldGenToggled()
-    {
-        bool open = !_gen.Visible;
-        _gen.Visible = open;
-        EcoSimThemeBuilder.StyleActiveButton(GetNode<Button>("%WorldGenBtn"), open);
-        if (open)
-        {
-            _gen.SetCollapsed(false);
         }
     }
 
@@ -826,7 +814,7 @@ public partial class HudController : CanvasLayer
 
         _popHistory.SampleIfDue(session, _gameApp.Paused);
         _ecosystem.Refresh(session);
-        _inspector.Refresh(session.State.Selected, session.Creatures, session.State);
+        _inspector.Refresh(session.State.Selected, session.Creatures);
         if (_btObserve != null && _btObserve.Visible)
         {
             _btObserve.Refresh(session);
@@ -932,14 +920,13 @@ public partial class HudController : CanvasLayer
         }
 
         var def = _host.Species.Get(target.Sp);
-        string key = CreatureBehaviorLabels.GetTooltipCacheKey(target, session.State);
+        string key = $"{target.Id}:{target.State}";
         if (key != _lastCreatureTipKey)
         {
             _lastCreatureTipKey = key;
             _creatureTipDot.AddThemeStyleboxOverride("panel",
                 EcoSimThemeBuilder.MakeFlat(EcoSimThemeBuilder.SpeciesColor(def), EcoSimThemeBuilder.Edge, 1));
-            _creatureTipLabel.Text =
-                $"{def.Emoji} {def.Label} · {CreatureBehaviorLabels.GetDisplayLabel(target, session.State)}";
+            _creatureTipLabel.Text = $"{def.Emoji} {def.Label} · {CreatureStateLabel(target.State)}";
         }
 
         Vector2 screen = WorldTileToHudScreen(CreatureDrawUtil.DisplayPos(target));
@@ -985,6 +972,19 @@ public partial class HudController : CanvasLayer
         float s = Math.Max(2.5f, _camera.Zoom.X * 0.9f * eSize);
         return Math.Max(8f, s * 0.75f + 5f);
     }
+
+    private static string CreatureStateLabel(string state) => state switch
+    {
+        "wander" => "Wandering",
+        "flee" => "Fleeing!",
+        "thirst" => "Seeking water",
+        "graze" => "Grazing",
+        "hunt" => "Hunting",
+        "huntSearch" => "Stalking",
+        "mate" => "Mating",
+        "rest" => "Resting",
+        _ => state,
+    };
 
     private void SetTerrainTipDot(BiomeInfo info)
     {
