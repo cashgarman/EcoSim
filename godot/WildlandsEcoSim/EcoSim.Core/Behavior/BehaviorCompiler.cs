@@ -24,6 +24,27 @@ public static class BehaviorCompiler
       Actions = MergeJsonDict(library.Actions, speciesFile.Actions),
     };
 
+    if (speciesFile.Root != null)
+    {
+      var selfSource = speciesFile.Root.DeepClone();
+      var selfRoot = ResolveTreeNode(
+        speciesFile.Root,
+        merged,
+        $"{behaviorKey}/root",
+        new HashSet<string>(StringComparer.Ordinal));
+
+      return new BehaviorConfig
+      {
+        BehaviorKey = behaviorKey,
+        TemplateName = "",
+        Thresholds = merged.Thresholds,
+        Actions = merged.Actions,
+        Conditions = merged.Conditions,
+        Root = selfRoot,
+        SourceTree = selfSource,
+      };
+    }
+
     string templateName = speciesFile.Extends;
     if (!library.Trees.TryGetValue(templateName, out var templateNode))
     {

@@ -120,6 +120,61 @@ public class BehaviorCompilerTests
   }
 
   [Test]
+  public void SelfContainedRoot_CompilesWithoutTemplate()
+  {
+    var speciesFile = new BehaviorSpeciesFile
+    {
+      Root = JsonNode.Parse(
+        """
+        { "type": "selector", "children": [
+          { "type": "sequence", "id": "flee_branch", "children": ["HasThreat", "Flee"] },
+          "Wander"
+        ] }
+        """),
+    };
+
+    var errors = BehaviorValidator.Validate("custom_species", speciesFile, _library);
+    Assert.That(errors, Is.Empty, () => string.Join("; ", errors.Select(e => $"{e.Path}: {e.Message}")));
+
+    var config = BehaviorCompiler.Compile("custom_species", speciesFile, _library);
+    Assert.That(config.Root.Type, Is.EqualTo(BehaviorNodeType.Selector));
+    Assert.That(config.Root.Children.Count, Is.EqualTo(2));
+    Assert.That(config.Root.Children[0].Id, Is.EqualTo("flee_branch"));
+  }
+
+  [Test]
+  public void SerializeThenRecompile_PreservesTreeStructure()
+  {
+    var original = BehaviorCompiler.Compile("rabbit", new BehaviorSpeciesFile { Extends = "herbivore_prey" }, _library);
+
+    var json = BtSpeciesSerializer.ToSpeciesJson(original);
+    var speciesFile = json.Deserialize<BehaviorSpeciesFile>(new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
+    Assert.That(speciesFile.Root, Is.Not.Null);
+
+    var errors = BehaviorValidator.Validate("rabbit", speciesFile, _library);
+    Assert.That(errors, Is.Empty, () => string.Join("; ", errors.Select(e => $"{e.Path}: {e.Message}")));
+
+    var recompiled = BehaviorCompiler.Compile("rabbit", speciesFile, _library);
+    Assert.That(BehaviorGraphAdapter.TreesEquivalent(original.Root, recompiled.Root), Is.True);
+  }
+
+  [Test]
+  public void EditorDocument_RoundTripsThroughSerializer()
+  {
+    var original = BehaviorCompiler.Compile("wolf", new BehaviorSpeciesFile { Extends = "carnivore" }, _library);
+    var doc = BehaviorGraphAdapter.ToEditorDocument(original);
+
+    Assert.That(doc.Root, Is.Not.Null);
+    Assert.That(doc.Nodes.Values.Any(n => n.X != 0 || n.Y != 0), Is.True, "auto-layout should assign positions");
+
+    var json = BtSpeciesSerializer.ToSpeciesJson(doc);
+    var speciesFile = json.Deserialize<BehaviorSpeciesFile>(new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
+    var recompiled = BehaviorCompiler.Compile("wolf", speciesFile, _library);
+
+    Assert.That(BehaviorGraphAdapter.TreesEquivalent(original.Root, recompiled.Root), Is.True);
+  }
+
+  [Test]
   public void AllSpeciesBehaviorFiles_ValidateClean()
   {
     var schema = BehaviorSchema.Load();

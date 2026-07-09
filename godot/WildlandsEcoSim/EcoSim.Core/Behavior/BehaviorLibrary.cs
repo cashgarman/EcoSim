@@ -92,6 +92,38 @@ public sealed class BehaviorLibrary
     return BehaviorValidator.Validate(behaviorKey, speciesFile, _library ?? _baseLibrary!, _schema);
   }
 
+  /// <summary>Re-reads a single behavior file from disk into the caches (used after an editor save).</summary>
+  public void ReloadBehaviorFile(string stem)
+  {
+    string path = DataPaths.BehaviorFile(stem);
+    string json = File.ReadAllText(path);
+    var node = JsonNode.Parse(json)!.AsObject();
+    _behaviorFiles[stem] = node;
+    _baseBehaviorFiles[stem] = node.DeepClone().AsObject();
+  }
+
+  /// <summary>Recompiles the given behavior file and reattaches it to every species that uses it.</summary>
+  public BehaviorConfig RecompileSpecies(SpeciesCatalog catalog, string behaviorKey)
+  {
+    var lib = _library ?? _baseLibrary
+      ?? throw new InvalidOperationException("Behavior library not loaded");
+    JsonObject fileData = _behaviorFiles.TryGetValue(behaviorKey, out var bf)
+      ? bf
+      : LoadBehaviorFile(behaviorKey);
+    var config = CompileBehaviorFile(behaviorKey, fileData, lib);
+
+    foreach (string sp in catalog.SpeciesKeys)
+    {
+      var def = catalog.Get(sp);
+      string key = string.IsNullOrEmpty(def.Behavior) ? sp : def.Behavior;
+      if (key == behaviorKey)
+      {
+        catalog.AttachBehaviorConfig(sp, config);
+      }
+    }
+    return config;
+  }
+
   private BehaviorLibraryRoot EffectiveLibrary()
   {
     if (_baseLibrary == null) return _library!;

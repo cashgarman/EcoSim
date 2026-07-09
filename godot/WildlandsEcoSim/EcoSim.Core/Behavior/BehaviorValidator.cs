@@ -14,6 +14,16 @@ public static class BehaviorValidator
     var errors = new List<BehaviorValidationError>();
     schema ??= BehaviorSchema.Load();
 
+    if (speciesFile.Root != null)
+    {
+      var selfConditions = MergeJsonDict(library.Conditions, speciesFile.Conditions);
+      var selfActions = MergeJsonDict(library.Actions, speciesFile.Actions);
+      ValidateConditions($"{behaviorKey}.conditions", selfConditions, schema.KnownConditionOps, errors);
+      ValidateActions($"{behaviorKey}.actions", selfActions, errors);
+      ValidateTreeNode($"{behaviorKey}.root", speciesFile.Root, selfConditions, selfActions, errors);
+      return errors;
+    }
+
     if (string.IsNullOrEmpty(speciesFile.Extends))
     {
       errors.Add(new BehaviorValidationError

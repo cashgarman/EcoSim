@@ -43,7 +43,7 @@ public partial class HudController : CanvasLayer
 
     private TimelineDbPanel? _timelineDbPanel;
     private ProfilerDetailPanel? _profilerDetail;
-    private BtObservePanel? _btObserve;
+    private BtEditorPanel? _btObserve;
     private DeathNoticePanel? _deathNotice;
     private PauseMenuPanel? _pauseMenu;
     private Button? _cpuGpuBtn;
@@ -130,7 +130,7 @@ public partial class HudController : CanvasLayer
         _profilerDetail.Theme = uiTheme;
         _profilerDetail.PanelClosed += OnProfilerDetailClosed;
         AddChild(_profilerDetail);
-        _btObserve = new BtObservePanel();
+        _btObserve = new BtEditorPanel();
         _btObserve.Theme = uiTheme;
         AddChild(_btObserve);
         _timelineDbPanel = new TimelineDbPanel();
@@ -439,6 +439,10 @@ public partial class HudController : CanvasLayer
             string.IsNullOrEmpty(speciesKey) ? null : speciesKey,
             _host.Session!,
             _host.Session!.SpeciesStats);
+        if (_btObserve is { Visible: true } && _host.Session != null)
+        {
+            _btObserve.Refresh(_host.Session, speciesKey);
+        }
     }
 
     private void OnSpeciesHovered(string speciesKey)
@@ -760,7 +764,7 @@ public partial class HudController : CanvasLayer
         EcoSimThemeBuilder.StyleActiveButton(GetNode<Button>("%BtObserveBtn"), open);
         if (open)
         {
-            _btObserve.Refresh(_host.Session);
+            _btObserve.Refresh(_host.Session, _ecosystem.LockedSpecies);
         }
     }
 
@@ -829,7 +833,7 @@ public partial class HudController : CanvasLayer
         _inspector.Refresh(session.State.Selected, session.Creatures, session.State);
         if (_btObserve != null && _btObserve.Visible)
         {
-            _btObserve.Refresh(session);
+            _btObserve.Refresh(session, _ecosystem.LockedSpecies);
         }
         if (!string.IsNullOrEmpty(_ecosystem.LockedSpecies))
         {

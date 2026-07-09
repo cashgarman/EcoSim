@@ -47,6 +47,13 @@ public sealed class BehaviorSpeciesFile
   public Dictionary<string, JsonObject>? Conditions { get; set; }
   public Dictionary<string, JsonObject>? Actions { get; set; }
   public BehaviorTreePatch? Tree { get; set; }
+
+  /// <summary>
+  /// Optional self-contained full tree. When present, the species is compiled from
+  /// this tree directly (bypassing <see cref="Extends"/> template + <see cref="Tree"/> patches).
+  /// Written by the visual BT editor when a species is detached from its template.
+  /// </summary>
+  public JsonNode? Root { get; set; }
 }
 
 public sealed class BehaviorTreePatch

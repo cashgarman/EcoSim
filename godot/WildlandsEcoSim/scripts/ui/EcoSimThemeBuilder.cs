@@ -15,6 +15,7 @@ public static class EcoSimThemeBuilder
     public static readonly Color Dim = new("9aa38a");
     public static readonly Color Blue = new("57b8e8");
     public static readonly Color Hp = new("4fd455");
+    public static readonly Color NodeSequence = new("9a6cd6");
     public static readonly Color Hunger = new("d98a3a");
     public static readonly Color Thirst = new("3aa8d8");
     public static readonly Color Energy = new("d8c23a");
