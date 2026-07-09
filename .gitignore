@@ -7,7 +7,6 @@ __pycache__/
 .cursor/debug-*.log
 
 # Godot / .NET
-godot/WildlandsEcoSim/data
 godot/WildlandsEcoSim/.godot/
 godot/WildlandsEcoSim/.vs/
 .dotnet/

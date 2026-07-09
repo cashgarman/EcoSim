@@ -1,0 +1,9 @@
+{
+  "extends": "herbivore_prey",
+  "thresholds": {
+    "thirstUrgent": 35
+  },
+  "actions": {
+    "Wander": { "speedMult": 0.65 }
+  }
+}
