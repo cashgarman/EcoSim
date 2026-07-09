@@ -171,7 +171,7 @@ public partial class InspectorPanel : DraggablePanel
         }
     }
 
-    public void Refresh(Creature? c, CreatureSystem? creatures = null)
+    public void Refresh(Creature? c, CreatureSystem? creatures = null, SimState? state = null)
     {
         if (c == null || _catalog == null || c.Dead)
         {
@@ -184,7 +184,10 @@ public partial class InspectorPanel : DraggablePanel
         Callable.From(() => PanelLayoutService.ClampToViewport(this)).CallDeferred();
         var def = _catalog.Get(c.Sp);
         string sex = c.Sex == "male" ? "♂" : "♀";
-        _header.Text = $"{def.Emoji} {def.Label} #{c.Id} {sex}  gen {c.Gen}  {c.State}";
+        string behavior = state != null
+            ? CreatureBehaviorLabels.GetDisplayLabel(c, state)
+            : c.State;
+        _header.Text = $"{def.Emoji} {def.Label} #{c.Id} {sex}  gen {c.Gen}  {behavior}";
         RefreshLineage(c, creatures);
         SetBar(_hp, _hpVal, c.Hp);
         SetBar(_hunger, _hunVal, c.Hunger);

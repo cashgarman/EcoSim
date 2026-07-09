@@ -13,6 +13,9 @@ public partial class DraggablePanel : PanelContainer
     private Vector2 _dragOffset;
     private bool _collapsed;
     private Vector2 _expandedSize;
+    private Vector2 _expandedCustomMinSize;
+    private Vector2 _expandedBodyCustomMinSize;
+    private SizeFlags _expandedBodySizeFlagsVertical;
 
     public Control? Body => _body;
     public bool IsCollapsed => _collapsed;
@@ -212,13 +215,16 @@ public partial class DraggablePanel : PanelContainer
         if (!_collapsed)
         {
             _expandedSize = Size.Y > 1f ? Size : _expandedSize;
+            _expandedCustomMinSize = CustomMinimumSize;
+            if (_body != null)
+            {
+                _expandedBodyCustomMinSize = _body.CustomMinimumSize;
+                _expandedBodySizeFlagsVertical = _body.SizeFlagsVertical;
+            }
         }
 
         _collapsed = !_collapsed;
-        if (_body != null)
-        {
-            _body.Visible = !_collapsed;
-        }
+        ApplyBodyCollapseState();
 
         if (_collapseBtn != null)
         {
@@ -233,15 +239,45 @@ public partial class DraggablePanel : PanelContainer
     {
     }
 
+    private void ApplyBodyCollapseState()
+    {
+        if (_body == null) return;
+
+        if (_collapsed)
+        {
+            _body.Visible = false;
+            _body.SizeFlagsVertical = SizeFlags.ShrinkBegin;
+            _body.CustomMinimumSize = Vector2.Zero;
+            _body.Size = new Vector2(_body.Size.X, 0);
+        }
+        else
+        {
+            _body.Visible = true;
+            _body.SizeFlagsVertical = _expandedBodySizeFlagsVertical;
+            _body.CustomMinimumSize = _expandedBodyCustomMinSize;
+        }
+    }
+
     private void ApplyCollapseLayout()
     {
         if (_collapsed)
         {
-            Size = new Vector2(Size.X, MeasureCollapsedHeight());
+            float collapsedH = MeasureCollapsedHeight();
+            Size = new Vector2(Size.X, collapsedH);
+            CustomMinimumSize = new Vector2(CustomMinimumSize.X, collapsedH);
+            if (_body != null)
+            {
+                _body.Size = new Vector2(_body.Size.X, 0);
+            }
         }
-        else if (_expandedSize.Y > 1f)
+        else
         {
-            Size = _expandedSize;
+            if (_expandedSize.Y > 1f)
+            {
+                Size = _expandedSize;
+            }
+
+            CustomMinimumSize = _expandedCustomMinSize;
         }
 
         QueueRedraw();

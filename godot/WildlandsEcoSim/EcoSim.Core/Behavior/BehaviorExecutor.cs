@@ -22,13 +22,6 @@ public static class BehaviorExecutor
         double goalX = c.Tx, goalY = c.Ty;
         int? targetId = null;
 
-        void ApplySnapped(double gx, double gy)
-        {
-            var sn = Navigation.SnapWalkableGoal(state, (int)Math.Round(gx), (int)Math.Round(gy), ctx.CanSwim, 8);
-            if (sn.HasValue) { goalX = sn.Value.X + 0.5; goalY = sn.Value.Y + 0.5; }
-            else { goalX = gx; goalY = gy; }
-        }
-
         switch (goal)
         {
             case "hold":
@@ -50,6 +43,30 @@ public static class BehaviorExecutor
             {
                 var pos = creatures.SimPos(c);
                 int seekR = Navigation.WaterSeekRadius(ctx.SenseR);
+                int cti = GridHelpers.Idx(state,
+                    (int)SimMath.Clamp(Math.Round(c.X), 0, state.W - 1),
+                    (int)SimMath.Clamp(Math.Round(c.Y), 0, state.H - 1));
+                if (BiomeData.IsWater(state.Biome[cti]) && ctx.CanSwim)
+                {
+                    var shore = Navigation.NearestWalkableLand(state, pos.X, pos.Y,
+                        Math.Max(state.W, state.H));
+                    if (shore.HasValue)
+                    {
+                        goalX = shore.Value.X;
+                        goalY = shore.Value.Y;
+                        break;
+                    }
+                }
+
+                var drinkTile = Navigation.NearestShoreDrinkTile(state, pos.X, pos.Y,
+                    Math.Max(seekR, 24));
+                if (drinkTile.HasValue)
+                {
+                    goalX = drinkTile.Value.X;
+                    goalY = drinkTile.Value.Y;
+                    break;
+                }
+
                 var w = Navigation.WaterEdgeGoalFromField(state, pos.X, pos.Y, seekR)
                     ?? Navigation.NearestWaterEdgeTarget(state, pos.X, pos.Y, seekR);
                 if (w.HasValue) { goalX = w.Value.X; goalY = w.Value.Y; }
@@ -62,12 +79,31 @@ public static class BehaviorExecutor
                 int ti = GridHelpers.Idx(state,
                     (int)SimMath.Clamp(Math.Round(c.X), 0, state.W - 1),
                     (int)SimMath.Clamp(Math.Round(c.Y), 0, state.H - 1));
-                if (state.Veg[ti] <= 0.04f)
+                if (!GrazeFood.IsEdible(state, ti))
                 {
-                    var t = creatures.FindFood(c, (int)ctx.SenseR);
-                    if (t.HasValue) ApplySnapped(t.Value.X, t.Value.Y);
-                    else creatures.Wander(c);
-                    goalX = c.Tx; goalY = c.Ty;
+                    var searchGoal = creatures.ResolveGrazeSearchGoal(c, ctx.SenseR);
+                    // #region agent log
+                    if (c.Hunger < 25 && c.State == "graze"
+                        && DebugSessionLog.ShouldSample(c.Id, state.TGlobal))
+                    {
+                        DebugSessionLog.Write("H6", "BehaviorExecutor.bestFoodOrWander", "resolved graze search goal",
+                            new
+                            {
+                                id = c.Id,
+                                sp = c.Sp,
+                                hunger = c.Hunger,
+                                senseR = ctx.SenseR,
+                                veg = state.Veg[ti],
+                                vegCap = state.VegCap[ti],
+                                onWater = BiomeData.IsWater(state.Biome[ti]),
+                                goalX = searchGoal.X,
+                                goalY = searchGoal.Y,
+                                goalDist = SimMath.Hypot(searchGoal.X - c.X, searchGoal.Y - c.Y),
+                            }, "post-fix");
+                    }
+                    // #endregion
+                    goalX = searchGoal.X;
+                    goalY = searchGoal.Y;
                 }
                 else { goalX = c.X; goalY = c.Y; }
                 break;
@@ -129,8 +165,8 @@ public static class BehaviorExecutor
 
         if (!reuseGoals)
         {
-            creature.NavGoalX = double.NaN;
-            creature.NavGoalY = double.NaN;
+            creature.NavGoalX = goals.GoalX;
+            creature.NavGoalY = goals.GoalY;
             creature.NavWpX = double.NaN;
             creature.NavWpY = double.NaN;
         }
@@ -155,7 +191,7 @@ public static class BehaviorExecutor
         {
             case "flee":
                 bool drinkAtShore = action.TryGetPropertyValue("drinkAtShore", out var ds) && ds!.GetValue<bool>();
-                if (drinkAtShore && Navigation.AtWaterEdge(state, c.X, c.Y) && c.Thirst < 55)
+                if (drinkAtShore && Navigation.CanDrinkHere(state, c.X, c.Y, ctx.CanSwim) && c.Thirst < 55)
                 {
                     c.Thirst = Math.Min(100, c.Thirst + 60 * dt);
                     c.Vx *= 0.7; c.Vy *= 0.7;
@@ -171,15 +207,58 @@ public static class BehaviorExecutor
                 return true;
 
             case "thirst":
-                if (Navigation.AtWaterEdge(state, c.X, c.Y))
+                if (Navigation.CanDrinkHere(state, c.X, c.Y, ctx.CanSwim))
                 {
                     c.Thirst = Math.Min(100, c.Thirst + 60 * dt);
                     return false;
                 }
                 {
-                    double goalDist = SimMath.Hypot(c.Tx - c.X, c.Ty - c.Y);
-                    bool direct = goalDist <= SimConstants.DirectPursuitRadius;
-                    creatures.MoveTowardGoal(c, c.Tx, c.Ty, moveSpeed, dt, direct: direct, forceReplan: direct);
+                    double gx = double.IsFinite(c.NavGoalX) ? c.NavGoalX : c.Tx;
+                    double gy = double.IsFinite(c.NavGoalY) ? c.NavGoalY : c.Ty;
+                    double goalDist = SimMath.Hypot(gx - c.X, gy - c.Y);
+                    if (goalDist < 0.6
+                        && Navigation.CanDrinkOnTile(state, GridHelpers.TileX(state, gx), GridHelpers.TileY(state, gy), ctx.CanSwim))
+                    {
+                        c.X = gx;
+                        c.Y = gy;
+                        c.Thirst = Math.Min(100, c.Thirst + 60 * dt);
+                        return false;
+                    }
+                    if (!Navigation.CanDrinkOnTile(state, GridHelpers.TileX(state, gx), GridHelpers.TileY(state, gy), ctx.CanSwim))
+                    {
+                        var shore = Navigation.NearestShoreDrinkTile(state, c.X, c.Y,
+                            Math.Max(Navigation.WaterSeekRadius(ctx.SenseR), 24));
+                        if (shore.HasValue)
+                        {
+                            gx = shore.Value.X;
+                            gy = shore.Value.Y;
+                            c.NavGoalX = gx;
+                            c.NavGoalY = gy;
+                        }
+                    }
+                    goalDist = SimMath.Hypot(gx - c.X, gy - c.Y);
+                    bool direct = goalDist <= Math.Max(SimConstants.DirectPursuitRadius, ctx.SenseR)
+                        || goalDist > 0.5;
+                    creatures.MoveTowardGoal(c, gx, gy, moveSpeed, dt, direct: direct, forceReplan: direct);
+                    // #region agent log
+                    if (c.Thirst < 35 && DebugSessionLog.ShouldSample(c.Id, state.TGlobal))
+                    {
+                        DebugSessionLog.Write("T1-T4", "BehaviorExecutor.thirst", "seeking water moved",
+                            new
+                            {
+                                id = c.Id,
+                                sp = c.Sp,
+                                thirst = c.Thirst,
+                                canDrink = Navigation.CanDrinkHere(state, c.X, c.Y, ctx.CanSwim),
+                                navGoalX = gx,
+                                navGoalY = gy,
+                                x = c.X,
+                                y = c.Y,
+                                navGoalDist = goalDist,
+                                waypointDist = SimMath.Hypot(c.Tx - c.X, c.Ty - c.Y),
+                            }, "post-fix");
+                    }
+                    // #endregion
                 }
                 return true;
 
@@ -188,15 +267,88 @@ public static class BehaviorExecutor
                 int ti = GridHelpers.Idx(state,
                     (int)SimMath.Clamp(Math.Round(c.X), 0, state.W - 1),
                     (int)SimMath.Clamp(Math.Round(c.Y), 0, state.H - 1));
-                if (state.Veg[ti] > 0.04f)
+                double thirstExit = BehaviorContextBuilder.Threshold(ctx, "thirstExit", 55);
+                if (Navigation.CanDrinkHere(state, c.X, c.Y, ctx.CanSwim) && c.Thirst < thirstExit)
                 {
+                    double thirstBefore = c.Thirst;
+                    c.Thirst = Math.Min(100, c.Thirst + 60 * dt);
+                    // #region agent log
+                    if (thirstBefore < 25)
+                    {
+                        DebugSessionLog.Write("T5", "BehaviorExecutor.graze", "drank at shore while grazing",
+                            new
+                            {
+                                id = c.Id,
+                                sp = c.Sp,
+                                thirstBefore,
+                                thirstAfter = c.Thirst,
+                                hunger = c.Hunger,
+                                x = c.X,
+                                y = c.Y,
+                            }, "post-fix");
+                    }
+                    // #endregion
+                }
+                if (GrazeFood.IsEdible(state, ti))
+                {
+                    double hungerBefore = c.Hunger;
                     double bite = Math.Min(state.Veg[ti], 3.5 * dt);
                     state.Veg[ti] -= (float)bite;
                     c.Hunger = Math.Min(100, c.Hunger + bite * 26);
                     state.VegDirty = true;
+                    // #region agent log
+                    if (hungerBefore < 25 && DebugSessionLog.ShouldSample(c.Id, state.TGlobal))
+                    {
+                        DebugSessionLog.Write("H2", "BehaviorExecutor.graze", "ate vegetation",
+                            new
+                            {
+                                id = c.Id,
+                                sp = c.Sp,
+                                hungerBefore,
+                                hungerAfter = c.Hunger,
+                                bite,
+                                vegLeft = state.Veg[ti],
+                                vegCap = state.VegCap[ti],
+                                dt,
+                            });
+                    }
+                    // #endregion
                     return false;
                 }
-                creatures.MoveTo(c, moveSpeed, dt);
+                double gx = double.IsFinite(c.NavGoalX) ? c.NavGoalX : c.Tx;
+                double gy = double.IsFinite(c.NavGoalY) ? c.NavGoalY : c.Ty;
+                double goalDist = SimMath.Hypot(gx - c.X, gy - c.Y);
+                bool onWater = BiomeData.IsWater(state.Biome[ti]);
+                bool direct = goalDist <= Math.Max(SimConstants.DirectPursuitRadius, ctx.SenseR)
+                    || (onWater && goalDist > 0.5);
+                creatures.MoveTowardGoal(c, gx, gy, moveSpeed, dt, direct: direct, forceReplan: direct);
+                // #region agent log
+                if (c.Hunger < 25 && DebugSessionLog.ShouldSample(c.Id, state.TGlobal))
+                {
+                    int afterTi = GridHelpers.Idx(state,
+                        (int)SimMath.Clamp(Math.Round(c.X), 0, state.W - 1),
+                        (int)SimMath.Clamp(Math.Round(c.Y), 0, state.H - 1));
+                    double navGx = double.IsFinite(c.NavGoalX) ? c.NavGoalX : c.Tx;
+                    double navGy = double.IsFinite(c.NavGoalY) ? c.NavGoalY : c.Ty;
+                    DebugSessionLog.Write("H3-H4", "BehaviorExecutor.graze", "searching moved",
+                        new
+                        {
+                            id = c.Id,
+                            sp = c.Sp,
+                            hunger = c.Hunger,
+                            veg = state.Veg[ti],
+                            vegCap = state.VegCap[ti],
+                            onWater = BiomeData.IsWater(state.Biome[afterTi]),
+                            biome = state.Biome[afterTi],
+                            navGoalX = navGx,
+                            navGoalY = navGy,
+                            x = c.X,
+                            y = c.Y,
+                            navGoalDist = SimMath.Hypot(navGx - c.X, navGy - c.Y),
+                            waypointDist = SimMath.Hypot(c.Tx - c.X, c.Ty - c.Y),
+                        }, "post-fix");
+                }
+                // #endregion
                 return true;
             }
 
@@ -300,7 +452,7 @@ public static class BehaviorExecutor
             "hunt" => ctxValidPrey(creature, decision.Ctx),
             "huntSearch" => true,
             "mate" => ctxValidMate(creature, decision.Ctx),
-            "thirst" => !Navigation.AtWaterEdge(state, creature.X, creature.Y)
+            "thirst" => !Navigation.CanDrinkHere(state, creature.X, creature.Y, decision.Ctx.CanSwim)
                 && (double.IsFinite(creature.NavGoalX) || double.IsFinite(creature.Tx)),
             "graze" => GrazeReuse(state, creature),
             "rest" or "wander" => true,
@@ -322,6 +474,6 @@ public static class BehaviorExecutor
         int ti = GridHelpers.Idx(state,
             (int)SimMath.Clamp(Math.Round(creature.X), 0, state.W - 1),
             (int)SimMath.Clamp(Math.Round(creature.Y), 0, state.H - 1));
-        return state.Veg[ti] > 0.04f;
+        return GrazeFood.IsEdible(state, ti);
     }
 }

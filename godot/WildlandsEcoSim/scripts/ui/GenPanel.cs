@@ -32,6 +32,7 @@ public partial class GenPanel : DraggablePanel
     public override void _Ready()
     {
         LayoutKey = "gen";
+        Visible = false;
         base._Ready();
 
         _seed = GetNode<SpinBox>("%SeedBox");

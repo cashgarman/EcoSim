@@ -189,12 +189,19 @@ public sealed class CreatureSystem
         return list;
     }
 
-    public void Wander(Creature c)
+    public void Wander(Creature c, bool landOnly = false, bool force = false)
     {
-        bool canSwim = SpeciesCatalog.SpeciesCanSwim(_catalog.Get(c.Sp));
-        if (SimMath.Hypot(c.Tx - c.X, c.Ty - c.Y) < 0.6 || GlobalRng.Next() < 0.02)
+        bool canSwim = landOnly
+            ? false
+            : SpeciesCatalog.SpeciesCanSwim(_catalog.Get(c.Sp));
+        int ti = GridHelpers.Idx(_state,
+            (int)SimMath.Clamp(Math.Round(c.X), 0, _state.W - 1),
+            (int)SimMath.Clamp(Math.Round(c.Y), 0, _state.H - 1));
+        bool onWater = BiomeData.IsWater(_state.Biome[ti]);
+        int spread = landOnly && onWater ? 24 : 6;
+        if (force || SimMath.Hypot(c.Tx - c.X, c.Ty - c.Y) < 0.6 || GlobalRng.Next() < 0.02)
         {
-            var t = Navigation.PickRandomWalkableTile(_state, c.X, c.Y, 6, canSwim);
+            var t = Navigation.PickRandomWalkableTile(_state, c.X, c.Y, spread, canSwim);
             c.Tx = SimMath.Clamp(t.X, 1, _state.W - 2);
             c.Ty = SimMath.Clamp(t.Y, 1, _state.H - 2);
         }
@@ -204,7 +211,7 @@ public sealed class CreatureSystem
     {
         bool canSwim = SpeciesCatalog.SpeciesCanSwim(_catalog.Get(c.Sp));
         int navR = QualityConfig.NavRadius;
-        if (c.State == "thirst" && Navigation.AtWaterEdge(_state, c.X, c.Y))
+        if (c.State == "thirst" && Navigation.CanDrinkHere(_state, c.X, c.Y, canSwim))
         {
             c.Vx *= 0.7;
             c.Vy *= 0.7;
@@ -241,9 +248,31 @@ public sealed class CreatureSystem
         double dx = tx - c.X, dy = ty - c.Y, d = SimMath.Hypot(dx, dy);
         if (d < 0.05)
         {
-            if (c.State == "thirst" && !Navigation.AtWaterEdge(_state, c.X, c.Y)
-                && double.IsFinite(c.NavGoalX)
-                && SimMath.Hypot(c.NavGoalX - c.X, c.NavGoalY - c.Y) > 0.08)
+            if (c.State == "thirst" && !Navigation.CanDrinkHere(_state, c.X, c.Y, canSwim))
+            {
+                if (double.IsFinite(c.NavGoalX)
+                    && SimMath.Hypot(c.NavGoalX - c.X, c.NavGoalY - c.Y) > 0.08)
+                {
+                    tx = c.NavGoalX;
+                    ty = c.NavGoalY;
+                }
+                else
+                {
+                    var shore = Navigation.NearestShoreDrinkTile(_state, c.X, c.Y, 16);
+                    if (shore.HasValue)
+                    {
+                        tx = shore.Value.X;
+                        ty = shore.Value.Y;
+                        c.NavGoalX = tx;
+                        c.NavGoalY = ty;
+                    }
+                }
+                dx = tx - c.X;
+                dy = ty - c.Y;
+                d = SimMath.Hypot(dx, dy);
+            }
+            else if (c.State == "graze" && double.IsFinite(c.NavGoalX)
+                && SimMath.Hypot(c.NavGoalX - c.X, c.NavGoalY - c.Y) > 0.5)
             {
                 tx = c.NavGoalX;
                 ty = c.NavGoalY;
@@ -279,26 +308,134 @@ public sealed class CreatureSystem
 
     public void MoveTo(Creature c, double speed, double dt) => MoveTowardGoal(c, c.Tx, c.Ty, speed, dt);
 
-    public (int X, int Y)? FindFood(Creature c, int r)
+    public (int X, int Y)? FindFood(Creature c, int r, int step = 2)
     {
         (int X, int Y)? best = null;
-        double bv = 0.05;
+        double bv = 0;
         int ix = (int)Math.Round(c.X), iy = (int)Math.Round(c.Y);
-        for (int dy = -r; dy <= r; dy += 2)
+        int scanned = 0;
+        int edibleCount = 0;
+        int stride = Math.Max(1, step);
+        for (int dy = -r; dy <= r; dy += stride)
         {
-            for (int dx = -r; dx <= r; dx += 2)
+            for (int dx = -r; dx <= r; dx += stride)
             {
                 int nx = ix + dx, ny = iy + dy;
                 if (!GridHelpers.InBounds(_state, nx, ny)) continue;
+                scanned++;
                 int ti = GridHelpers.Idx(_state, nx, ny);
-                if (!BiomeData.IsWater(_state.Biome[ti]) && _state.Veg[ti] > bv)
+                if (BiomeData.IsWater(_state.Biome[ti])) continue;
+                if (!GrazeFood.IsEdible(_state, ti)) continue;
+                edibleCount++;
+                if (_state.Veg[ti] > bv)
                 {
                     bv = _state.Veg[ti];
                     best = (nx, ny);
                 }
             }
         }
+        // #region agent log
+        if (best == null && c.State == "graze" && c.Hunger < 15
+            && DebugSessionLog.ShouldSample(c.Id, _state.TGlobal, 3.0))
+        {
+            DebugSessionLog.Write("H1", "CreatureSystem.FindFood", "no food found in sense range",
+                new
+                {
+                    id = c.Id,
+                    sp = c.Sp,
+                    hunger = c.Hunger,
+                    senseR = r,
+                    scanned,
+                    edibleCount,
+                    x = c.X,
+                    y = c.Y,
+                }, "post-fix");
+        }
+        // #endregion
         return best;
+    }
+
+    public (int X, int Y)? FindFoodForGraze(Creature c, double senseR)
+    {
+        int baseR = Math.Max(4, (int)Math.Ceiling(senseR));
+        int maxR = Math.Min(Math.Max(_state.W, _state.H) / 2, baseR * 5);
+        for (int mul = 1; mul <= 5; mul++)
+        {
+            int r = Math.Min(maxR, baseR * mul);
+            int step = mul <= 1 ? 2 : 1;
+            var found = FindFood(c, r, step);
+            if (found.HasValue) return found;
+            if (r >= maxR) break;
+        }
+        return null;
+    }
+
+    public (double X, double Y) ResolveGrazeSearchGoal(Creature c, double senseR)
+    {
+        var food = FindFoodForGraze(c, senseR);
+        if (food.HasValue)
+        {
+            var sn = Navigation.SnapWalkableGoal(_state, food.Value.X, food.Value.Y, false, 8);
+            if (sn.HasValue) return (sn.Value.X + 0.5, sn.Value.Y + 0.5);
+            return (food.Value.X + 0.5, food.Value.Y + 0.5);
+        }
+
+        int ti = GridHelpers.Idx(_state,
+            (int)SimMath.Clamp(Math.Round(c.X), 0, _state.W - 1),
+            (int)SimMath.Clamp(Math.Round(c.Y), 0, _state.H - 1));
+        if (BiomeData.IsWater(_state.Biome[ti]))
+        {
+            int seekR = Math.Max(_state.W, _state.H);
+            var land = Navigation.NearestWalkableLand(_state, c.X, c.Y, seekR);
+            if (land.HasValue) return land.Value;
+        }
+
+        Wander(c, landOnly: true, force: true);
+        int goalTi = GridHelpers.Idx(_state,
+            (int)SimMath.Clamp(Math.Round(c.Tx), 0, _state.W - 1),
+            (int)SimMath.Clamp(Math.Round(c.Y), 0, _state.H - 1));
+        bool goalOnWater = BiomeData.IsWater(_state.Biome[goalTi]);
+        if (SimMath.Hypot(c.Tx - c.X, c.Ty - c.Y) < 1.0 || goalOnWater)
+        {
+            var far = Navigation.PickRandomWalkableTile(_state, c.X, c.Y, 20, false);
+            int farTi = GridHelpers.Idx(_state,
+                (int)SimMath.Clamp(Math.Round(far.X), 0, _state.W - 1),
+                (int)SimMath.Clamp(Math.Round(far.Y), 0, _state.H - 1));
+            if (SimMath.Hypot(far.X - c.X, far.Y - c.Y) > 0.5
+                && !BiomeData.IsWater(_state.Biome[farTi]))
+            {
+                c.Tx = SimMath.Clamp(far.X, 1, _state.W - 2);
+                c.Ty = SimMath.Clamp(far.Y, 1, _state.H - 2);
+            }
+            else if (BiomeData.IsWater(_state.Biome[ti]))
+            {
+                var land = Navigation.NearestWalkableLand(_state, c.X, c.Y, Math.Max(_state.W, _state.H));
+                if (land.HasValue) return land.Value;
+            }
+        }
+
+        goalTi = GridHelpers.Idx(_state,
+            (int)SimMath.Clamp(Math.Round(c.Tx), 0, _state.W - 1),
+            (int)SimMath.Clamp(Math.Round(c.Ty), 0, _state.H - 1));
+        // #region agent log
+        if (BiomeData.IsWater(_state.Biome[ti])
+            && SimMath.Hypot(c.Tx - c.X, c.Ty - c.Y) < 1.0)
+        {
+            DebugSessionLog.Write("H3", "CreatureSystem.ResolveGrazeSearchGoal", "stuck on water - no land goal",
+                new
+                {
+                    id = c.Id,
+                    sp = c.Sp,
+                    hunger = c.Hunger,
+                    x = c.X,
+                    y = c.Y,
+                    goalX = c.Tx,
+                    goalY = c.Ty,
+                    senseR,
+                }, "post-fix");
+        }
+        // #endregion
+        return (c.Tx, c.Ty);
     }
 
     public int GiveBirth(Creature c)
@@ -351,6 +488,74 @@ public sealed class CreatureSystem
         int ti = GridHelpers.Idx(_state,
             (int)SimMath.Clamp(Math.Round(c.X), 0, _state.W - 1),
             (int)SimMath.Clamp(Math.Round(c.Y), 0, _state.H - 1));
+        // #region agent log
+        bool canSwim = SpeciesCatalog.SpeciesCanSwim(_catalog.Get(c.Sp));
+        bool onWater = BiomeData.IsWater(_state.Biome[ti]);
+        bool atEdge = Navigation.AtWaterEdge(_state, c.X, c.Y);
+        bool canDrink = Navigation.CanDrinkHere(_state, c.X, c.Y, canSwim);
+        float waterDist = Navigation.WaterDistAt(_state, c.X, c.Y);
+        DebugSessionLog.Write("DEATH", "CreatureSystem.Die", "creature died",
+            new
+            {
+                id = c.Id,
+                sp = c.Sp,
+                deathKey,
+                cause = c.Cause,
+                state = c.State,
+                hunger = c.Hunger,
+                thirst = c.Thirst,
+                hp = c.Hp,
+                day = _state.Day,
+                tGlobal = _state.TGlobal,
+            }, "post-fix");
+
+        if (deathKey.Contains("starvation", StringComparison.OrdinalIgnoreCase)
+            || deathKey.Contains("dehydration", StringComparison.OrdinalIgnoreCase))
+        {
+            var food = FindFood(c, (int)Math.Round(c.Genome.Sense));
+            DebugSessionLog.Write("T1-T5", "CreatureSystem.Die",
+                deathKey.Contains("dehydration", StringComparison.OrdinalIgnoreCase)
+                    ? "dehydration death" : "starvation death",
+                new
+                {
+                    id = c.Id,
+                    sp = c.Sp,
+                    deathKey,
+                    state = c.State,
+                    hunger = c.Hunger,
+                    thirst = c.Thirst,
+                    hp = c.Hp,
+                    x = c.X,
+                    y = c.Y,
+                    tileX = GridHelpers.TileX(_state, c.X),
+                    tileY = GridHelpers.TileY(_state, c.Y),
+                    biome = _state.Biome[ti],
+                    onWater,
+                    atEdge,
+                    canDrink,
+                    waterDist,
+                    veg = _state.Veg[ti],
+                    vegCap = _state.VegCap[ti],
+                    edible = GrazeFood.IsEdible(_state, ti),
+                    minEdible = GrazeFood.MinEdibleAmount(_state.VegCap[ti]),
+                    findFood = food.HasValue,
+                    findFoodDist = food.HasValue
+                        ? Math.Sqrt(Math.Pow(food.Value.X - c.X, 2) + Math.Pow(food.Value.Y - c.Y, 2))
+                        : -1,
+                    navGoalDist = double.IsFinite(c.NavGoalX)
+                        ? SimMath.Hypot(c.NavGoalX - c.X, c.NavGoalY - c.Y)
+                        : -1,
+                    navGoalCanDrink = double.IsFinite(c.NavGoalX)
+                        && Navigation.CanDrinkOnTile(_state,
+                            GridHelpers.TileX(_state, c.NavGoalX),
+                            GridHelpers.TileY(_state, c.NavGoalY),
+                            canSwim),
+                    sense = c.Genome.Sense,
+                    day = _state.Day,
+                    tGlobal = _state.TGlobal,
+                }, "post-fix");
+        }
+        // #endregion
         if (!BiomeData.IsWater(_state.Biome[ti]))
         {
             _state.Veg[ti] = Math.Min(_state.VegCap[ti], _state.Veg[ti] + 0.15f);

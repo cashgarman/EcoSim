@@ -39,8 +39,8 @@ public static class Navigation
 
     public static bool AtWaterEdge(SimState state, double x, double y)
     {
-        int ix = (int)Math.Round(x);
-        int iy = (int)Math.Round(y);
+        int ix = GridHelpers.TileX(state, x);
+        int iy = GridHelpers.TileY(state, y);
         for (int dy = -1; dy <= 1; dy++)
         {
             for (int dx = -1; dx <= 1; dx++)
@@ -53,6 +53,97 @@ public static class Navigation
             }
         }
         return false;
+    }
+
+    public static bool CanDrinkOnTile(SimState state, int tx, int ty, bool canSwim)
+    {
+        if (!GridHelpers.InBounds(state, tx, ty)) return false;
+        int ti = GridHelpers.Idx(state, tx, ty);
+        if (BiomeData.IsWater(state.Biome[ti]))
+        {
+            return canSwim;
+        }
+
+        if (state.WaterDist.Length == state.W * state.H)
+        {
+            float d = state.WaterDist[ti];
+            if (d < SimConstants.WaterDistUnreachable && d <= 0f)
+            {
+                return true;
+            }
+        }
+
+        for (int dy = -1; dy <= 1; dy++)
+        {
+            for (int dx = -1; dx <= 1; dx++)
+            {
+                int nx = tx + dx, ny = ty + dy;
+                if (!GridHelpers.InBounds(state, nx, ny)) continue;
+                if (BiomeData.IsWater(state.Biome[GridHelpers.Idx(state, nx, ny)]))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    public static bool CanDrinkHere(SimState state, double x, double y, bool canSwim)
+    {
+        int ix = GridHelpers.TileX(state, x);
+        int iy = GridHelpers.TileY(state, y);
+        for (int dy = -1; dy <= 1; dy++)
+        {
+            for (int dx = -1; dx <= 1; dx++)
+            {
+                if (CanDrinkOnTile(state, ix + dx, iy + dy, canSwim))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    public static float WaterDistAt(SimState state, double x, double y)
+    {
+        if (state.WaterDist.Length != state.W * state.H) return (float)SimConstants.WaterDistUnreachable;
+        return state.WaterDist[GridHelpers.TileIdx(state, x, y)];
+    }
+
+    public static (double X, double Y)? NearestShoreDrinkTile(SimState state, double x, double y, int radius)
+    {
+        double bestD2 = double.MaxValue;
+        double? bestX = null, bestY = null;
+        int ix = GridHelpers.TileX(state, x), iy = GridHelpers.TileY(state, y);
+        int r = Math.Max(4, radius);
+        bool useDist = state.WaterDist.Length == state.W * state.H;
+
+        for (int dy = -r; dy <= r; dy++)
+        {
+            for (int dx = -r; dx <= r; dx++)
+            {
+                int lx = ix + dx, ly = iy + dy;
+                if (!GridHelpers.InBounds(state, lx, ly)) continue;
+                if (!IsTileWalkable(state, lx, ly, false)) continue;
+                int ti = GridHelpers.Idx(state, lx, ly);
+                bool drinkable = useDist
+                    ? state.WaterDist[ti] < SimConstants.WaterDistUnreachable && state.WaterDist[ti] <= 0f
+                    : IsShoreWalkableTile(state, lx, ly);
+                if (!drinkable) continue;
+                double d2 = dx * (double)dx + dy * (double)dy;
+                if (d2 < bestD2)
+                {
+                    bestD2 = d2;
+                    bestX = lx + 0.5;
+                    bestY = ly + 0.5;
+                }
+            }
+        }
+
+        return bestX.HasValue ? (bestX.Value, bestY!.Value) : null;
     }
 
     public static bool LineOfSightClear(SimState state, double x0, double y0, double x1, double y1, bool canSwim)
@@ -152,8 +243,8 @@ public static class Navigation
 
     public static (double X, double Y)? WaterEdgeGoalFromField(SimState state, double x, double y, int maxSteps)
     {
-        int cx = (int)Math.Round(x);
-        int cy = (int)Math.Round(y);
+        int cx = GridHelpers.TileX(state, x);
+        int cy = GridHelpers.TileY(state, y);
         if (!GridHelpers.InBounds(state, cx, cy)) return null;
 
         int ti = GridHelpers.Idx(state, cx, cy);
@@ -178,6 +269,13 @@ public static class Navigation
             cx = bestNx; cy = bestNy; dist = bestDist;
             if (dist <= 0) break;
         }
+
+        if (dist > 0)
+        {
+            var shore = NearestShoreDrinkTile(state, x, y, Math.Max(16, maxSteps));
+            if (shore.HasValue) return shore;
+        }
+
         return (cx + 0.5, cy + 0.5);
     }
 
@@ -187,7 +285,7 @@ public static class Navigation
     {
         double? bestX = null, bestY = null;
         double bd = r * r;
-        int ix = (int)Math.Round(x), iy = (int)Math.Round(y);
+        int ix = GridHelpers.TileX(state, x), iy = GridHelpers.TileY(state, y);
         for (int dy = -r; dy <= r; dy++)
         {
             for (int dx = -r; dx <= r; dx++)
@@ -213,6 +311,33 @@ public static class Navigation
                 if (d < bd) { bd = d; bestX = lx + 0.5; bestY = ly + 0.5; }
             }
         }
+        return bestX.HasValue ? (bestX.Value, bestY!.Value) : null;
+    }
+
+    public static (double X, double Y)? NearestWalkableLand(SimState state, double x, double y, int radius)
+    {
+        double bestD2 = double.MaxValue;
+        double? bestX = null, bestY = null;
+        int ix = GridHelpers.TileX(state, x), iy = GridHelpers.TileY(state, y);
+        for (int dy = -radius; dy <= radius; dy++)
+        {
+            for (int dx = -radius; dx <= radius; dx++)
+            {
+                int lx = ix + dx, ly = iy + dy;
+                if (!GridHelpers.InBounds(state, lx, ly)) continue;
+                int ti = GridHelpers.Idx(state, lx, ly);
+                if (BiomeData.IsWater(state.Biome[ti])) continue;
+                if (!IsTileWalkable(state, lx, ly, false)) continue;
+                double d2 = dx * (double)dx + dy * (double)dy;
+                if (d2 < bestD2)
+                {
+                    bestD2 = d2;
+                    bestX = lx + 0.5;
+                    bestY = ly + 0.5;
+                }
+            }
+        }
+
         return bestX.HasValue ? (bestX.Value, bestY!.Value) : null;
     }
 
