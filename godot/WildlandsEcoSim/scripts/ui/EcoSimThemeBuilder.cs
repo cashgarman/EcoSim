@@ -238,4 +238,27 @@ public static class EcoSimThemeBuilder
         EcoSimFonts.StyleDimLabel(label);
         return label;
     }
+
+    /// <summary>Wraps content in a 9-slice stone <see cref="PanelContainer"/> frame.</summary>
+    public static PanelContainer MakeStoneFrame(Control content, bool expandVertical = true)
+    {
+        var panel = new PanelContainer
+        {
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+            SizeFlagsVertical = expandVertical ? Control.SizeFlags.ExpandFill : Control.SizeFlags.ShrinkEnd,
+        };
+        panel.AddThemeStyleboxOverride("panel", UiSliceCatalog.MakeStonePanel());
+        panel.AddThemeConstantOverride("margin_left", 8);
+        panel.AddThemeConstantOverride("margin_right", 8);
+        panel.AddThemeConstantOverride("margin_top", 8);
+        panel.AddThemeConstantOverride("margin_bottom", 8);
+
+        content.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
+        if (expandVertical)
+        {
+            content.SizeFlagsVertical = Control.SizeFlags.ExpandFill;
+        }
+        panel.AddChild(content);
+        return panel;
+    }
 }

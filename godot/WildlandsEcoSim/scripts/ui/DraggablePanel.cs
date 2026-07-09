@@ -309,7 +309,7 @@ public partial class DraggablePanel : PanelContainer
         return Mathf.Max(headerH + marginTop + marginBottom + 4f, 32f);
     }
 
-    public void SaveLayout()
+    public virtual void SaveLayout()
     {
         if (!string.IsNullOrEmpty(LayoutKey))
         {

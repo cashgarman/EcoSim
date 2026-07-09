@@ -22,20 +22,23 @@ public partial class BtInspectorPane : VBoxContainer
 
     public override void _Ready()
     {
-        CustomMinimumSize = new Vector2(232, 0);
-        AddThemeConstantOverride("separation", 6);
+        CustomMinimumSize = new Vector2(248, 0);
+        AddThemeConstantOverride("separation", 0);
+
+        var body = new VBoxContainer();
+        body.AddThemeConstantOverride("separation", 6);
 
         _title = new Label { Text = "Inspector" };
         EcoSimFonts.StylePanelTitle(_title, EcoSimFonts.SpeciesStatsTitle);
-        AddChild(_title);
+        body.AddChild(_title);
 
         _empty = new Label
         {
             Text = "Select a node to edit its properties.",
             AutowrapMode = TextServer.AutowrapMode.WordSmart,
         };
-        EcoSimFonts.StyleDimLabel(_empty);
-        AddChild(_empty);
+        EcoSimFonts.StyleDimLabel(_empty, EcoSimFonts.Scaled7);
+        body.AddChild(_empty);
 
         var scroll = new ScrollContainer
         {
@@ -45,7 +48,9 @@ public partial class BtInspectorPane : VBoxContainer
         _fields = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
         _fields.AddThemeConstantOverride("separation", 4);
         scroll.AddChild(_fields);
-        AddChild(scroll);
+        body.AddChild(scroll);
+
+        AddChild(EcoSimThemeBuilder.MakeStoneFrame(body));
     }
 
     public void SetSchema(BehaviorSchema schema) => _schema = schema;
@@ -200,7 +205,7 @@ public partial class BtInspectorPane : VBoxContainer
     private void AddLabel(string text)
     {
         var l = new Label { Text = text };
-        EcoSimFonts.StyleDimLabel(l);
+        EcoSimFonts.StyleDimLabel(l, EcoSimFonts.Scaled7);
         _fields.AddChild(l);
     }
 
@@ -208,7 +213,7 @@ public partial class BtInspectorPane : VBoxContainer
     {
         AddLabel(label);
         var edit = new LineEdit { Text = value, SizeFlagsHorizontal = SizeFlags.ExpandFill };
-        EcoSimFonts.ApplyFont(edit, EcoSimFonts.Small);
+        EcoSimFonts.ApplyFont(edit, EcoSimFonts.Scaled7);
         edit.TextChanged += t => onChange(t);
         _fields.AddChild(edit);
     }
@@ -217,7 +222,7 @@ public partial class BtInspectorPane : VBoxContainer
     {
         AddLabel(label);
         var spin = new SpinBox { MinValue = min, MaxValue = max, Step = step, Value = value, SizeFlagsHorizontal = SizeFlags.ExpandFill };
-        EcoSimFonts.ApplyFont(spin.GetLineEdit(), EcoSimFonts.Small);
+        EcoSimFonts.ApplyFont(spin.GetLineEdit(), EcoSimFonts.Scaled7);
         spin.ValueChanged += v => onChange(v);
         _fields.AddChild(spin);
     }
@@ -226,7 +231,7 @@ public partial class BtInspectorPane : VBoxContainer
     {
         AddLabel(label);
         var opt = new OptionButton { SizeFlagsHorizontal = SizeFlags.ExpandFill };
-        EcoSimFonts.ApplyFont(opt, EcoSimFonts.Small);
+        EcoSimFonts.ApplyFont(opt, EcoSimFonts.Scaled7);
         for (int i = 0; i < items.Length; i++) opt.AddItem(items[i], i);
         if (selected >= 0 && selected < items.Length) opt.Selected = selected;
         opt.ItemSelected += idx => onChange((int)idx);
@@ -236,7 +241,7 @@ public partial class BtInspectorPane : VBoxContainer
     private void AddCheck(string label, bool value, Action<bool> onChange)
     {
         var chk = new CheckBox { Text = label, ButtonPressed = value };
-        EcoSimFonts.ApplyFont(chk, EcoSimFonts.Small);
+        EcoSimFonts.ApplyFont(chk, EcoSimFonts.Scaled7);
         chk.Toggled += v => onChange(v);
         _fields.AddChild(chk);
     }

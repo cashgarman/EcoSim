@@ -11,6 +11,10 @@ namespace WildlandsEcoSim.UI;
 /// </summary>
 public partial class BtEditorPanel : DraggablePanel
 {
+    private static readonly Vector2 DefaultSize = new(1060, 600);
+    private static readonly Vector2 MinSize = new(720, 400);
+
+    private Control _shell = null!;
     private Label _title = null!;
     private Label _empty = null!;
     private VBoxContainer _content = null!;
@@ -21,6 +25,10 @@ public partial class BtEditorPanel : DraggablePanel
     private Button _saveBtn = null!;
     private Button _revertBtn = null!;
     private Label _status = null!;
+    private Control _resizeGrip = null!;
+    private bool _resizing;
+    private Vector2 _resizeStartMouse;
+    private Vector2 _resizeStartSize;
 
     private SimSession? _session;
     private BtEditSaveService? _saveService;
@@ -33,11 +41,19 @@ public partial class BtEditorPanel : DraggablePanel
     {
         LayoutKey = "bteditor";
         Visible = false;
-        CustomMinimumSize = new Vector2(1060, 600);
+        CustomMinimumSize = MinSize;
+        ClipContents = false;
         ZIndex = 55;
 
-        var root = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill, SizeFlagsVertical = SizeFlags.ExpandFill };
-        AddChild(root);
+        _shell = new Control { MouseFilter = MouseFilterEnum.Ignore };
+        _shell.SetAnchorsPreset(LayoutPreset.FullRect);
+        _shell.SetOffsetsPreset(LayoutPreset.FullRect);
+        AddChild(_shell);
+
+        var root = new VBoxContainer();
+        root.SetAnchorsPreset(LayoutPreset.FullRect);
+        root.SetOffsetsPreset(LayoutPreset.FullRect);
+        _shell.AddChild(root);
 
         var head = new HBoxContainer { Name = "PanelHead" };
         _title = new Label { Text = "Behavior Tree", SizeFlagsHorizontal = SizeFlags.ExpandFill };
@@ -45,7 +61,12 @@ public partial class BtEditorPanel : DraggablePanel
         head.AddChild(_title);
         root.AddChild(head);
 
-        var body = new VBoxContainer { Name = "PanelBody", SizeFlagsVertical = SizeFlags.ExpandFill };
+        var body = new VBoxContainer
+        {
+            Name = "PanelBody",
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ExpandFill,
+        };
         body.AddThemeConstantOverride("separation", 6);
         root.AddChild(body);
 
@@ -72,7 +93,12 @@ public partial class BtEditorPanel : DraggablePanel
         EcoSimFonts.ApplyFont(_empty, EcoSimFonts.Body, EcoSimThemeBuilder.Dim);
         body.AddChild(_empty);
 
-        _content = new VBoxContainer { Visible = false, SizeFlagsVertical = SizeFlags.ExpandFill };
+        _content = new VBoxContainer
+        {
+            Visible = false,
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ExpandFill,
+        };
         _content.AddThemeConstantOverride("separation", 0);
         body.AddChild(_content);
 
@@ -80,12 +106,42 @@ public partial class BtEditorPanel : DraggablePanel
         _panes.AddThemeConstantOverride("separation", 8);
         _content.AddChild(_panes);
 
-        _blackboard = new BtBlackboardPane { SizeFlagsVertical = SizeFlags.ExpandFill };
-        _canvas = new BtGraphCanvas { SizeFlagsHorizontal = SizeFlags.ExpandFill, SizeFlagsVertical = SizeFlags.ExpandFill };
-        _inspector = new BtInspectorPane { SizeFlagsVertical = SizeFlags.ExpandFill };
+        _blackboard = new BtBlackboardPane
+        {
+            SizeFlagsHorizontal = SizeFlags.ShrinkBegin,
+            SizeFlagsVertical = SizeFlags.ExpandFill,
+        };
+        _canvas = new BtGraphCanvas
+        {
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ExpandFill,
+        };
+        _inspector = new BtInspectorPane
+        {
+            SizeFlagsHorizontal = SizeFlags.ShrinkBegin,
+            SizeFlagsVertical = SizeFlags.ExpandFill,
+        };
         _panes.AddChild(_blackboard);
         _panes.AddChild(_canvas);
         _panes.AddChild(_inspector);
+
+        _resizeGrip = new Control
+        {
+            CustomMinimumSize = new Vector2(20, 20),
+            MouseFilter = MouseFilterEnum.Stop,
+            MouseDefaultCursorShape = CursorShape.Bdiagsize,
+            TooltipText = "Drag to resize",
+            ZIndex = 1,
+        };
+        _resizeGrip.SetAnchorsPreset(LayoutPreset.BottomRight);
+        _resizeGrip.OffsetLeft = -20;
+        _resizeGrip.OffsetTop = -20;
+        _resizeGrip.OffsetRight = 0;
+        _resizeGrip.OffsetBottom = 0;
+        _resizeGrip.GuiInput += OnResizeGripInput;
+        _shell.AddChild(_resizeGrip);
+
+        Callable.From(EnsureLayout).CallDeferred();
 
         _canvas.NodeSelected += id => _inspector.ShowNode(id);
         _canvas.StructureChanged += () => { MarkDirty(); _inspector.ShowNode(_canvas.SelectedId); };
@@ -94,10 +150,90 @@ public partial class BtEditorPanel : DraggablePanel
         _blackboard.ThresholdsChanged += MarkDirty;
     }
 
+    public override void _Process(double delta)
+    {
+        base._Process(delta);
+
+        if (!_resizing) return;
+
+        if (!Input.IsMouseButtonPressed(MouseButton.Left))
+        {
+            _resizing = false;
+            SaveLayout();
+            _canvas.QueueRedraw();
+            return;
+        }
+
+        Vector2 deltaSize = GetGlobalMousePosition() - _resizeStartMouse;
+        Size = new Vector2(
+            Mathf.Max(MinSize.X, _resizeStartSize.X + deltaSize.X),
+            Mathf.Max(MinSize.Y, _resizeStartSize.Y + deltaSize.Y));
+        PanelLayoutService.ClampToViewport(this);
+        _canvas.QueueRedraw();
+    }
+
+    public override void _Draw()
+    {
+        base._Draw();
+        if (_resizeGrip == null) return;
+
+        Vector2 p = _resizeGrip.Position + new Vector2(6, 6);
+        Color c = EcoSimThemeBuilder.Dim;
+        for (int i = 0; i < 3; i++)
+        {
+            Vector2 o = new(i * 4, i * 4);
+            DrawLine(p + o, p + o + new Vector2(8, 0), c, 1.5f);
+            DrawLine(p + o, p + o + new Vector2(0, 8), c, 1.5f);
+        }
+    }
+
+    public override void SaveLayout()
+    {
+        if (!string.IsNullOrEmpty(LayoutKey))
+        {
+            PanelLayoutService.SaveBounds(this, LayoutKey);
+        }
+    }
+
+    private void EnsureLayout()
+    {
+        Vector2 defaultPos = GlobalPosition;
+        if (defaultPos == Vector2.Zero)
+        {
+            var vp = GetViewportRect().Size;
+            defaultPos = new Vector2((vp.X - DefaultSize.X) * 0.5f, 88);
+        }
+
+        if (!PanelLayoutService.ApplyBounds(this, LayoutKey, defaultPos, DefaultSize))
+        {
+            Size = DefaultSize;
+        }
+
+        PanelLayoutService.ClampToViewport(this);
+    }
+
+    private void OnResizeGripInput(InputEvent @event)
+    {
+        if (@event is InputEventMouseButton mb && mb.ButtonIndex == MouseButton.Left)
+        {
+            if (mb.Pressed)
+            {
+                _resizing = true;
+                _resizeStartMouse = GetGlobalMousePosition();
+                _resizeStartSize = Size;
+                AcceptEvent();
+            }
+        }
+        else if (@event is InputEventMouseMotion && _resizing)
+        {
+            AcceptEvent();
+        }
+    }
+
     private Button MakeToolButton(string text, Action onPressed)
     {
         var btn = new Button { Text = text };
-        EcoSimFonts.ApplyFont(btn, EcoSimFonts.Small);
+        EcoSimFonts.ApplyFont(btn, EcoSimFonts.PanelUiBtn);
         btn.FocusMode = FocusModeEnum.None;
         btn.Pressed += onPressed;
         return btn;

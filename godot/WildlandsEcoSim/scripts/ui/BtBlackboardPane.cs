@@ -14,8 +14,9 @@ public partial class BtBlackboardPane : VBoxContainer
     public event Action? ThresholdsChanged;
 
     private BtEditorDocument? _doc;
+    private PanelContainer _thresholdsFrame = null!;
+    private PanelContainer _liveFrame = null!;
     private VBoxContainer _thresholdList = null!;
-    private VBoxContainer _liveSection = null!;
     private Label _liveHeader = null!;
     private Label _selfLabel = null!;
     private Label _targetLabel = null!;
@@ -28,16 +29,19 @@ public partial class BtBlackboardPane : VBoxContainer
 
     public override void _Ready()
     {
-        CustomMinimumSize = new Vector2(196, 0);
-        AddThemeConstantOverride("separation", 6);
+        CustomMinimumSize = new Vector2(210, 0);
+        AddThemeConstantOverride("separation", 8);
+
+        var thresholdsBody = new VBoxContainer();
+        thresholdsBody.AddThemeConstantOverride("separation", 6);
 
         var title = new Label { Text = "Blackboard" };
         EcoSimFonts.StylePanelTitle(title, EcoSimFonts.SpeciesStatsTitle);
-        AddChild(title);
+        thresholdsBody.AddChild(title);
 
         var thHeader = new Label { Text = "Thresholds" };
-        EcoSimFonts.StyleDimLabel(thHeader);
-        AddChild(thHeader);
+        EcoSimFonts.StyleDimLabel(thHeader, EcoSimFonts.Scaled7);
+        thresholdsBody.AddChild(thHeader);
 
         var scroll = new ScrollContainer
         {
@@ -47,44 +51,50 @@ public partial class BtBlackboardPane : VBoxContainer
         _thresholdList = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
         _thresholdList.AddThemeConstantOverride("separation", 2);
         scroll.AddChild(_thresholdList);
-        AddChild(scroll);
+        thresholdsBody.AddChild(scroll);
 
-        _liveSection = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill, Visible = false };
-        _liveSection.AddThemeConstantOverride("separation", 3);
-        AddChild(_liveSection);
+        _thresholdsFrame = EcoSimThemeBuilder.MakeStoneFrame(thresholdsBody);
+        AddChild(_thresholdsFrame);
+
+        var liveBody = new VBoxContainer();
+        liveBody.AddThemeConstantOverride("separation", 3);
 
         _liveHeader = new Label { Text = "Live creature" };
-        EcoSimFonts.StyleDimLabel(_liveHeader);
-        _liveSection.AddChild(_liveHeader);
+        EcoSimFonts.StyleDimLabel(_liveHeader, EcoSimFonts.Scaled7);
+        liveBody.AddChild(_liveHeader);
 
         _selfLabel = MakeInfo();
         _targetLabel = MakeInfo();
         _stateLabel = MakeInfo();
-        _liveSection.AddChild(_selfLabel);
-        _liveSection.AddChild(_targetLabel);
-        _liveSection.AddChild(_stateLabel);
+        liveBody.AddChild(_selfLabel);
+        liveBody.AddChild(_targetLabel);
+        liveBody.AddChild(_stateLabel);
 
-        _hp = AddNeed("Health", EcoSimThemeBuilder.Hp);
-        _hunger = AddNeed("Fullness", EcoSimThemeBuilder.Hunger);
-        _thirst = AddNeed("Hydration", EcoSimThemeBuilder.Thirst);
-        _energy = AddNeed("Energy", EcoSimThemeBuilder.Energy);
+        _hp = AddNeed(liveBody, "Health", EcoSimThemeBuilder.Hp);
+        _hunger = AddNeed(liveBody, "Fullness", EcoSimThemeBuilder.Hunger);
+        _thirst = AddNeed(liveBody, "Hydration", EcoSimThemeBuilder.Thirst);
+        _energy = AddNeed(liveBody, "Energy", EcoSimThemeBuilder.Energy);
+
+        _liveFrame = EcoSimThemeBuilder.MakeStoneFrame(liveBody, expandVertical: false);
+        _liveFrame.Visible = false;
+        AddChild(_liveFrame);
     }
 
     private Label MakeInfo()
     {
         var l = new Label { AutowrapMode = TextServer.AutowrapMode.WordSmart };
-        EcoSimFonts.ApplyFont(l, EcoSimFonts.Small, EcoSimThemeBuilder.Text);
+        EcoSimFonts.ApplyFont(l, EcoSimFonts.Scaled7, EcoSimThemeBuilder.Text);
         return l;
     }
 
-    private ProgressBar AddNeed(string name, Color color)
+    private ProgressBar AddNeed(VBoxContainer parent, string name, Color color)
     {
         var label = new Label { Text = name };
-        EcoSimFonts.StyleDimLabel(label);
-        _liveSection.AddChild(label);
+        EcoSimFonts.StyleDimLabel(label, EcoSimFonts.Scaled7);
+        parent.AddChild(label);
         var bar = new ProgressBar { MinValue = 0, MaxValue = 100, ShowPercentage = false };
         EcoSimThemeBuilder.StyleNeedBar(bar, color);
-        _liveSection.AddChild(bar);
+        parent.AddChild(bar);
         return bar;
     }
 
@@ -117,7 +127,7 @@ public partial class BtBlackboardPane : VBoxContainer
             row.AddThemeConstantOverride("separation", 4);
 
             var label = new Label { Text = key, SizeFlagsHorizontal = SizeFlags.ExpandFill };
-            EcoSimFonts.ApplyFont(label, EcoSimFonts.Small, EcoSimThemeBuilder.Text);
+            EcoSimFonts.ApplyFont(label, EcoSimFonts.Scaled7, EcoSimThemeBuilder.Text);
             label.TooltipText = _thresholdSpecs.FirstOrDefault(s => s.Key == key)?.Label ?? key;
             row.AddChild(label);
 
@@ -127,9 +137,9 @@ public partial class BtBlackboardPane : VBoxContainer
                 MaxValue = 100,
                 Step = 1,
                 Value = value,
-                CustomMinimumSize = new Vector2(56, 0),
+                CustomMinimumSize = new Vector2(64, 0),
             };
-            EcoSimFonts.ApplyFont(spin.GetLineEdit(), EcoSimFonts.Small);
+            EcoSimFonts.ApplyFont(spin.GetLineEdit(), EcoSimFonts.Scaled7);
             string capturedKey = key;
             spin.ValueChanged += v =>
             {
@@ -148,11 +158,11 @@ public partial class BtBlackboardPane : VBoxContainer
     {
         if (creature == null || creature.Dead)
         {
-            _liveSection.Visible = false;
+            _liveFrame.Visible = false;
             return;
         }
 
-        _liveSection.Visible = true;
+        _liveFrame.Visible = true;
         var def = species.Get(creature.Sp);
         _selfLabel.Text = $"Self: {def.Emoji} {def.Label} #{creature.Id}";
         _targetLabel.Text = creature.Target.HasValue ? $"Target: #{creature.Target.Value}" : "Target: none";
