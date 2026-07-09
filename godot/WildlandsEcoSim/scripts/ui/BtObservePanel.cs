@@ -143,7 +143,7 @@ public partial class BtObservePanel : DraggablePanel
         }
 
         _statusLabel.Text =
-            $"Committed: {creature.State} · {committedAction} · dwell {dwell:F1}s\n" +
+            $"Committed: {CreatureBehaviorLabels.GetDisplayLabel(creature, session.State)} · {committedAction} · dwell {dwell:F1}s\n" +
             $"Proposed: {proposedText} · thirst {creature.Thirst:F0} hunger {creature.Hunger:F0} energy {creature.Energy:F0} · water {atWater} · tier {tier}";
 
         var doc = BehaviorGraphAdapter.ToFlatDocument(cfg);
