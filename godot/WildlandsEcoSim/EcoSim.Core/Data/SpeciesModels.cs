@@ -21,6 +21,7 @@ public sealed class SpeciesDefinition
     public string Behavior { get; set; } = "";
     public string Label { get; set; } = "";
     public string Emoji { get; set; } = "";
+    public string Blurb { get; set; } = "";
     public int Diet { get; set; }
     public string Shape { get; set; } = "small";
     public int[] Col { get; set; } = [128, 128, 128];

@@ -409,6 +409,7 @@ public partial class HudController : CanvasLayer
         _watchFollowDeathId = null;
         _story.LogGodAction($"Day 0: World generated ({cfg.Size}, seed {seed})", session);
         RefreshHud();
+        _playerMode?.ShowSpeciesSelect();
     }
 
     private void OnCreatureLifeEvent(string speciesKey, string kind)
@@ -728,8 +729,8 @@ public partial class HudController : CanvasLayer
             session.Evolutions.ResetAll();
         }
 
+        // OnGenerate shows the species picker for the fresh world.
         OnGenerate();
-        _playerMode?.PossessRandom();
     }
 
     private void OnPossessionChanged()

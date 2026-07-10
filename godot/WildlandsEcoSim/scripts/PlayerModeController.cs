@@ -27,6 +27,7 @@ public partial class PlayerModeController : Node
     private TransferNoticePanel _transferNotice = null!;
     private EvolutionPanel _evolution = null!;
     private GameOverPanel _gameOver = null!;
+    private SpeciesSelectPanel _speciesSelect = null!;
     private bool _pausedByModal;
 
     public bool IsPossessing => _host.Session?.Player.IsControlling == true;
@@ -52,12 +53,31 @@ public partial class PlayerModeController : Node
         _gameOver.RestartRequested += OnGameOverRestart;
         _gameOver.PossessSpeciesRequested += OnGameOverPossessSpecies;
         AddChild(_gameOver);
+        _speciesSelect = new SpeciesSelectPanel { Theme = theme };
+        _speciesSelect.SpeciesChosen += OnSpeciesSelected;
+        _speciesSelect.ObserveChosen += ResumeFromModal;
+        AddChild(_speciesSelect);
 
         _gameApp.SimTicked += OnSimTicked;
     }
 
     private bool ModalOpen =>
-        _birthChoice.IsOpen || _evolution.IsOpen || _gameOver.IsOpen;
+        _birthChoice.IsOpen || _evolution.IsOpen || _gameOver.IsOpen || _speciesSelect.IsOpen;
+
+    /// <summary>Opens the new-game species picker (pauses the sim while open).</summary>
+    public void ShowSpeciesSelect()
+    {
+        var session = _host.Session;
+        if (session == null) return;
+        PauseForModal();
+        _speciesSelect.Open(session);
+    }
+
+    private void OnSpeciesSelected(string speciesKey)
+    {
+        PossessRandom(speciesKey);
+        ResumeFromModal();
+    }
 
     public override void _Process(double delta)
     {
@@ -289,6 +309,7 @@ public partial class PlayerModeController : Node
         _birthChoice.Visible = false;
         _evolution.Visible = false;
         _gameOver.HidePanel();
+        _speciesSelect.Visible = false;
         _pausedByModal = false;
     }
 }
