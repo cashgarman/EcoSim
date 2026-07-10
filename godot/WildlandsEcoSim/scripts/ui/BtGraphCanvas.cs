@@ -54,8 +54,69 @@ public partial class BtGraphCanvas : Control
     private readonly List<string> _actionMenuIds = [];
     private readonly List<string> _conditionMenuIds = [];
 
-    private const float HeaderH = 20f;
-    private const float PortR = 5f;
+    // Hover tooltip
+    private PanelContainer _tooltip = null!;
+    private VBoxContainer  _tooltipBody = null!;
+    private string? _hoveredId;
+    private Vector2 _mousePos;
+
+    private const float HeaderH = 30f;
+    private const float BodyLineH = 16f;
+    private const float BodyPad = 12f;
+    private const float DescLineH = 13f;
+    private const float DescSepH = 8f;
+    private const int   DescMaxCharsPerLine = 30;
+    private const float PortR = 7f;
+
+    private static readonly Dictionary<string, string> NodeDescMap =
+        new(StringComparer.OrdinalIgnoreCase)
+    {
+        // ── Composites ───────────────────────────────────────────────────
+        ["SELECTOR"]              = "Tries each branch in priority order. First success wins.",
+        ["flee_drink_branch"]     = "Flee a threat while pausing to drink at the water's edge.",
+        ["flee_branch"]           = "Escape from a nearby predator at high speed.",
+        ["thirst_branch"]         = "Move to the nearest water source and drink.",
+        ["graze_branch"]          = "Seek out food tiles and eat until satisfied.",
+        ["rest_branch"]           = "Stand still and recover depleted energy.",
+        ["mate_branch"]           = "Seek a partner and reproduce when ready.",
+        ["hunt_branch"]           = "Chase and attack prey that is in sensing range.",
+        ["moderate_hunt_branch"]  = "Pursue prey when moderately hungry.",
+        ["stalk_branch"]          = "Roam while searching for prey to enter range.",
+        ["night_rest_branch"]     = "Rest when energy is low during nighttime.",
+        // ── Conditions ───────────────────────────────────────────────────
+        ["HasThreat"]             = "A predator has been sensed nearby.",
+        ["AtWaterEdge"]           = "Standing at a water's edge; can drink here.",
+        ["ThirstyWhileFleeing"]   = "Too thirsty to ignore, even while fleeing.",
+        ["Thirsty"]               = "Thirst below threshold; water needed soon.",
+        ["HungryHerbivore"]       = "Hunger is low; needs vegetation to eat.",
+        ["HungryOmnivoreNoPrey"]  = "Hungry with no prey visible; will graze instead.",
+        ["HungryCarnivoreNearby"] = "Hungry and a prey animal is within sensing range.",
+        ["HungryCarnivoreStalk"]  = "Hungry, but no prey is currently visible.",
+        ["Tired"]                 = "Energy is getting low; rest should follow.",
+        ["Exhausted"]             = "Energy critically depleted; must rest now.",
+        ["CanMate"]               = "Adult, cooldown elapsed, partner nearby.",
+        ["ModerateHunt"]          = "A prey animal is visible while moderately hungry.",
+        ["NightWanderTired"]      = "Energy below rest threshold during nighttime.",
+        // ── Actions ──────────────────────────────────────────────────────
+        ["FleeDrinkAtShore"]      = "Hold position briefly to drink, then resume fleeing.",
+        ["Flee"]                  = "Sprint directly away from the nearest threat.",
+        ["Fleeing!"]              = "Sprint directly away from the nearest threat.",
+        ["Fleeing (drinking)"]    = "Pause at shore to drink, then resume fleeing.",
+        ["SeekWater"]             = "Move toward the nearest water tile and drink.",
+        ["Seeking water"]         = "Move toward the nearest water tile and drink.",
+        ["Graze"]                 = "Move to the best nearby food tile and eat vegetation.",
+        ["Grazing"]               = "Move to the best nearby food tile and eat vegetation.",
+        ["HuntNearby"]            = "Actively chase the nearest prey and attack if caught.",
+        ["Hunting"]               = "Actively chase the nearest prey and attack if caught.",
+        ["StalkPrey"]             = "Wander randomly, scanning for prey to enter range.",
+        ["Stalking"]              = "Wander randomly, scanning for prey to enter range.",
+        ["Rest"]                  = "Stop moving and regenerate energy over time.",
+        ["Resting"]               = "Stop moving and regenerate energy over time.",
+        ["Mate"]                  = "Approach the nearest eligible partner to mate.",
+        ["Mating"]                = "Approach the nearest eligible partner to mate.",
+        ["Wander"]                = "Walk to a random reachable tile at a relaxed pace.",
+        ["Wandering"]             = "Walk to a random reachable tile at a relaxed pace.",
+    };
 
     public override void _Ready()
     {
@@ -74,6 +135,12 @@ public partial class BtGraphCanvas : Control
         _ctxMenu.IdPressed += OnCtxMenuId;
         _addActionMenu.IdPressed += id => AddLeafToTarget(BehaviorNodeType.Action, _actionMenuIds[(int)id]);
         _addConditionMenu.IdPressed += id => AddLeafToTarget(BehaviorNodeType.Condition, _conditionMenuIds[(int)id]);
+
+        _tooltip = BuildTooltipPanel();
+        _tooltip.MouseFilter = MouseFilterEnum.Ignore;
+        _tooltip.ZIndex = 20;
+        _tooltip.Visible = false;
+        AddChild(_tooltip);
     }
 
     public override void _Process(double delta)
@@ -91,6 +158,20 @@ public partial class BtGraphCanvas : Control
         {
             QueueRedraw();
         }
+
+        if (_tooltip.Visible)
+        {
+            PositionTooltip(_mousePos);
+        }
+    }
+
+    public override void _Notification(int what)
+    {
+        if (what == NotificationMouseExit)
+        {
+            _hoveredId = null;
+            _tooltip.Visible = false;
+        }
     }
 
     // ── Public API ─────────────────────────────────────────────────────────
@@ -99,6 +180,8 @@ public partial class BtGraphCanvas : Control
     {
         _doc = doc;
         _selectedId = null;
+        _hoveredId = null;
+        _tooltip.Visible = false;
         if (resetView) _fitPending = true;
         QueueRedraw();
     }
@@ -166,9 +249,20 @@ public partial class BtGraphCanvas : Control
 
     private Vector2 WorldToScreen(double x, double y) => new((float)x * _zoom + _panOffset.X, (float)y * _zoom + _panOffset.Y);
     private Vector2 ScreenToWorld(Vector2 s) => (s - _panOffset) / _zoom;
-    private Rect2 NodeWorldRect(BtEditorNode n) => new((float)n.X, (float)n.Y, (float)BehaviorGraphLayout.NodeWidth, (float)BehaviorGraphLayout.NodeHeight);
+    private float NodeHeightWorld(BtEditorNode n)
+    {
+        _stepByUid.TryGetValue(n.Uid, out var step);
+        int bodyLines = Mathf.Max(BodyLines(n, step).Count, 2);
+        float h = HeaderH + BodyPad + bodyLines * BodyLineH + BodyPad * 0.5f;
+        var desc = DescriptionLines(n);
+        if (desc.Count > 0)
+            h += DescSepH + desc.Count * DescLineH + 4f;
+        return Mathf.Max((float)BehaviorGraphLayout.NodeHeight, h);
+    }
+
+    private Rect2 NodeWorldRect(BtEditorNode n) => new((float)n.X, (float)n.Y, (float)BehaviorGraphLayout.NodeWidth, NodeHeightWorld(n));
     private Rect2 NodeScreenRect(BtEditorNode n) => new(WorldToScreen(n.X, n.Y), NodeWorldRect(n).Size * _zoom);
-    private Vector2 OutPortWorld(BtEditorNode n) => new((float)(n.X + BehaviorGraphLayout.NodeWidth * 0.5), (float)(n.Y + BehaviorGraphLayout.NodeHeight));
+    private Vector2 OutPortWorld(BtEditorNode n) => new((float)(n.X + BehaviorGraphLayout.NodeWidth * 0.5), (float)(n.Y + NodeHeightWorld(n)));
     private Vector2 InPortWorld(BtEditorNode n) => new((float)(n.X + BehaviorGraphLayout.NodeWidth * 0.5), (float)n.Y);
 
     private void FitDocument()
@@ -177,7 +271,7 @@ public partial class BtGraphCanvas : Control
         double minX = _doc.Nodes.Values.Min(n => n.X);
         double minY = _doc.Nodes.Values.Min(n => n.Y);
         double maxX = _doc.Nodes.Values.Max(n => n.X) + BehaviorGraphLayout.NodeWidth;
-        double maxY = _doc.Nodes.Values.Max(n => n.Y) + BehaviorGraphLayout.NodeHeight;
+        double maxY = _doc.Nodes.Values.Max(n => n.Y + NodeHeightWorld(n));
         float docW = (float)(maxX - minX);
         float docH = (float)(maxY - minY);
         const float pad = 30f;
@@ -298,25 +392,50 @@ public partial class BtGraphCanvas : Control
 
     private void HandleMouseMotion(InputEventMouseMotion motion)
     {
+        _mousePos = motion.Position;
+
         if (_panning)
         {
             _panOffset = _panOffsetAtStart + (motion.Position - _panStart);
+            _hoveredId = null;
+            _tooltip.Visible = false;
             QueueRedraw();
             return;
         }
         if (_connectingFrom != null)
         {
             _connectMouse = motion.Position;
+            _hoveredId = null;
+            _tooltip.Visible = false;
             QueueRedraw();
             return;
         }
-        if (_movingNodeId != null && _doc!.Nodes.TryGetValue(_movingNodeId, out var node))
+        if (_movingNodeId != null && _doc!.Nodes.TryGetValue(_movingNodeId, out var movingNode))
         {
             var world = ScreenToWorld(motion.Position) - _moveGrabWorldOffset;
-            node.X = world.X;
-            node.Y = world.Y;
+            movingNode.X = world.X;
+            movingNode.Y = world.Y;
             _moved = true;
+            _tooltip.Visible = false;
             QueueRedraw();
+            return;
+        }
+
+        // Hover tooltip
+        var hovered = NodeAt(motion.Position);
+        string? newId = hovered?.Id;
+        if (newId != _hoveredId)
+        {
+            _hoveredId = newId;
+            if (hovered != null)
+            {
+                UpdateTooltipContent(hovered);
+                _tooltip.Visible = true;
+            }
+            else
+            {
+                _tooltip.Visible = false;
+            }
         }
     }
 
@@ -412,7 +531,7 @@ public partial class BtGraphCanvas : Control
     {
         int childCount = parent.ChildIds.Count;
         node.X = parent.X + childCount * (BehaviorGraphLayout.NodeWidth + BehaviorGraphLayout.HGap);
-        node.Y = parent.Y + BehaviorGraphLayout.NodeHeight + BehaviorGraphLayout.VGap;
+        node.Y = parent.Y + NodeHeightWorld(parent) + BehaviorGraphLayout.VGap;
         return node;
     }
 
@@ -448,7 +567,7 @@ public partial class BtGraphCanvas : Control
     {
         if (_doc == null || !_doc.Nodes.TryGetValue(nodeId, out var node)) return;
         var wrapper = new BtEditorNode { Type = type, X = node.X, Y = node.Y };
-        node.Y += BehaviorGraphLayout.NodeHeight + BehaviorGraphLayout.VGap;
+        node.Y = wrapper.Y + NodeHeightWorld(wrapper) + BehaviorGraphLayout.VGap;
 
         string? parentId = _doc.ParentOf(nodeId);
         _doc.Add(wrapper);
@@ -616,8 +735,8 @@ public partial class BtGraphCanvas : Control
         var body = new StyleBoxFlat
         {
             BgColor = bodyColor,
-            CornerRadiusTopLeft = 6, CornerRadiusTopRight = 6,
-            CornerRadiusBottomLeft = 6, CornerRadiusBottomRight = 6,
+            CornerRadiusTopLeft = 8, CornerRadiusTopRight = 8,
+            CornerRadiusBottomLeft = 8, CornerRadiusBottomRight = 8,
         };
         DrawStyleBox(body, rect);
 
@@ -627,7 +746,7 @@ public partial class BtGraphCanvas : Control
         var header = new StyleBoxFlat
         {
             BgColor = committed ? EcoSimThemeBuilder.Gold : headerColor,
-            CornerRadiusTopLeft = 6, CornerRadiusTopRight = 6,
+            CornerRadiusTopLeft = 8, CornerRadiusTopRight = 8,
         };
         DrawStyleBox(header, headerRect);
 
@@ -649,8 +768,8 @@ public partial class BtGraphCanvas : Control
             BorderColor = border,
             BorderWidthTop = (int)borderW, BorderWidthBottom = (int)borderW,
             BorderWidthLeft = (int)borderW, BorderWidthRight = (int)borderW,
-            CornerRadiusTopLeft = 6, CornerRadiusTopRight = 6,
-            CornerRadiusBottomLeft = 6, CornerRadiusBottomRight = 6,
+            CornerRadiusTopLeft = 8, CornerRadiusTopRight = 8,
+            CornerRadiusBottomLeft = 8, CornerRadiusBottomRight = 8,
         };
         DrawStyleBox(outline, rect);
 
@@ -660,10 +779,12 @@ public partial class BtGraphCanvas : Control
 
     private void DrawNodeText(BtEditorNode node, Rect2 rect, float headerH, BehaviorTraceStep? step)
     {
-        var font = GetThemeDefaultFont();
-        int hSize = Mathf.Max(7, (int)(9f * _zoom));
-        int bSize = Mathf.Max(6, (int)(8f * _zoom));
-        float pad = 6f * _zoom;
+        var font = EcoSimFonts.GetFont();
+        int hSize = Mathf.Max(1, (int)(13f * _zoom));
+        int bSize = Mathf.Max(1, (int)(11f * _zoom));
+        int dSize = Mathf.Max(1, (int)(8f  * _zoom));
+        float pad = 10f * _zoom;
+        float lineGap = 5f * _zoom;
 
         Color headerText = node.Type == BehaviorNodeType.Selector || node.Type == BehaviorNodeType.Action
             ? new Color("1a1d14") : Colors.White;
@@ -672,13 +793,34 @@ public partial class BtGraphCanvas : Control
         title = Truncate(title, rect.Size.X - pad * 2, font, hSize);
         DrawString(font, rect.Position + new Vector2(pad, headerH * 0.72f), title, HorizontalAlignment.Left, -1, hSize, headerText);
 
-        float y = rect.Position.Y + headerH + bSize + pad * 0.4f;
+        float y = rect.Position.Y + headerH + bSize + pad * 0.35f;
         foreach (string line in BodyLines(node, step))
         {
-            if (y > rect.End.Y - 2) break;
+            if (y > rect.End.Y - pad * 0.5f) break;
             string t = Truncate(line, rect.Size.X - pad * 2, font, bSize);
             DrawString(font, new Vector2(rect.Position.X + pad, y), t, HorizontalAlignment.Left, -1, bSize, EcoSimThemeBuilder.Text);
-            y += bSize + 4f * _zoom;
+            y += bSize + lineGap;
+        }
+
+        // ── Description section ──────────────────────────────────────────
+        var descLines = DescriptionLines(node);
+        if (descLines.Count > 0)
+        {
+            float sepY = y + DescSepH * _zoom * 0.4f;
+            DrawLine(
+                new Vector2(rect.Position.X + pad, sepY),
+                new Vector2(rect.End.X - pad, sepY),
+                EcoSimThemeBuilder.Dim.Darkened(0.4f), 1f);
+            y = sepY + DescSepH * _zoom * 0.6f + dSize;
+
+            var descColor = new Color(EcoSimThemeBuilder.Text.R, EcoSimThemeBuilder.Text.G, EcoSimThemeBuilder.Text.B, 0.55f);
+            foreach (string dl in descLines)
+            {
+                if (y > rect.End.Y - 2) break;
+                string dt = Truncate(dl, rect.Size.X - pad * 2, font, dSize);
+                DrawString(font, new Vector2(rect.Position.X + pad, y), dt, HorizontalAlignment.Left, -1, dSize, descColor);
+                y += dSize + 3f * _zoom;
+            }
         }
     }
 
@@ -712,6 +854,149 @@ public partial class BtGraphCanvas : Control
             _ => EcoSimThemeBuilder.Dim,
         };
         DrawArc(center, ring, 0, Mathf.Tau, 28, c, 2f);
+    }
+
+    // ── Tooltip ────────────────────────────────────────────────────────────
+
+    private PanelContainer BuildTooltipPanel()
+    {
+        var outer = new PanelContainer();
+        var style = new StyleBoxFlat
+        {
+            BgColor    = new Color(EcoSimThemeBuilder.PanelDark, 0.97f),
+            BorderColor = EcoSimThemeBuilder.Edge.Lightened(0.18f),
+            BorderWidthTop = 1, BorderWidthBottom = 1,
+            BorderWidthLeft = 1, BorderWidthRight = 1,
+            CornerRadiusTopLeft = 6, CornerRadiusTopRight = 6,
+            CornerRadiusBottomLeft = 6, CornerRadiusBottomRight = 6,
+        };
+        outer.AddThemeStyleboxOverride("panel", style);
+        outer.AddThemeConstantOverride("margin_left", 0);
+        outer.AddThemeConstantOverride("margin_right", 0);
+        outer.AddThemeConstantOverride("margin_top", 0);
+        outer.AddThemeConstantOverride("margin_bottom", 0);
+
+        _tooltipBody = new VBoxContainer();
+        _tooltipBody.AddThemeConstantOverride("separation", 0);
+        outer.AddChild(_tooltipBody);
+        return outer;
+    }
+
+    private void UpdateTooltipContent(BtEditorNode node)
+    {
+        foreach (var child in _tooltipBody.GetChildren())
+            child.QueueFree();
+
+        // ── Header bar ─────────────────────────────────────────────────
+        var headerPanel = new PanelContainer();
+        var headerStyle = new StyleBoxFlat
+        {
+            BgColor = HeaderColor(node.Type),
+            CornerRadiusTopLeft = 5, CornerRadiusTopRight = 5,
+            ContentMarginLeft   = 12,
+            ContentMarginRight  = 12,
+            ContentMarginTop    = 7,
+            ContentMarginBottom = 7,
+        };
+        headerPanel.AddThemeStyleboxOverride("panel", headerStyle);
+
+        Color titleFg = node.Type is BehaviorNodeType.Selector or BehaviorNodeType.Action
+            ? new Color("1a1d14") : Colors.White;
+        var titleLabel = new Label { Text = HeaderTitle(node) };
+        EcoSimFonts.ApplyFont(titleLabel, 11, titleFg);
+        headerPanel.AddChild(titleLabel);
+        _tooltipBody.AddChild(headerPanel);
+
+        // ── Body rows ──────────────────────────────────────────────────
+        var bodyBox = new VBoxContainer();
+        bodyBox.AddThemeConstantOverride("separation", 4);
+
+        foreach (string line in TooltipBodyLines(node))
+        {
+            var lbl = new Label { Text = line };
+            EcoSimFonts.ApplyFont(lbl, 10, EcoSimThemeBuilder.Text);
+            bodyBox.AddChild(lbl);
+        }
+
+        var bodyMargin = new MarginContainer();
+        bodyMargin.AddThemeConstantOverride("margin_left",   12);
+        bodyMargin.AddThemeConstantOverride("margin_right",  12);
+        bodyMargin.AddThemeConstantOverride("margin_top",     8);
+        bodyMargin.AddThemeConstantOverride("margin_bottom",  6);
+        bodyMargin.AddChild(bodyBox);
+        _tooltipBody.AddChild(bodyMargin);
+
+        // ── Description ────────────────────────────────────────────────
+        string? desc = NodeDescription(node);
+        if (!string.IsNullOrEmpty(desc))
+        {
+            var sep = new HSeparator();
+            sep.AddThemeColorOverride("color", EcoSimThemeBuilder.Dim.Darkened(0.35f));
+            _tooltipBody.AddChild(sep);
+
+            var descBox = new VBoxContainer();
+            descBox.AddThemeConstantOverride("separation", 3);
+
+            foreach (string dl in WordWrap(desc, 44))
+            {
+                var lbl = new Label { Text = dl };
+                EcoSimFonts.ApplyFont(lbl, 8, EcoSimThemeBuilder.Dim);
+                descBox.AddChild(lbl);
+            }
+
+            var descMargin = new MarginContainer();
+            descMargin.AddThemeConstantOverride("margin_left",   12);
+            descMargin.AddThemeConstantOverride("margin_right",  12);
+            descMargin.AddThemeConstantOverride("margin_top",     6);
+            descMargin.AddThemeConstantOverride("margin_bottom", 10);
+            descMargin.AddChild(descBox);
+            _tooltipBody.AddChild(descMargin);
+        }
+    }
+
+    private static List<string> TooltipBodyLines(BtEditorNode node)
+    {
+        var lines = new List<string>();
+        switch (node.Type)
+        {
+            case BehaviorNodeType.Selector:
+                lines.Add("(root selector)");
+                break;
+            case BehaviorNodeType.Sequence:
+                if (!string.IsNullOrEmpty(node.RefId)) lines.Add($"id: {node.RefId}");
+                lines.Add($"{node.ChildIds.Count} children");
+                break;
+            case BehaviorNodeType.Condition:
+                if (!string.IsNullOrEmpty(node.RefId)) lines.Add($"name: {node.RefId}");
+                if (node.Condition != null)
+                {
+                    foreach (var kv in node.Condition)
+                        lines.Add($"{kv.Key}: {kv.Value}");
+                }
+                break;
+            case BehaviorNodeType.Action:
+                if (node.Action != null)
+                {
+                    foreach (var kv in node.Action)
+                    {
+                        if (kv.Key == "label") continue;
+                        lines.Add($"{kv.Key}: {kv.Value}");
+                    }
+                }
+                break;
+        }
+        return lines;
+    }
+
+    private void PositionTooltip(Vector2 cursor)
+    {
+        const float gap = 14f;
+        var tipSize = _tooltip.Size;
+        float x = cursor.X + gap;
+        float y = cursor.Y + gap;
+        if (x + tipSize.X > Size.X) x = cursor.X - tipSize.X - gap;
+        if (y + tipSize.Y > Size.Y) y = cursor.Y - tipSize.Y - gap;
+        _tooltip.Position = new Vector2(Mathf.Max(0, x), Mathf.Max(0, y));
     }
 
     // ── Content helpers ────────────────────────────────────────────────────
@@ -750,11 +1035,73 @@ public partial class BtGraphCanvas : Control
                 lines.Add($"goal: {node.Action?["goal"]?.GetValue<string>() ?? "?"}");
                 break;
             case BehaviorNodeType.Condition:
-                lines.Add(node.Condition?["op"]?.GetValue<string>() ?? "?");
+                if (!string.IsNullOrEmpty(node.RefId)) lines.Add(node.RefId);
+                lines.Add($"op: {node.Condition?["op"]?.GetValue<string>() ?? "?"}");
                 if (_liveActive && step != null && !string.IsNullOrEmpty(step.Detail)) lines.Add(step.Detail);
                 break;
         }
         return lines;
+    }
+
+    // ── Node descriptions ──────────────────────────────────────────────────
+
+    private static string? NodeDescription(BtEditorNode node)
+    {
+        switch (node.Type)
+        {
+            case BehaviorNodeType.Selector:
+                return NodeDescMap.GetValueOrDefault("SELECTOR");
+
+            case BehaviorNodeType.Sequence:
+                if (!string.IsNullOrEmpty(node.RefId) && NodeDescMap.TryGetValue(node.RefId, out var seqDesc))
+                    return seqDesc;
+                return "All children must succeed in order.";
+
+            case BehaviorNodeType.Condition:
+                if (!string.IsNullOrEmpty(node.RefId) && NodeDescMap.TryGetValue(node.RefId, out var condDesc))
+                    return condDesc;
+                return null;
+
+            case BehaviorNodeType.Action:
+            {
+                // Prefer the display label, fall back to RefId
+                string? label = node.Action?["label"]?.GetValue<string>();
+                if (!string.IsNullOrEmpty(label) && NodeDescMap.TryGetValue(label, out var actDesc))
+                    return actDesc;
+                if (!string.IsNullOrEmpty(node.RefId) && NodeDescMap.TryGetValue(node.RefId, out var refDesc))
+                    return refDesc;
+                return null;
+            }
+
+            default:
+                return null;
+        }
+    }
+
+    private static List<string> DescriptionLines(BtEditorNode node)
+    {
+        string? desc = NodeDescription(node);
+        if (string.IsNullOrEmpty(desc)) return [];
+        return WordWrap(desc, DescMaxCharsPerLine);
+    }
+
+    private static List<string> WordWrap(string text, int maxChars)
+    {
+        var result = new List<string>();
+        var words = text.Split(' ');
+        var line = new System.Text.StringBuilder();
+        foreach (string word in words)
+        {
+            if (line.Length > 0 && line.Length + 1 + word.Length > maxChars)
+            {
+                result.Add(line.ToString());
+                line.Clear();
+            }
+            if (line.Length > 0) line.Append(' ');
+            line.Append(word);
+        }
+        if (line.Length > 0) result.Add(line.ToString());
+        return result;
     }
 
     private static string Truncate(string text, float maxWidth, Font font, int fontSize)

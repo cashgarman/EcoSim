@@ -1,9 +1,49 @@
 {
-  "extends": "herbivore_prey",
   "thresholds": {
-    "thirstUrgent": 35
+    "thirstUrgent": 35,
+    "thirstExit": 55,
+    "hungerUrgent": 25,
+    "hungerGraze": 55,
+    "hungerExit": 65,
+    "hungerHunt": 75,
+    "energyUrgent": 12,
+    "restEnergy": 18,
+    "energyExit": 30,
+    "nightWanderRestEnergy": 75,
+    "mateHungerMin": 45,
+    "mateThirstMin": 40,
+    "mateEnergyMin": 45
+  },
+  "conditions": {
+    "HasThreat":           { "op": "hasThreat" },
+    "AtWaterEdge":         { "op": "atWaterEdge" },
+    "ThirstyWhileFleeing": { "op": "thirstBelow", "key": "thirstExit" },
+    "Thirsty":             { "op": "thirstBelowOrState", "key": "thirstUrgent", "exitKey": "thirstExit", "state": "thirst" },
+    "HungryHerbivore":     { "op": "hungerBelowOrState", "key": "hungerUrgent", "exitKey": "hungerExit", "dietMax": 0 },
+    "Exhausted":           { "op": "energyBelowOrState", "key": "restEnergy", "exitKey": "energyExit", "state": "rest" },
+    "CanMate":             { "op": "canMate" },
+    "NightWanderTired":    { "op": "nightWanderTired" }
   },
   "actions": {
-    "Wander": { "speedMult": 0.65 }
+    "FleeDrinkAtShore": { "label": "Fleeing (drinking)", "state": "flee",  "goal": "hold",             "speedMult": 0,    "drinkAtShore": true, "interruptTier": 0 },
+    "Flee":             { "label": "Fleeing!",           "state": "flee",  "goal": "awayFromThreat",   "speedMult": 1.25, "interruptTier": 0 },
+    "SeekWater":        { "label": "Seeking water",      "state": "thirst","goal": "nearestWater",                        "interruptTier": 1 },
+    "Graze":            { "label": "Grazing",            "state": "graze", "goal": "bestFoodOrWander",                    "interruptTier": 1 },
+    "Rest":             { "label": "Resting",            "state": "rest",  "goal": "hold",                                "interruptTier": 1 },
+    "Mate":             { "label": "Mating",             "state": "mate",  "goal": "approachMate",                        "interruptTier": 2, "minCommitSec": 0.5 },
+    "Wander":           { "label": "Wandering",          "state": "wander","goal": "randomWalkable",   "speedMult": 0.65, "interruptTier": 3, "minCommitSec": 0.5 }
+  },
+  "root": {
+    "type": "selector",
+    "children": [
+      { "type": "sequence", "id": "flee_drink_branch",  "children": ["HasThreat", "AtWaterEdge", "ThirstyWhileFleeing", "FleeDrinkAtShore"] },
+      { "type": "sequence", "id": "flee_branch",        "children": ["HasThreat", "Flee"] },
+      { "type": "sequence", "id": "thirst_branch",      "children": ["Thirsty", "SeekWater"] },
+      { "type": "sequence", "id": "graze_branch",       "children": ["HungryHerbivore", "Graze"] },
+      { "type": "sequence", "id": "rest_branch",        "children": ["Exhausted", "Rest"] },
+      { "type": "sequence", "id": "mate_branch",        "children": ["CanMate", "Mate"] },
+      { "type": "sequence", "id": "night_rest_branch",  "children": ["NightWanderTired", "Rest"] },
+      "Wander"
+    ]
   }
 }

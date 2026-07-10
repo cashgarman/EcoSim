@@ -2,10 +2,10 @@ namespace EcoSim.Core.Behavior;
 
 public static class BehaviorGraphLayout
 {
-  public const double NodeWidth = 158;
-  public const double NodeHeight = 62;
-  public const double HGap = 22;
-  public const double VGap = 72;
+  public const double NodeWidth = 248;
+  public const double NodeHeight = 92;
+  public const double HGap = 34;
+  public const double VGap = 104;
 
   public static void ApplyAutoLayout(BehaviorFlatDocument doc)
   {
