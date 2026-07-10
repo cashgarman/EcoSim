@@ -14,3 +14,4 @@ godot/WildlandsEcoSim/.vs/
 **/bin/
 **/obj/
 *.user
+debug-*.log

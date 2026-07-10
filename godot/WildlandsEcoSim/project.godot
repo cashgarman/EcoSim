@@ -27,7 +27,9 @@ GameApp="*res://scripts/GameApp.cs"
 
 window/size/viewport_width=1600
 window/size/viewport_height=900
+window/size/resizable=true
 window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
 
 [dotnet]
 

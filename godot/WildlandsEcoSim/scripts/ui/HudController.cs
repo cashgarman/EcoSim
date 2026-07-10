@@ -38,6 +38,7 @@ public partial class HudController : CanvasLayer
     private PanelContainer _creatureTipDot = null!;
     private Label _creatureTipLabel = null!;
     private SubViewportContainer _worldViewportContainer = null!;
+    private SubViewport _worldViewport = null!;
     private int _lastTerrainTipBiome = -1;
     private string _lastCreatureTipKey = "";
 
@@ -121,10 +122,11 @@ public partial class HudController : CanvasLayer
 
         _worldViewportContainer = GetNode<SubViewportContainer>("../WorldViewportContainer");
 
-        var viewport = GetNode<SubViewport>("%WorldViewport");
-        viewport.TransparentBg = true;
-        _world = viewport.GetNode<WorldRenderer>("WorldRoot");
-        _camera = viewport.GetNode<WorldCamera>("WorldRoot/Camera2D");
+        _worldViewport = GetNode<SubViewport>("%WorldViewport");
+        _worldViewport.TransparentBg = true;
+        _world = _worldViewport.GetNode<WorldRenderer>("WorldRoot");
+        _camera = _worldViewport.GetNode<WorldCamera>("WorldRoot/Camera2D");
+        Callable.From(SyncWorldViewportSize).CallDeferred();
 
         _profilerDetail = new ProfilerDetailPanel();
         _profilerDetail.Theme = uiTheme;
@@ -206,10 +208,28 @@ public partial class HudController : CanvasLayer
 
     private void OnViewportSizeChanged()
     {
+        SyncWorldViewportSize();
         PanelLayoutService.ClampAll(_panels);
         if (_profilerDetail != null && _profilerDetail.Visible)
         {
             PanelLayoutService.ClampToViewport(_profilerDetail);
+        }
+    }
+
+    private void SyncWorldViewportSize()
+    {
+        Vector2 size = _worldViewportContainer.Size;
+        if (size.X < 1f || size.Y < 1f)
+        {
+            return;
+        }
+
+        var next = new Vector2I(
+            Math.Max(1, (int)MathF.Round(size.X)),
+            Math.Max(1, (int)MathF.Round(size.Y)));
+        if (_worldViewport.Size != next)
+        {
+            _worldViewport.Size = next;
         }
     }
 
