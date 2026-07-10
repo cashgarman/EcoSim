@@ -163,16 +163,9 @@ public partial class WorldRenderer : Node2D
             {
                 if (tool == "inspect" && _session.Player.IsControlling)
                 {
-                    // Possession mode: left click issues a move order instead of selecting.
-                    var controlled = _session.Player.Controlled;
-                    if (controlled != null)
-                    {
-                        bool canSwim = SpeciesCatalog.SpeciesCanSwim(_session.Species.Get(controlled.Sp));
-                        var goal = Navigation.UnsnappedWalkableGoal(_session.State, tilePos.X, tilePos.Y, canSwim);
-                        _session.Player.Intents.ClickGoalX = goal.X;
-                        _session.Player.Intents.ClickGoalY = goal.Y;
-                    }
-
+                    // Possession mode: left click issues a contextual order —
+                    // ground moves, water drinks, prey hunts, threats flee, mates court.
+                    _session.Player.IssueClickOrder(tilePos.X, tilePos.Y, PickCreature(tilePos));
                     GetViewport().SetInputAsHandled();
                     return;
                 }

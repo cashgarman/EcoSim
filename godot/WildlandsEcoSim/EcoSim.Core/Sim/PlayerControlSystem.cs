@@ -9,20 +9,41 @@ public sealed class PlayerIntents
 {
     public double MoveX { get; set; }
     public double MoveY { get; set; }
-    public double ClickGoalX { get; set; } = double.NaN;
-    public double ClickGoalY { get; set; } = double.NaN;
     public bool SprintHeld { get; set; }
     public bool AttackPressed { get; set; }
     public bool MatePressed { get; set; }
 
     public bool HasMove => Math.Abs(MoveX) > 0.01 || Math.Abs(MoveY) > 0.01;
-    public bool HasClickGoal => double.IsFinite(ClickGoalX) && double.IsFinite(ClickGoalY);
+}
 
-    public void ClearClickGoal()
-    {
-        ClickGoalX = double.NaN;
-        ClickGoalY = double.NaN;
-    }
+public enum PlayerOrderKind
+{
+    /// <summary>Travel to a point on the map.</summary>
+    MoveTo,
+
+    /// <summary>Travel to water (or its edge for non-swimmers) and drink until full.</summary>
+    DrinkAt,
+
+    /// <summary>Travel to a vegetation tile and graze until full or it's bare.</summary>
+    GrazeAt,
+
+    /// <summary>Chase the target, strike when in range, and feed on the kill.</summary>
+    Hunt,
+
+    /// <summary>Run away from the target until it's dead or out of range.</summary>
+    FleeFrom,
+
+    /// <summary>Approach the target and mate on contact.</summary>
+    MateWith,
+}
+
+/// <summary>A contextual click order for the possessed creature.</summary>
+public sealed class PlayerOrder
+{
+    public required PlayerOrderKind Kind { get; init; }
+    public double X { get; set; }
+    public double Y { get; set; }
+    public int? TargetId { get; init; }
 }
 
 public abstract record PlayerEvent;
@@ -38,9 +59,10 @@ public sealed record GameOverEvent(string Species, Creature LastCreature) : Play
 
 /// <summary>
 /// Possession gameplay: the player controls one creature directly (WASD steering or
-/// click-to-move pathfinding) while its needs keep simulating. Handles contextual
-/// auto-actions (drink/graze/rest), explicit attack/mate intents, generation points
-/// on breeding, and body transfer on death (killer → sibling → same species → game over).
+/// contextual click orders) while its needs keep simulating. Clicks are interpreted by
+/// what was clicked — ground moves, water drinks, prey hunts, threats flee, mates court.
+/// Handles generation points on breeding and body transfer on death
+/// (killer → sibling → same species → game over).
 /// </summary>
 public sealed class PlayerControlSystem
 {
@@ -53,6 +75,7 @@ public sealed class PlayerControlSystem
     public Queue<PlayerEvent> PendingEvents { get; } = new();
     public PlayerProgress Progress { get; }
     public int? ControlledId { get; private set; }
+    public PlayerOrder? Order { get; private set; }
 
     public PlayerControlSystem(SimState state, SpeciesCatalog catalog, CreatureSystem creatures, PlayerProgress progress)
     {
@@ -84,7 +107,7 @@ public sealed class PlayerControlSystem
         Progress.BodiesInhabited++;
         _state.Selected = c;
         _resting = false;
-        Intents.ClearClickGoal();
+        Order = null;
         Intents.MoveX = 0;
         Intents.MoveY = 0;
         // Drop stale AI state so the inspector/BT editor don't show a phantom decision.
@@ -103,7 +126,110 @@ public sealed class PlayerControlSystem
     {
         ControlledId = null;
         _resting = false;
-        Intents.ClearClickGoal();
+        Order = null;
+    }
+
+    /// <summary>
+    /// Interpret a map click as a contextual order for the possessed creature:
+    /// a mate is courted, a predator of ours is fled from, our prey is hunted,
+    /// water means go drink, vegetation (for grazers) means go feed, anything else is a move order.
+    /// </summary>
+    public void IssueClickOrder(double x, double y, Creature? clicked)
+    {
+        var c = Controlled;
+        if (c == null) return;
+        var def = _catalog.Get(c.Sp);
+        bool canSwim = SpeciesCatalog.SpeciesCanSwim(def);
+
+        if (clicked != null && !clicked.Dead && clicked.Id != c.Id)
+        {
+            uint bit = SpeciesBit(clicked.Sp);
+            if (clicked.Sp == c.Sp && clicked.Sex != c.Sex)
+            {
+                Order = new PlayerOrder { Kind = PlayerOrderKind.MateWith, TargetId = clicked.Id };
+                return;
+            }
+            if ((def.PreyMask & bit) != 0)
+            {
+                Order = new PlayerOrder { Kind = PlayerOrderKind.FleeFrom, TargetId = clicked.Id };
+                return;
+            }
+            if ((def.HuntsMask & bit) != 0)
+            {
+                Order = new PlayerOrder { Kind = PlayerOrderKind.Hunt, TargetId = clicked.Id };
+                return;
+            }
+
+            Order = MoveOrder(clicked.X, clicked.Y, canSwim);
+            return;
+        }
+
+        int tx = GridHelpers.TileX(_state, x);
+        int ty = GridHelpers.TileY(_state, y);
+        int ti = GridHelpers.Idx(_state, tx, ty);
+        if (BiomeData.IsWater(_state.Biome[ti]))
+        {
+            (double gx, double gy) = canSwim
+                ? (x, y)
+                : Navigation.NearestShoreDrinkTile(_state, x, y, 24)
+                    ?? Navigation.UnsnappedWalkableGoal(_state, x, y, canSwim: false);
+            Order = new PlayerOrder { Kind = PlayerOrderKind.DrinkAt, X = gx, Y = gy };
+            return;
+        }
+
+        if (def.Diet != 1 && GrazeFood.IsEdible(_state, ti))
+        {
+            Order = new PlayerOrder { Kind = PlayerOrderKind.GrazeAt, X = tx + 0.5, Y = ty + 0.5 };
+            return;
+        }
+
+        Order = MoveOrder(x, y, canSwim);
+    }
+
+    public void CancelOrder() => Order = null;
+
+    /// <summary>Player-facing description of the active order, or null when idle.</summary>
+    public string? OrderDescription()
+    {
+        var c = Controlled;
+        var o = Order;
+        if (o == null || c == null) return null;
+        bool canSwim = SpeciesCatalog.SpeciesCanSwim(_catalog.Get(c.Sp));
+        switch (o.Kind)
+        {
+            case PlayerOrderKind.MoveTo:
+                return "Moving";
+            case PlayerOrderKind.DrinkAt:
+                return Navigation.CanDrinkHere(_state, c.X, c.Y, canSwim) ? "Drinking" : "Heading to water";
+            case PlayerOrderKind.GrazeAt:
+                return CreatureBehaviorLabels.IsActivelyGrazing(c, _state) ? "Grazing" : "Heading to graze";
+            case PlayerOrderKind.Hunt:
+                return $"Hunting {TargetLabel()}";
+            case PlayerOrderKind.FleeFrom:
+                return $"Fleeing {TargetLabel()}!";
+            case PlayerOrderKind.MateWith:
+                return "Courting";
+            default:
+                return null;
+        }
+
+        string TargetLabel()
+        {
+            var t = o.TargetId is int id ? _creatures.GetById(id) : null;
+            return t == null ? "prey" : $"{_catalog.Get(t.Sp).Label} #{t.Id}";
+        }
+    }
+
+    private PlayerOrder MoveOrder(double x, double y, bool canSwim)
+    {
+        var goal = Navigation.UnsnappedWalkableGoal(_state, x, y, canSwim);
+        return new PlayerOrder { Kind = PlayerOrderKind.MoveTo, X = goal.X, Y = goal.Y };
+    }
+
+    private uint SpeciesBit(string sp)
+    {
+        if (!_catalog.SpeciesIndex.TryGetValue(sp, out int idx)) return 0;
+        return idx >= 0 && idx < 30 ? 1u << idx : 0;
     }
 
     /// <summary>Called from CreatureSystem.StepCreature in place of the behavior tree tick.</summary>
@@ -115,74 +241,211 @@ public sealed class PlayerControlSystem
         bool sprinting = Intents.SprintHeld && c.Energy > SimConstants.SprintMinEnergy;
         if (sprinting) speed *= SimConstants.SprintSpeedMult;
 
-        bool moved = StepMovement(c, dt, speed, canSwim);
+        bool moved;
+        if (Intents.HasMove)
+        {
+            Order = null;
+            moved = SteerDirect(c, dt, speed, canSwim);
+        }
+        else if (Order != null)
+        {
+            moved = ExecuteOrder(c, dt, def, canSwim, speed);
+        }
+        else
+        {
+            c.Vx *= 0.7;
+            c.Vy *= 0.7;
+            moved = false;
+        }
+
         if (sprinting && moved)
         {
             c.Energy = Math.Max(0, c.Energy - SimConstants.SprintEnergyPerSec * dt);
         }
 
-        StepAutoActions(c, dt, def, canSwim, moved);
+        if (Order == null)
+        {
+            StepAutoActions(c, dt, def, canSwim, moved);
+        }
+
         StepExplicitActions(c, def);
 
         Intents.AttackPressed = false;
         Intents.MatePressed = false;
     }
 
-    private bool StepMovement(Creature c, double dt, double speed, bool canSwim)
+    private bool SteerDirect(Creature c, double dt, double speed, bool canSwim)
     {
-        if (Intents.HasMove)
-        {
-            Intents.ClearClickGoal();
-            c.NavGoalX = double.NaN;
-            c.NavGoalY = double.NaN;
-            c.NavWpX = double.NaN;
-            c.NavWpY = double.NaN;
+        c.NavGoalX = double.NaN;
+        c.NavGoalY = double.NaN;
+        c.NavWpX = double.NaN;
+        c.NavWpY = double.NaN;
+        c.State = "wander";
 
-            double mag = SimMath.Hypot(Intents.MoveX, Intents.MoveY);
-            double dx = Intents.MoveX / mag, dy = Intents.MoveY / mag;
-            double step = speed * 2.2 * dt;
-            double nx = c.X + dx * step;
-            double ny = c.Y + dy * step;
-            // Axis-separated slide so hugging a shoreline doesn't dead-stop.
-            if (!IsWalkable(nx, ny, canSwim))
+        double mag = SimMath.Hypot(Intents.MoveX, Intents.MoveY);
+        double dx = Intents.MoveX / mag, dy = Intents.MoveY / mag;
+        double step = speed * 2.2 * dt;
+        double nx = c.X + dx * step;
+        double ny = c.Y + dy * step;
+        // Axis-separated slide so hugging a shoreline doesn't dead-stop.
+        if (!IsWalkable(nx, ny, canSwim))
+        {
+            if (IsWalkable(nx, c.Y, canSwim)) ny = c.Y;
+            else if (IsWalkable(c.X, ny, canSwim)) nx = c.X;
+            else
             {
-                if (IsWalkable(nx, c.Y, canSwim)) ny = c.Y;
-                else if (IsWalkable(c.X, ny, canSwim)) nx = c.X;
-                else
+                c.Vx *= 0.5;
+                c.Vy *= 0.5;
+                return true;
+            }
+        }
+        nx = SimMath.Clamp(nx, 1, _state.W - 2);
+        ny = SimMath.Clamp(ny, 1, _state.H - 2);
+        c.Vx = (nx - c.X) / dt;
+        c.Vy = (ny - c.Y) / dt;
+        c.X = nx;
+        c.Y = ny;
+        c.Tx = nx;
+        c.Ty = ny;
+        return true;
+    }
+
+    private bool ExecuteOrder(Creature c, double dt, SpeciesDefinition def, bool canSwim, double speed)
+    {
+        var o = Order!;
+        switch (o.Kind)
+        {
+            case PlayerOrderKind.MoveTo:
+            {
+                if (SimMath.Hypot(o.X - c.X, o.Y - c.Y) < 0.4)
                 {
-                    c.Vx *= 0.5;
-                    c.Vy *= 0.5;
+                    StopHere(c);
+                    return false;
+                }
+                c.State = "wander";
+                _creatures.MoveTowardGoal(c, o.X, o.Y, speed, dt);
+                return true;
+            }
+
+            case PlayerOrderKind.DrinkAt:
+            {
+                if (Navigation.CanDrinkHere(_state, c.X, c.Y, canSwim))
+                {
+                    c.State = "thirst";
+                    CreatureActions.Drink(c, dt);
+                    c.Vx *= 0.7;
+                    c.Vy *= 0.7;
+                    if (c.Thirst >= 99.5) StopHere(c);
+                    return false;
+                }
+                if (SimMath.Hypot(o.X - c.X, o.Y - c.Y) < 0.4)
+                {
+                    // Arrived but still dry: retarget the nearest real drink spot or give up.
+                    var shore = Navigation.NearestShoreDrinkTile(_state, c.X, c.Y, 16);
+                    if (shore.HasValue) { o.X = shore.Value.X; o.Y = shore.Value.Y; }
+                    else { StopHere(c); return false; }
+                }
+                c.State = "thirst";
+                _creatures.MoveTowardGoal(c, o.X, o.Y, speed, dt);
+                return true;
+            }
+
+            case PlayerOrderKind.GrazeAt:
+            {
+                bool arrived = SimMath.Hypot(o.X - c.X, o.Y - c.Y) < 0.6;
+                if (arrived)
+                {
+                    c.State = "graze";
+                    bool ate = CreatureActions.TryGrazeBite(_state, c, dt);
+                    c.Vx *= 0.7;
+                    c.Vy *= 0.7;
+                    if (!ate || c.Hunger >= 99.5) StopHere(c);
+                    return false;
+                }
+                c.State = "graze";
+                _creatures.MoveTowardGoal(c, o.X, o.Y, speed, dt);
+                return true;
+            }
+
+            case PlayerOrderKind.Hunt:
+            {
+                var prey = o.TargetId is int pid ? _creatures.GetById(pid) : null;
+                if (prey == null || prey.Dead)
+                {
+                    StopHere(c);
+                    return false;
+                }
+                c.State = "hunt";
+                c.Target = prey.Id;
+                double dist = SimMath.Hypot(prey.X - c.X, prey.Y - c.Y);
+                double strikeR = _creatures.HuntStrikeRange(c, prey);
+                if (dist >= strikeR)
+                {
+                    _creatures.MoveTowardGoal(c, prey.X, prey.Y, speed, dt, direct: true);
+                    CreatureActions.TryHuntStrike(_creatures, c, prey);
+                    if (prey.Dead) StopHere(c);
                     return true;
                 }
-            }
-            nx = SimMath.Clamp(nx, 1, _state.W - 2);
-            ny = SimMath.Clamp(ny, 1, _state.H - 2);
-            c.Vx = (nx - c.X) / dt;
-            c.Vy = (ny - c.Y) / dt;
-            c.X = nx;
-            c.Y = ny;
-            c.Tx = nx;
-            c.Ty = ny;
-            return true;
-        }
-
-        if (Intents.HasClickGoal)
-        {
-            double gx = Intents.ClickGoalX, gy = Intents.ClickGoalY;
-            if (SimMath.Hypot(gx - c.X, gy - c.Y) < 0.4)
-            {
-                Intents.ClearClickGoal();
-                c.Vx *= 0.7;
-                c.Vy *= 0.7;
+                c.Vx *= 0.25;
+                c.Vy *= 0.25;
+                CreatureActions.TryHuntStrike(_creatures, c, prey);
+                if (prey.Dead) StopHere(c);
                 return false;
             }
-            _creatures.MoveTowardGoal(c, gx, gy, speed, dt);
-            return true;
-        }
 
+            case PlayerOrderKind.FleeFrom:
+            {
+                var threat = o.TargetId is int tid ? _creatures.GetById(tid) : null;
+                double safeDist = Math.Max(12, c.Genome.Sense * 2);
+                if (threat == null || threat.Dead
+                    || SimMath.Hypot(threat.X - c.X, threat.Y - c.Y) > safeDist)
+                {
+                    StopHere(c);
+                    return false;
+                }
+                c.State = "flee";
+                c.Target = threat.Id;
+                double a = Math.Atan2(c.Y - threat.Y, c.X - threat.X);
+                var flee = Navigation.UnsnappedWalkableGoal(
+                    _state, c.X + Math.Cos(a) * 6, c.Y + Math.Sin(a) * 6, canSwim);
+                _creatures.MoveTowardGoal(c, flee.X, flee.Y, speed, dt, direct: true);
+                return true;
+            }
+
+            case PlayerOrderKind.MateWith:
+            {
+                var mate = o.TargetId is int mid ? _creatures.GetById(mid) : null;
+                if (mate == null || mate.Dead || mate.Sp != c.Sp || mate.Sex == c.Sex)
+                {
+                    StopHere(c);
+                    return false;
+                }
+                c.State = "mate";
+                c.Target = mate.Id;
+                double dist = SimMath.Hypot(mate.X - c.X, mate.Y - c.Y);
+                if (dist < 1.0)
+                {
+                    // On contact: either it works now or it can't (cooldown/energy/pregnant) — done either way.
+                    CreatureActions.TryConsummateMate(_catalog, c, mate);
+                    StopHere(c);
+                    return false;
+                }
+                _creatures.MoveTowardGoal(c, mate.X, mate.Y, speed, dt, direct: true);
+                return true;
+            }
+
+            default:
+                StopHere(c);
+                return false;
+        }
+    }
+
+    private void StopHere(Creature c)
+    {
+        Order = null;
+        c.Target = null;
         c.Vx *= 0.7;
         c.Vy *= 0.7;
-        return false;
     }
 
     private void StepAutoActions(Creature c, double dt, SpeciesDefinition def, bool canSwim, bool moving)
@@ -200,7 +463,7 @@ public sealed class PlayerControlSystem
             state = "graze";
         }
 
-        if (moving || Intents.HasClickGoal)
+        if (moving)
         {
             _resting = false;
         }
@@ -243,9 +506,7 @@ public sealed class PlayerControlSystem
         double bestD2 = double.MaxValue;
         foreach (var o in _creatures.Nearby(c, searchR, []))
         {
-            if (!_catalog.SpeciesIndex.TryGetValue(o.Sp, out int osp)) continue;
-            uint bit = osp >= 0 && osp < 30 ? 1u << osp : 0;
-            if ((def.HuntsMask & bit) == 0) continue;
+            if ((def.HuntsMask & SpeciesBit(o.Sp)) == 0) continue;
             double d2 = (o.X - c.X) * (o.X - c.X) + (o.Y - c.Y) * (o.Y - c.Y);
             if (d2 < bestD2) { bestD2 = d2; best = o; }
         }

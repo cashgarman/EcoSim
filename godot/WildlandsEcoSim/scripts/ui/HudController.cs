@@ -990,14 +990,18 @@ public partial class HudController : CanvasLayer
         }
 
         var def = _host.Species.Get(target.Sp);
-        string key = CreatureBehaviorLabels.GetTooltipCacheKey(target, session.State);
+        // For the possessed creature, show the player's current order rather than the AI-style state.
+        string? order = session.Player.Controls(target) ? session.Player.OrderDescription() : null;
+        string label = order ?? CreatureBehaviorLabels.GetDisplayLabel(target, session.State);
+        string key = order != null
+            ? $"{target.Id}:order:{order}"
+            : CreatureBehaviorLabels.GetTooltipCacheKey(target, session.State);
         if (key != _lastCreatureTipKey)
         {
             _lastCreatureTipKey = key;
             _creatureTipDot.AddThemeStyleboxOverride("panel",
                 EcoSimThemeBuilder.MakeFlat(EcoSimThemeBuilder.SpeciesColor(def), EcoSimThemeBuilder.Edge, 1));
-            _creatureTipLabel.Text =
-                $"{def.Emoji} {def.Label} · {CreatureBehaviorLabels.GetDisplayLabel(target, session.State)}";
+            _creatureTipLabel.Text = $"{def.Emoji} {def.Label} · {label}";
         }
 
         Vector2 screen = WorldTileToHudScreen(CreatureDrawUtil.DisplayPos(target));

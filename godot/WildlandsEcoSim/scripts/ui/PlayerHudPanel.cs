@@ -116,13 +116,13 @@ public partial class PlayerHudPanel : PanelContainer
 
     private static string StatusLine(SimSession session, EcoSim.Core.Sim.Creature c)
     {
-        string state = c.State switch
+        string state = session.Player.OrderDescription() ?? c.State switch
         {
-            "graze" => "eating",
-            "thirst" => "drinking",
-            "rest" => "resting",
-            "mate" => "mating",
-            _ => session.Player.Intents.HasClickGoal ? "traveling" : "",
+            "graze" => "Eating",
+            "thirst" => "Drinking",
+            "rest" => "Resting",
+            "mate" => "Mating",
+            _ => "",
         };
         string extra = c.Pregnant > 0 ? " · pregnant" : "";
         string age = $"age {c.Age:F1}/{c.Genome.Lifespan:F0}";

@@ -30,6 +30,26 @@ public class PlayerControlTests
         return session.Creatures.MakeCreature(sp, t.Value.X, t.Value.Y);
     }
 
+    private static (int LandX, int LandY, int WaterX, int WaterY) FindWaterEdgeTile(SimSession session)
+    {
+        var state = session.State;
+        for (int y = 2; y < state.H - 2; y++)
+        {
+            for (int x = 2; x < state.W - 2; x++)
+            {
+                if (!Navigation.IsTileWalkable(state, x, y, canSwim: false)) continue;
+                foreach ((int dx, int dy) in new[] { (1, 0), (-1, 0), (0, 1), (0, -1) })
+                {
+                    if (BiomeData.IsWater(state.Biome[(y + dy) * state.W + (x + dx)]))
+                    {
+                        return (x, y, x + dx, y + dy);
+                    }
+                }
+            }
+        }
+        throw new InvalidOperationException("no shoreline found on the generated map");
+    }
+
     [Test]
     public void Possession_GatesBehaviorTree_WhileNeedsStillDrain()
     {
@@ -51,15 +71,22 @@ public class PlayerControlTests
     }
 
     [Test]
-    public void Wasd_MovesCreature_AndCancelsClickGoal()
+    public void Wasd_MovesCreature_AndCancelsClickOrder()
     {
         var session = NewSession();
         var rabbit = SpawnOnLand(session, "rabbit");
         session.Player.Possess(rabbit);
 
-        session.Player.Intents.ClickGoalX = rabbit.X + 5;
-        session.Player.Intents.ClickGoalY = rabbit.Y;
-        Assert.That(session.Player.Intents.HasClickGoal, Is.True);
+        // Make the clicked tile bare ground so the order is a plain move (not a graze).
+        int cx = (int)Math.Round(rabbit.X) + 5, cy = (int)Math.Round(rabbit.Y);
+        int cti = cy * session.State.W + cx;
+        session.State.Biome[cti] = (byte)Biome.Desert;
+        session.State.Veg[cti] = 0f;
+        session.State.VegCap[cti] = 0f;
+
+        session.Player.IssueClickOrder(cx, cy, null);
+        Assert.That(session.Player.Order, Is.Not.Null);
+        Assert.That(session.Player.Order!.Kind, Is.EqualTo(PlayerOrderKind.MoveTo));
 
         double startX = rabbit.X;
         session.Player.Intents.MoveX = 1;
@@ -67,7 +94,7 @@ public class PlayerControlTests
         session.Creatures.StepCreature(rabbit, 0.25);
 
         Assert.That(rabbit.X, Is.GreaterThan(startX), "WASD steering should move the creature");
-        Assert.That(session.Player.Intents.HasClickGoal, Is.False, "WASD must cancel the click path");
+        Assert.That(session.Player.Order, Is.Null, "WASD must cancel the active order");
     }
 
     [Test]
@@ -149,26 +176,180 @@ public class PlayerControlTests
     }
 
     [Test]
-    public void ClickGoal_PathfindsAndArrives()
+    public void ClickGround_PathfindsAndArrives()
     {
         var session = NewSession();
         var rabbit = SpawnOnLand(session, "rabbit");
         session.Player.Possess(rabbit);
 
         var goal = Navigation.PickRandomWalkableTile(session.State, rabbit.X, rabbit.Y, 4, false);
-        session.Player.Intents.ClickGoalX = goal.X;
-        session.Player.Intents.ClickGoalY = goal.Y;
+        session.Player.IssueClickOrder(goal.X, goal.Y, null);
         double startDist = Math.Sqrt(Math.Pow(goal.X - rabbit.X, 2) + Math.Pow(goal.Y - rabbit.Y, 2));
 
-        for (int i = 0; i < 400 && session.Player.Intents.HasClickGoal; i++)
+        for (int i = 0; i < 400 && session.Player.Order != null; i++)
         {
             session.Creatures.SyncGrid();
             session.Creatures.StepCreature(rabbit, 0.25);
         }
 
         double endDist = Math.Sqrt(Math.Pow(goal.X - rabbit.X, 2) + Math.Pow(goal.Y - rabbit.Y, 2));
-        Assert.That(session.Player.Intents.HasClickGoal, Is.False, "click goal should clear on arrival");
+        Assert.That(session.Player.Order, Is.Null, "move order should clear on arrival");
         Assert.That(endDist, Is.LessThan(Math.Max(0.6, startDist)), "creature should reach the clicked goal");
+    }
+
+    [Test]
+    public void ClickWater_TravelsToShoreAndDrinks()
+    {
+        var session = NewSession();
+        var rabbit = SpawnOnLand(session, "rabbit");
+        session.Player.Possess(rabbit);
+        rabbit.Thirst = 40;
+        rabbit.Hunger = 95;
+
+        // Start at a real shoreline so the walk is trivial, then click the adjacent water.
+        var edge = FindWaterEdgeTile(session);
+        rabbit.X = edge.LandX + 0.5;
+        rabbit.Y = edge.LandY + 0.5;
+        session.Creatures.SyncGrid();
+
+        session.Player.IssueClickOrder(edge.WaterX + 0.5, edge.WaterY + 0.5, null);
+        Assert.That(session.Player.Order, Is.Not.Null);
+        Assert.That(session.Player.Order!.Kind, Is.EqualTo(PlayerOrderKind.DrinkAt));
+
+        for (int i = 0; i < 300 && session.Player.Order != null; i++)
+        {
+            session.Creatures.SyncGrid();
+            session.Creatures.StepCreature(rabbit, 0.25);
+        }
+
+        Assert.That(rabbit.Thirst, Is.GreaterThan(90), "drink order should refill thirst");
+        Assert.That(session.Player.Order, Is.Null, "drink order should complete when full");
+    }
+
+    [Test]
+    public void Carnivore_ClickPrey_HuntsKillsAndFeeds()
+    {
+        var session = NewSession();
+        var fox = SpawnOnLand(session, "fox");
+        var rabbit = session.Creatures.MakeCreature("rabbit", fox.X + 3, fox.Y);
+        fox.Genome.Agg = 1.0;
+        fox.Hunger = 40;
+        rabbit.Hp = 10;
+        session.Player.Possess(fox);
+
+        session.Player.IssueClickOrder(rabbit.X, rabbit.Y, rabbit);
+        Assert.That(session.Player.Order!.Kind, Is.EqualTo(PlayerOrderKind.Hunt));
+
+        for (int i = 0; i < 300 && !rabbit.Dead; i++)
+        {
+            // Hold the prey in place so the chase is deterministic.
+            rabbit.X = fox.X + Math.Min(3, Math.Abs(rabbit.X - fox.X));
+            rabbit.Y = fox.Y;
+            session.Creatures.SyncGrid();
+            session.Creatures.StepCreature(fox, 0.25);
+        }
+
+        Assert.That(rabbit.Dead, Is.True, "hunt order should kill the clicked prey");
+        Assert.That(rabbit.KilledById, Is.EqualTo(fox.Id));
+        Assert.That(fox.Hunger, Is.GreaterThan(40), "the kill should feed the hunter");
+        Assert.That(session.Player.Order, Is.Null, "hunt order should complete on the kill");
+    }
+
+    [Test]
+    public void Herbivore_ClickVegetation_TravelsAndGrazes()
+    {
+        var session = NewSession();
+        var deer = SpawnOnLand(session, "deer");
+        session.Player.Possess(deer);
+        deer.Hunger = 40;
+        deer.Thirst = 95;
+
+        int gx = (int)Math.Round(deer.X) + 3, gy = (int)Math.Round(deer.Y);
+        int ti = gy * session.State.W + gx;
+        session.State.Biome[ti] = (byte)Biome.Grass;
+        session.State.VegCap[ti] = 1f;
+        session.State.Veg[ti] = 1f;
+
+        session.Player.IssueClickOrder(gx, gy, null);
+        Assert.That(session.Player.Order!.Kind, Is.EqualTo(PlayerOrderKind.GrazeAt));
+
+        double hunger = deer.Hunger;
+        for (int i = 0; i < 200 && session.Player.Order != null; i++)
+        {
+            session.Creatures.SyncGrid();
+            session.Creatures.StepCreature(deer, 0.25);
+        }
+
+        Assert.That(deer.Hunger, Is.GreaterThan(hunger), "graze order should feed the creature");
+    }
+
+    [Test]
+    public void ClickThreat_FleesFromIt()
+    {
+        var session = NewSession();
+        var rabbit = SpawnOnLand(session, "rabbit");
+        var wolf = session.Creatures.MakeCreature("wolf", rabbit.X + 2, rabbit.Y);
+        session.Player.Possess(rabbit);
+
+        session.Player.IssueClickOrder(wolf.X, wolf.Y, wolf);
+        Assert.That(session.Player.Order!.Kind, Is.EqualTo(PlayerOrderKind.FleeFrom));
+
+        double startDist = Math.Sqrt(Math.Pow(wolf.X - rabbit.X, 2) + Math.Pow(wolf.Y - rabbit.Y, 2));
+        session.Creatures.SyncGrid();
+        session.Creatures.StepCreature(rabbit, 0.25);
+        Assert.That(rabbit.State, Is.EqualTo("flee"), "flee order should set the flee state while active");
+
+        for (int i = 0; i < 40 && session.Player.Order != null; i++)
+        {
+            session.Creatures.SyncGrid();
+            session.Creatures.StepCreature(rabbit, 0.25);
+        }
+
+        double endDist = Math.Sqrt(Math.Pow(wolf.X - rabbit.X, 2) + Math.Pow(wolf.Y - rabbit.Y, 2));
+        Assert.That(endDist, Is.GreaterThan(startDist), "flee order should gain distance from the threat");
+        Assert.That(session.Player.Order, Is.Null, "flee order should complete once safely away");
+    }
+
+    [Test]
+    public void ClickMate_ApproachesAndConsummates()
+    {
+        var session = NewSession();
+        var t = session.Creatures.FindSpawnTile("rabbit")!;
+        var male = session.Creatures.MakeCreature("rabbit", t.Value.X, t.Value.Y, sex: "male");
+        var female = session.Creatures.MakeCreature("rabbit", t.Value.X + 2.5, t.Value.Y, sex: "female");
+        foreach (var c in new[] { male, female })
+        {
+            c.Age = c.Genome.Lifespan * 0.5;
+            c.MateCd = 0;
+            c.Pregnant = 0;
+            c.Energy = 90;
+        }
+
+        session.Player.Possess(male);
+        session.Player.IssueClickOrder(female.X, female.Y, female);
+        Assert.That(session.Player.Order!.Kind, Is.EqualTo(PlayerOrderKind.MateWith));
+
+        for (int i = 0; i < 100 && session.Player.Order != null; i++)
+        {
+            session.Creatures.SyncGrid();
+            session.Creatures.StepCreature(male, 0.25);
+        }
+
+        Assert.That(female.Pregnant, Is.GreaterThan(0), "mate order should consummate on contact");
+        Assert.That(session.Player.Order, Is.Null);
+    }
+
+    [Test]
+    public void ClickNeutralAnimal_JustMovesToward()
+    {
+        var session = NewSession();
+        var rabbit = SpawnOnLand(session, "rabbit");
+        var deer = session.Creatures.MakeCreature("deer", rabbit.X + 4, rabbit.Y);
+        session.Player.Possess(rabbit);
+
+        // Deer neither hunts rabbits nor is hunted by them.
+        session.Player.IssueClickOrder(deer.X, deer.Y, deer);
+        Assert.That(session.Player.Order!.Kind, Is.EqualTo(PlayerOrderKind.MoveTo));
     }
 
     [Test]
