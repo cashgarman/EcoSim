@@ -73,6 +73,11 @@ public partial class BtGraphCanvas : Control
     {
         // ── Composites ───────────────────────────────────────────────────
         ["SELECTOR"]              = "Tries each branch in priority order. First success wins.",
+        ["threat_response"]       = "Tier 0 — Critical. Life-threatening danger; always preempts everything below.",
+        ["survival_needs"]        = "Tier 1 — Survival. Thirst, hunger, and energy needs.",
+        ["hunger_response"]       = "Chooses how to satisfy hunger: urgent hunting first, then opportunistic hunting.",
+        ["discretionary"]         = "Tier 2 — Discretionary. Mating and stalking; interruptible by survival needs.",
+        ["ambient"]               = "Tier 3 — Ambient. Default idle behavior when nothing else applies.",
         ["flee_drink_branch"]     = "Flee a threat while pausing to drink at the water's edge.",
         ["flee_branch"]           = "Escape from a nearby predator at high speed.",
         ["thirst_branch"]         = "Move to the nearest water source and drink.",
@@ -1012,12 +1017,14 @@ public partial class BtGraphCanvas : Control
 
     private static string HeaderTitle(BtEditorNode node) => node.Type switch
     {
-        BehaviorNodeType.Selector => "SELECTOR",
+        BehaviorNodeType.Selector => string.IsNullOrEmpty(node.RefId) ? "SELECTOR" : GroupTitle(node.RefId),
         BehaviorNodeType.Sequence => "SEQUENCE",
         BehaviorNodeType.Condition => "IF " + (node.RefId ?? "?"),
         BehaviorNodeType.Action => node.Action?["label"]?.GetValue<string>() ?? node.RefId ?? "Action",
         _ => "NODE",
     };
+
+    private static string GroupTitle(string refId) => refId.Replace('_', ' ').ToUpperInvariant();
 
     private List<string> BodyLines(BtEditorNode node, BehaviorTraceStep? step)
     {
@@ -1050,6 +1057,8 @@ public partial class BtGraphCanvas : Control
         switch (node.Type)
         {
             case BehaviorNodeType.Selector:
+                if (!string.IsNullOrEmpty(node.RefId) && NodeDescMap.TryGetValue(node.RefId, out var selDesc))
+                    return selDesc;
                 return NodeDescMap.GetValueOrDefault("SELECTOR");
 
             case BehaviorNodeType.Sequence:

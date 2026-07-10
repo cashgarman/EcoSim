@@ -97,6 +97,8 @@ Loaded via `DataPaths` / `EcoSimBootstrap.LoadBaseData()`:
 - `data/species.json`
 - `data/behaviors/library.json` + `{species}.json`
 
+**Behavior trees:** see [`AI.md`](AI.md) for the full BT node vocabulary, template/`extends` mechanism, tier-layered tree shape, interrupt-tier commit logic, and editor internals.
+
 `EcoSimHost.ResolveDataRoot()` resolves `res://data` (editor + exported builds).
 
 ---

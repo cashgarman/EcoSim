@@ -97,45 +97,73 @@
     "herbivore_prey": {
       "type": "selector",
       "children": [
-        { "type": "sequence", "id": "flee_drink_branch", "children": ["HasThreat", "AtWaterEdge", "ThirstyWhileFleeing", "FleeDrinkAtShore"] },
-        { "type": "sequence", "id": "flee_branch", "children": ["HasThreat", "Flee"] },
-        { "type": "sequence", "id": "thirst_branch", "children": ["Thirsty", "SeekWater"] },
-        { "type": "sequence", "id": "graze_branch", "children": ["HungryHerbivore", "Graze"] },
-        { "type": "sequence", "id": "rest_branch", "children": ["Exhausted", "Rest"] },
-        { "type": "sequence", "id": "mate_branch", "children": ["CanMate", "Mate"] },
-        { "type": "sequence", "id": "night_rest_branch", "children": ["NightWanderTired", "Rest"] },
-        "Wander"
+        { "type": "selector", "id": "threat_response", "children": [
+          { "type": "sequence", "id": "flee_drink_branch", "children": ["HasThreat", "AtWaterEdge", "ThirstyWhileFleeing", "FleeDrinkAtShore"] },
+          { "type": "sequence", "id": "flee_branch", "children": ["HasThreat", "Flee"] }
+        ] },
+        { "type": "selector", "id": "survival_needs", "children": [
+          { "type": "sequence", "id": "thirst_branch", "children": ["Thirsty", "SeekWater"] },
+          { "type": "sequence", "id": "graze_branch", "children": ["HungryHerbivore", "Graze"] },
+          { "type": "sequence", "id": "rest_branch", "children": ["Exhausted", "Rest"] }
+        ] },
+        { "type": "selector", "id": "discretionary", "children": [
+          { "type": "sequence", "id": "mate_branch", "children": ["CanMate", "Mate"] }
+        ] },
+        { "type": "selector", "id": "ambient", "children": [
+          { "type": "sequence", "id": "night_rest_branch", "children": ["NightWanderTired", "Rest"] },
+          "Wander"
+        ] }
       ]
     },
     "carnivore": {
       "type": "selector",
       "children": [
-        { "type": "sequence", "id": "flee_drink_branch", "children": ["HasThreat", "AtWaterEdge", "ThirstyWhileFleeing", "FleeDrinkAtShore"] },
-        { "type": "sequence", "id": "flee_branch", "children": ["HasThreat", "Flee"] },
-        { "type": "sequence", "id": "thirst_branch", "children": ["Thirsty", "SeekWater"] },
-        { "type": "sequence", "id": "hunt_branch", "children": ["HungryCarnivoreNearby", "HuntNearby"] },
-        { "type": "sequence", "id": "rest_branch", "children": ["Exhausted", "Rest"] },
-        { "type": "sequence", "id": "mate_branch", "children": ["CanMate", "Mate"] },
-        { "type": "sequence", "id": "moderate_hunt_branch", "children": ["ModerateHunt", "HuntNearby"] },
-        { "type": "sequence", "id": "stalk_branch", "children": ["HungryCarnivoreStalk", "StalkPrey"] },
-        { "type": "sequence", "id": "night_rest_branch", "children": ["NightWanderTired", "Rest"] },
-        "Wander"
+        { "type": "selector", "id": "threat_response", "children": [
+          { "type": "sequence", "id": "flee_drink_branch", "children": ["HasThreat", "AtWaterEdge", "ThirstyWhileFleeing", "FleeDrinkAtShore"] },
+          { "type": "sequence", "id": "flee_branch", "children": ["HasThreat", "Flee"] }
+        ] },
+        { "type": "selector", "id": "survival_needs", "children": [
+          { "type": "sequence", "id": "thirst_branch", "children": ["Thirsty", "SeekWater"] },
+          { "type": "selector", "id": "hunger_response", "children": [
+            { "type": "sequence", "id": "hunt_branch", "children": ["HungryCarnivoreNearby", "HuntNearby"] },
+            { "type": "sequence", "id": "moderate_hunt_branch", "children": ["ModerateHunt", "HuntNearby"] }
+          ] },
+          { "type": "sequence", "id": "rest_branch", "children": ["Exhausted", "Rest"] }
+        ] },
+        { "type": "selector", "id": "discretionary", "children": [
+          { "type": "sequence", "id": "mate_branch", "children": ["CanMate", "Mate"] },
+          { "type": "sequence", "id": "stalk_branch", "children": ["HungryCarnivoreStalk", "StalkPrey"] }
+        ] },
+        { "type": "selector", "id": "ambient", "children": [
+          { "type": "sequence", "id": "night_rest_branch", "children": ["NightWanderTired", "Rest"] },
+          "Wander"
+        ] }
       ]
     },
     "omnivore": {
       "type": "selector",
       "children": [
-        { "type": "sequence", "id": "flee_drink_branch", "children": ["HasThreat", "AtWaterEdge", "ThirstyWhileFleeing", "FleeDrinkAtShore"] },
-        { "type": "sequence", "id": "flee_branch", "children": ["HasThreat", "Flee"] },
-        { "type": "sequence", "id": "thirst_branch", "children": ["Thirsty", "SeekWater"] },
-        { "type": "sequence", "id": "hunt_branch", "children": ["HungryCarnivoreNearby", "HuntNearby"] },
-        { "type": "sequence", "id": "graze_branch", "children": ["HungryOmnivoreNoPrey", "Graze"] },
-        { "type": "sequence", "id": "rest_branch", "children": ["Exhausted", "Rest"] },
-        { "type": "sequence", "id": "mate_branch", "children": ["CanMate", "Mate"] },
-        { "type": "sequence", "id": "moderate_hunt_branch", "children": ["ModerateHunt", "HuntNearby"] },
-        { "type": "sequence", "id": "stalk_branch", "children": ["HungryCarnivoreStalk", "StalkPrey"] },
-        { "type": "sequence", "id": "night_rest_branch", "children": ["NightWanderTired", "Rest"] },
-        "Wander"
+        { "type": "selector", "id": "threat_response", "children": [
+          { "type": "sequence", "id": "flee_drink_branch", "children": ["HasThreat", "AtWaterEdge", "ThirstyWhileFleeing", "FleeDrinkAtShore"] },
+          { "type": "sequence", "id": "flee_branch", "children": ["HasThreat", "Flee"] }
+        ] },
+        { "type": "selector", "id": "survival_needs", "children": [
+          { "type": "sequence", "id": "thirst_branch", "children": ["Thirsty", "SeekWater"] },
+          { "type": "selector", "id": "hunger_response", "children": [
+            { "type": "sequence", "id": "hunt_branch", "children": ["HungryCarnivoreNearby", "HuntNearby"] },
+            { "type": "sequence", "id": "graze_branch", "children": ["HungryOmnivoreNoPrey", "Graze"] },
+            { "type": "sequence", "id": "moderate_hunt_branch", "children": ["ModerateHunt", "HuntNearby"] }
+          ] },
+          { "type": "sequence", "id": "rest_branch", "children": ["Exhausted", "Rest"] }
+        ] },
+        { "type": "selector", "id": "discretionary", "children": [
+          { "type": "sequence", "id": "mate_branch", "children": ["CanMate", "Mate"] },
+          { "type": "sequence", "id": "stalk_branch", "children": ["HungryCarnivoreStalk", "StalkPrey"] }
+        ] },
+        { "type": "selector", "id": "ambient", "children": [
+          { "type": "sequence", "id": "night_rest_branch", "children": ["NightWanderTired", "Rest"] },
+          "Wander"
+        ] }
       ]
     }
   }

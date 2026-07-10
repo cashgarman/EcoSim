@@ -108,15 +108,15 @@ public class BehaviorCompilerTests
       {
         InsertBefore = new Dictionary<string, string>
         {
-          ["thirst_branch"] = "Wander",
+          ["survival_needs"] = "Wander",
         },
       },
     };
 
     var config = BehaviorCompiler.Compile("rabbit_patch", speciesFile, _library);
-    int thirstIdx = config.Root.Children.FindIndex(ch => ch.Id == "thirst_branch");
-    Assert.That(thirstIdx, Is.GreaterThan(0));
-    Assert.That(config.Root.Children[thirstIdx - 1].Id, Is.EqualTo("Wander"));
+    int survivalIdx = config.Root.Children.FindIndex(ch => ch.Id == "survival_needs");
+    Assert.That(survivalIdx, Is.GreaterThan(0));
+    Assert.That(config.Root.Children[survivalIdx - 1].Id, Is.EqualTo("Wander"));
   }
 
   [Test]
