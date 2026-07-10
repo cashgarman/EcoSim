@@ -34,6 +34,13 @@ public static class EcoSimThemeBuilder
     public static readonly Color TimelineNight = new("142033");
     public static readonly Color TimelineDay = new("6a8ab0");
 
+    /// <summary>Terrain modulate at deepest night — blue moonlight, not pitch black.</summary>
+    public static readonly Color WorldNightModulate = new(0.30f, 0.38f, 0.58f);
+    public static readonly Color WorldDayModulate = new(1f, 1f, 0.95f);
+
+    public static Color WorldModulateFromLight(float light) =>
+        WorldNightModulate.Lerp(WorldDayModulate, light);
+
     public const float UiScale = 1.05f;
 
     public static Theme Build()

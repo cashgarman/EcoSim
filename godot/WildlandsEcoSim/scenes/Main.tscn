@@ -323,14 +323,12 @@ text = "Restock Life"
 
 [node name="EcosystemPanel" type="PanelContainer" parent="Hud" unique_id=1211420420]
 unique_name_in_owner = true
-anchors_preset = 1
-anchor_left = 1.0
-anchor_right = 1.0
-offset_left = -280.0
+offset_left = 1630.0
 offset_top = 100.0
-offset_right = -10.0
+offset_right = 1900.0
 offset_bottom = 420.0
 grow_horizontal = 0
+grow_vertical = 0
 script = ExtResource("6_eco")
 
 [node name="VBox" type="VBoxContainer" parent="Hud/EcosystemPanel" unique_id=1830146139]

@@ -327,8 +327,7 @@ public partial class WorldRenderer : Node2D
     private void UpdateDayNight()
     {
         if (_session == null) return;
-        float light = (float)_session.State.LightLevel;
-        _terrainLayer.Modulate = new Color(light, light, light * 0.95f);
+        _terrainLayer.Modulate = EcoSimThemeBuilder.WorldModulateFromLight((float)_session.State.LightLevel);
     }
 
     public Vector2 WorldToTile(Vector2 worldPos) => worldPos / TilePixels;

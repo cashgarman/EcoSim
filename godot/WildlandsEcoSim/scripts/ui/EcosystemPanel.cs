@@ -31,7 +31,14 @@ public partial class EcosystemPanel : DraggablePanel
     private string? _hoveredSpecies;
     private bool _maximized;
     private Vector2 _normalSize;
+    private Control _shell = null!;
+    private Control _resizeGrip = null!;
+    private bool _resizing;
+    private Vector2 _resizeStartMouse;
+    private Vector2 _resizeStartSize;
     private const float NormalWidth = 270f;
+    private static readonly Vector2 MinPanelSize = new(NormalWidth, 240f);
+    private static readonly Vector2 DefaultPanelSize = new(NormalWidth, 320f);
     private const double FlashMs = 900;
     private readonly Dictionary<string, SpeciesPopFlash> _flashes = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Tween> _rowTweens = new(StringComparer.Ordinal);
@@ -51,7 +58,19 @@ public partial class EcosystemPanel : DraggablePanel
     public override void _Ready()
     {
         LayoutKey = "ecosystem";
+        Vector2 scenePos = GlobalPosition;
+        Vector2 sceneSize = Size;
+        if (sceneSize.X < 1f || sceneSize.Y < 1f)
+        {
+            sceneSize = DefaultPanelSize;
+        }
+
+        SetupShell();
         base._Ready();
+        SetAnchorsPreset(LayoutPreset.TopLeft);
+        GlobalPosition = scenePos;
+        SetPanelSize(sceneSize);
+
         _graph = Req<PopGraph>("PopGraph");
         _scroll = Req<ScrollContainer>("Scroll");
         _rows = Req<VBoxContainer>("SpeciesRows");
@@ -60,13 +79,69 @@ public partial class EcosystemPanel : DraggablePanel
         _panelBody.AddThemeConstantOverride("separation", 6);
         _scroll.CustomMinimumSize = new Vector2(0, 160);
         _scroll.VerticalScrollMode = ScrollContainer.ScrollMode.Auto;
-        CustomMinimumSize = new Vector2(NormalWidth, 300);
+        CustomMinimumSize = MinPanelSize;
         _normalSize = Size;
 
         SetupMaxButton();
         RefreshHeaderDrag();
         SetupGraphTooltip();
         BindGraphInput();
+        SetupResizeGrip();
+        Resized += OnPanelResized;
+        ApplySavedBounds();
+    }
+
+    public override void _Process(double delta)
+    {
+        base._Process(delta);
+
+        if (!_resizing) return;
+
+        if (!Input.IsMouseButtonPressed(MouseButton.Left))
+        {
+            _resizing = false;
+            _normalSize = Size;
+            SaveLayout();
+            _graph.QueueRedraw();
+            return;
+        }
+
+        Vector2 deltaSize = GetGlobalMousePosition() - _resizeStartMouse;
+        SetPanelSize(new Vector2(
+            _resizeStartSize.X + deltaSize.X,
+            _resizeStartSize.Y + deltaSize.Y));
+        PanelLayoutService.ClampToViewport(this);
+        _graph.QueueRedraw();
+        QueueRedraw();
+    }
+
+    private void OnPanelResized()
+    {
+        _graph.QueueRedraw();
+        QueueRedraw();
+    }
+
+    public override void _Draw()
+    {
+        base._Draw();
+        if (_resizeGrip == null || !IsVisibleInTree()) return;
+
+        Vector2 p = _resizeGrip.GlobalPosition - GlobalPosition + new Vector2(6, 6);
+        Color c = EcoSimThemeBuilder.Dim;
+        for (int i = 0; i < 3; i++)
+        {
+            Vector2 o = new(i * 4, i * 4);
+            DrawLine(p + o, p + o + new Vector2(8, 0), c, 1.5f);
+            DrawLine(p + o, p + o + new Vector2(0, 8), c, 1.5f);
+        }
+    }
+
+    public override void SaveLayout()
+    {
+        if (!string.IsNullOrEmpty(LayoutKey))
+        {
+            PanelLayoutService.SaveBounds(this, LayoutKey);
+        }
     }
 
     public void Bind(SpeciesCatalog catalog, PopHistoryTracker popHistory)
@@ -194,6 +269,126 @@ public partial class EcosystemPanel : DraggablePanel
         }
     }
 
+    private void SetPanelSize(Vector2 newSize)
+    {
+        newSize = new Vector2(
+            Mathf.Max(MinPanelSize.X, newSize.X),
+            Mathf.Max(MinPanelSize.Y, newSize.Y));
+        Size = newSize;
+        OffsetRight = OffsetLeft + newSize.X;
+        OffsetBottom = OffsetTop + newSize.Y;
+    }
+
+    private static void UseAnchorsLayout(Control control)
+    {
+        control.Set("layout_mode", 1);
+        control.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+    }
+
+    private void SetupShell()
+    {
+        if (GetChildCount() == 0) return;
+
+        if (GetChild(0) is Control existing && existing.Name == "Shell")
+        {
+            _shell = existing;
+            ClipContents = false;
+            return;
+        }
+
+        if (GetChild(0) is not Control content) return;
+
+        ClipContents = false;
+
+        _shell = new Control
+        {
+            Name = "Shell",
+            MouseFilter = MouseFilterEnum.Ignore,
+        };
+        UseAnchorsLayout(_shell);
+
+        RemoveChild(content);
+        AddChild(_shell);
+        _shell.AddChild(content);
+        UseAnchorsLayout(content);
+    }
+
+    private void SetupResizeGrip()
+    {
+        if (_shell == null) return;
+        if (_resizeGrip != null && GodotObject.IsInstanceValid(_resizeGrip))
+        {
+            return;
+        }
+
+        _resizeGrip = new Control
+        {
+            Name = "ResizeGrip",
+            CustomMinimumSize = new Vector2(20, 20),
+            MouseFilter = MouseFilterEnum.Stop,
+            MouseDefaultCursorShape = CursorShape.Bdiagsize,
+            TooltipText = "Drag to resize",
+            ZIndex = 100,
+        };
+        _resizeGrip.Set("layout_mode", 1);
+        _resizeGrip.SetAnchorsPreset(LayoutPreset.BottomRight);
+        _resizeGrip.OffsetLeft = -20;
+        _resizeGrip.OffsetTop = -20;
+        _resizeGrip.OffsetRight = 0;
+        _resizeGrip.OffsetBottom = 0;
+        _resizeGrip.GuiInput += OnResizeGripInput;
+        _shell.AddChild(_resizeGrip);
+        _resizeGrip.MoveToFront();
+    }
+
+    private void ApplySavedBounds()
+    {
+        Vector2 defaultPos = GlobalPosition;
+        Vector2 defaultSize = Size;
+        if (defaultSize.X < MinPanelSize.X || defaultSize.Y < MinPanelSize.Y)
+        {
+            defaultSize = DefaultPanelSize;
+        }
+
+        if (!PanelLayoutService.ApplyBounds(this, LayoutKey, defaultPos, defaultSize))
+        {
+            SetPanelSize(defaultSize);
+        }
+        else
+        {
+            SetPanelSize(Size);
+        }
+
+        _normalSize = Size;
+        PanelLayoutService.ClampToViewport(this);
+        _popHistory?.SyncCapacity(Math.Max(226, (int)_graph.Size.X));
+        _graph.QueueRedraw();
+        QueueRedraw();
+    }
+
+    private void OnResizeGripInput(InputEvent @event)
+    {
+        if (@event is InputEventMouseButton mb && mb.ButtonIndex == MouseButton.Left)
+        {
+            if (mb.Pressed)
+            {
+                if (_maximized)
+                {
+                    SetMaximized(false);
+                }
+
+                _resizing = true;
+                _resizeStartMouse = GetGlobalMousePosition();
+                _resizeStartSize = Size;
+                AcceptEvent();
+            }
+        }
+        else if (@event is InputEventMouseMotion && _resizing)
+        {
+            AcceptEvent();
+        }
+    }
+
     private void SetupMaxButton()
     {
         var headHBox = FindChild("PanelHead", true, false) as HBoxContainer;
@@ -310,13 +505,13 @@ public partial class EcosystemPanel : DraggablePanel
             float vpW = GetViewport().GetVisibleRect().Size.X;
             float w = Math.Min(680f, vpW * 0.72f);
             float expandedH = Math.Max(Size.Y, 420f);
-            Size = new Vector2(w, expandedH);
+            SetPanelSize(new Vector2(w, expandedH));
             _graph.CustomMinimumSize = new Vector2(0, 220);
         }
         else
         {
             _graph.CustomMinimumSize = new Vector2(0, 70);
-            Size = new Vector2(NormalWidth, _normalSize.Y > 1 ? _normalSize.Y : Size.Y);
+            SetPanelSize(new Vector2(NormalWidth, _normalSize.Y > 1 ? _normalSize.Y : Size.Y));
         }
 
         _popHistory?.SyncCapacity(Math.Max(226, (int)_graph.Size.X));
