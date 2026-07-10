@@ -11,6 +11,7 @@ public sealed class PlayerIntents
     public double MoveY { get; set; }
     public double ClickGoalX { get; set; } = double.NaN;
     public double ClickGoalY { get; set; } = double.NaN;
+    public bool SprintHeld { get; set; }
     public bool AttackPressed { get; set; }
     public bool MatePressed { get; set; }
 
@@ -111,8 +112,15 @@ public sealed class PlayerControlSystem
         var def = _catalog.Get(c.Sp);
         bool canSwim = SpeciesCatalog.SpeciesCanSwim(def);
         double speed = _creatures.EffectiveSpeed(c);
+        bool sprinting = Intents.SprintHeld && c.Energy > SimConstants.SprintMinEnergy;
+        if (sprinting) speed *= SimConstants.SprintSpeedMult;
 
         bool moved = StepMovement(c, dt, speed, canSwim);
+        if (sprinting && moved)
+        {
+            c.Energy = Math.Max(0, c.Energy - SimConstants.SprintEnergyPerSec * dt);
+        }
+
         StepAutoActions(c, dt, def, canSwim, moved);
         StepExplicitActions(c, def);
 

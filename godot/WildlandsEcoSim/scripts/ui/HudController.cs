@@ -1039,9 +1039,14 @@ public partial class HudController : CanvasLayer
 
     private float ComputeCreatureTipLift(SimSession session, Creature creature)
     {
-        float eSize = (float)session.Creatures.ESize(creature);
-        float s = Math.Max(2.5f, _camera.Zoom.X * 0.9f * eSize);
-        return Math.Max(8f, s * 0.75f + 5f);
+        // Lift by the actual drawn sprite extent so the tip never overlaps the creature.
+        string shape = session.Species.Get(creature.Sp).Shape;
+        CreatureSpriteCatalog.TryGetSpeciesSprite(creature.Sp, out var spriteDef);
+        var bounds = CreatureDrawUtil.GetHighlightBounds(
+            creature, session.Creatures, _camera.Zoom.X,
+            PerfProfiler.Instance.DetailTier, shape, spriteDef);
+        float topTiles = bounds.RadiusTiles - bounds.CenterOffset.Y + 0.35f;
+        return Math.Max(12f, topTiles * WorldRenderer.TilePixels * _camera.Zoom.X);
     }
 
     private void SetTerrainTipDot(BiomeInfo info)

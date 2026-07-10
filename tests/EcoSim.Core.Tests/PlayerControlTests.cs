@@ -103,6 +103,52 @@ public class PlayerControlTests
     }
 
     [Test]
+    public void Sprint_MovesFasterAndDrainsMoreEnergy()
+    {
+        var session = NewSession();
+        var rabbit = SpawnOnLand(session, "rabbit");
+        session.Player.Possess(rabbit);
+
+        // Clear a grass corridor east so neither run is blocked by terrain.
+        int sy = (int)Math.Round(rabbit.Y);
+        for (int dy = -1; dy <= 1; dy++)
+        {
+            for (int dx = 0; dx <= 24; dx++)
+            {
+                int tx = (int)Math.Round(rabbit.X) + dx;
+                int ti = (sy + dy) * session.State.W + tx;
+                if (ti >= 0 && ti < session.State.Biome.Length)
+                {
+                    session.State.Biome[ti] = (byte)Biome.Grass;
+                }
+            }
+        }
+
+        double RunEast(bool sprint)
+        {
+            rabbit.Energy = 80;
+            double startX = rabbit.X;
+            session.Player.Intents.MoveX = 1;
+            session.Player.Intents.SprintHeld = sprint;
+            for (int i = 0; i < 6; i++)
+            {
+                session.Creatures.SyncGrid();
+                session.Creatures.StepCreature(rabbit, 0.25);
+            }
+            session.Player.Intents.SprintHeld = false;
+            return rabbit.X - startX;
+        }
+
+        double walkDist = RunEast(sprint: false);
+        double walkEnergy = 80 - rabbit.Energy;
+        double sprintDist = RunEast(sprint: true);
+        double sprintEnergy = 80 - rabbit.Energy;
+
+        Assert.That(sprintDist, Is.GreaterThan(walkDist * 1.3), "sprinting should be substantially faster");
+        Assert.That(sprintEnergy, Is.GreaterThan(walkEnergy * 1.5), "sprinting should cost substantially more energy");
+    }
+
+    [Test]
     public void ClickGoal_PathfindsAndArrives()
     {
         var session = NewSession();

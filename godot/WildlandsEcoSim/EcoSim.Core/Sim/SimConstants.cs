@@ -25,4 +25,12 @@ public static class SimConstants
     public const double WaterDistUnreachable = 1e9;
     public const int WaterSeekRadiusMin = 48;
     public const double SimDaySeconds = 40;
+
+    /// <summary>Global multiplier on hunger/thirst/energy drain (1 = original pacing).</summary>
+    public const double NeedsDrainScale = 0.5;
+
+    /// <summary>Player sprint: speed multiplier while Shift is held, and its extra energy cost per second.</summary>
+    public const double SprintSpeedMult = 1.6;
+    public const double SprintEnergyPerSec = 2.2;
+    public const double SprintMinEnergy = 5;
 }

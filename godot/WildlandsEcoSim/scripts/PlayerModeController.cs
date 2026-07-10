@@ -127,6 +127,7 @@ public partial class PlayerModeController : Node
         if (Input.IsPhysicalKeyPressed(Key.W) || Input.IsPhysicalKeyPressed(Key.Up)) y -= 1;
         session.Player.Intents.MoveX = x;
         session.Player.Intents.MoveY = y;
+        session.Player.Intents.SprintHeld = Input.IsPhysicalKeyPressed(Key.Shift);
     }
 
     private void TogglePossession(SimSession session)

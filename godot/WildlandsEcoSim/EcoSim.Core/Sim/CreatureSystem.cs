@@ -579,9 +579,10 @@ public sealed class CreatureSystem
     {
         var g = c.Genome;
         double load = g.Size * g.Metab;
-        c.Hunger -= (0.9 * load + (c.State == "hunt" ? 0.6 : 0)) * dt;
-        c.Thirst -= 1.0 * load * dt;
-        c.Energy -= (0.6 * load + (c.Vx * c.Vx + c.Vy * c.Vy > 0.02 ? 0.9 : 0)) * dt;
+        double drain = SimConstants.NeedsDrainScale;
+        c.Hunger -= (0.9 * load + (c.State == "hunt" ? 0.6 : 0)) * drain * dt;
+        c.Thirst -= 1.0 * load * drain * dt;
+        c.Energy -= (0.6 * load + (c.Vx * c.Vx + c.Vy * c.Vy > 0.02 ? 0.9 : 0)) * drain * dt;
         c.Age += dt / 24;
         if (c.MateCd > 0) c.MateCd -= dt;
 

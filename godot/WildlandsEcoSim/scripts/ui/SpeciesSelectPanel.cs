@@ -40,16 +40,16 @@ public partial class SpeciesSelectPanel : Control
         center.SetAnchorsPreset(LayoutPreset.FullRect);
         AddChild(center);
 
-        var panel = new PanelContainer { CustomMinimumSize = new Vector2(620, 0) };
+        var panel = new PanelContainer { CustomMinimumSize = new Vector2(720, 0) };
         panel.AddThemeStyleboxOverride("panel", UiSliceCatalog.MakeStonePanel());
-        panel.AddThemeConstantOverride("margin_left", 18);
-        panel.AddThemeConstantOverride("margin_right", 18);
-        panel.AddThemeConstantOverride("margin_top", 16);
-        panel.AddThemeConstantOverride("margin_bottom", 16);
+        panel.AddThemeConstantOverride("margin_left", 22);
+        panel.AddThemeConstantOverride("margin_right", 22);
+        panel.AddThemeConstantOverride("margin_top", 20);
+        panel.AddThemeConstantOverride("margin_bottom", 20);
         center.AddChild(panel);
 
         var vbox = new VBoxContainer();
-        vbox.AddThemeConstantOverride("separation", 10);
+        vbox.AddThemeConstantOverride("separation", 12);
         panel.AddChild(vbox);
 
         var title = new Label
@@ -57,7 +57,7 @@ public partial class SpeciesSelectPanel : Control
             Text = "Choose your animal",
             HorizontalAlignment = HorizontalAlignment.Center,
         };
-        EcoSimFonts.StylePanelTitle(title, 12);
+        EcoSimFonts.StylePanelTitle(title, 16);
         vbox.AddChild(title);
 
         var subtitle = new Label
@@ -65,21 +65,21 @@ public partial class SpeciesSelectPanel : Control
             Text = "Survive. Breed. Evolve.",
             HorizontalAlignment = HorizontalAlignment.Center,
         };
-        EcoSimFonts.ApplyFont(subtitle, EcoSimFonts.Small, EcoSimThemeBuilder.Dim);
+        EcoSimFonts.ApplyFont(subtitle, EcoSimFonts.Body, EcoSimThemeBuilder.Dim);
         vbox.AddChild(subtitle);
 
         _scroll = new ScrollContainer
         {
-            CustomMinimumSize = new Vector2(0, 460),
+            CustomMinimumSize = new Vector2(0, 480),
             HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled,
         };
         _cardList = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
-        _cardList.AddThemeConstantOverride("separation", 6);
+        _cardList.AddThemeConstantOverride("separation", 8);
         _scroll.AddChild(_cardList);
         vbox.AddChild(_scroll);
 
         var observe = new Button { Text = "Just observe", FocusMode = FocusModeEnum.None };
-        EcoSimFonts.ApplyFont(observe, EcoSimFonts.Small, EcoSimThemeBuilder.Dim);
+        EcoSimFonts.ApplyFont(observe, EcoSimFonts.Body, EcoSimThemeBuilder.Dim);
         observe.Flat = true;
         observe.Pressed += () =>
         {
@@ -149,24 +149,24 @@ public partial class SpeciesSelectPanel : Control
         {
             MouseFilter = MouseFilterEnum.Ignore,
         };
-        content.AddThemeConstantOverride("separation", 2);
+        content.AddThemeConstantOverride("separation", 4);
 
         var header = new Label { Text = $"{def.Emoji} {def.Label}   ·   {alive} alive" };
-        EcoSimFonts.ApplyFont(header, EcoSimFonts.Scaled7, EcoSimThemeBuilder.Gold);
+        EcoSimFonts.ApplyFont(header, EcoSimFonts.Scaled8, EcoSimThemeBuilder.Gold);
 
         var blurb = new Label
         {
             Text = def.Blurb,
             AutowrapMode = TextServer.AutowrapMode.WordSmart,
         };
-        EcoSimFonts.ApplyFont(blurb, EcoSimFonts.Small, EcoSimThemeBuilder.Text);
+        EcoSimFonts.ApplyFont(blurb, EcoSimFonts.Body, EcoSimThemeBuilder.Text);
 
         var stats = new Label
         {
             Text = StatLine(catalog, def),
             AutowrapMode = TextServer.AutowrapMode.WordSmart,
         };
-        EcoSimFonts.ApplyFont(stats, EcoSimFonts.Small, EcoSimThemeBuilder.Dim);
+        EcoSimFonts.ApplyFont(stats, EcoSimFonts.Medium, EcoSimThemeBuilder.Dim);
 
         content.AddChild(header);
         content.AddChild(blurb);
@@ -174,14 +174,14 @@ public partial class SpeciesSelectPanel : Control
 
         // Let the content size the button; pad via a margin container.
         var margin = new MarginContainer { MouseFilter = MouseFilterEnum.Ignore };
-        margin.AddThemeConstantOverride("margin_left", 10);
-        margin.AddThemeConstantOverride("margin_right", 10);
-        margin.AddThemeConstantOverride("margin_top", 6);
-        margin.AddThemeConstantOverride("margin_bottom", 6);
+        margin.AddThemeConstantOverride("margin_left", 12);
+        margin.AddThemeConstantOverride("margin_right", 12);
+        margin.AddThemeConstantOverride("margin_top", 10);
+        margin.AddThemeConstantOverride("margin_bottom", 10);
         margin.AddChild(content);
         margin.SetAnchorsPreset(LayoutPreset.FullRect);
         card.AddChild(margin);
-        card.CustomMinimumSize = new Vector2(0, 88);
+        card.CustomMinimumSize = new Vector2(0, 112);
 
         return card;
     }

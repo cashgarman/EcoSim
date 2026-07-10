@@ -23,22 +23,22 @@ public partial class PlayerHudPanel : PanelContainer
         ZIndex = 90;
 
         AddThemeStyleboxOverride("panel", UiSliceCatalog.MakeStonePanel());
-        AddThemeConstantOverride("margin_left", 12);
-        AddThemeConstantOverride("margin_right", 12);
-        AddThemeConstantOverride("margin_top", 8);
-        AddThemeConstantOverride("margin_bottom", 8);
-        CustomMinimumSize = new Vector2(340, 0);
+        AddThemeConstantOverride("margin_left", 18);
+        AddThemeConstantOverride("margin_right", 18);
+        AddThemeConstantOverride("margin_top", 12);
+        AddThemeConstantOverride("margin_bottom", 12);
+        CustomMinimumSize = new Vector2(560, 0);
 
         var vbox = new VBoxContainer();
-        vbox.AddThemeConstantOverride("separation", 4);
+        vbox.AddThemeConstantOverride("separation", 7);
 
         _title = new Label { HorizontalAlignment = HorizontalAlignment.Center };
-        EcoSimFonts.ApplyFont(_title, EcoSimFonts.Scaled7, EcoSimThemeBuilder.Gold);
+        EcoSimFonts.ApplyFont(_title, EcoSimFonts.PanelTitle, EcoSimThemeBuilder.Gold);
         vbox.AddChild(_title);
 
         var bars = new GridContainer { Columns = 2 };
-        bars.AddThemeConstantOverride("h_separation", 10);
-        bars.AddThemeConstantOverride("v_separation", 3);
+        bars.AddThemeConstantOverride("h_separation", 18);
+        bars.AddThemeConstantOverride("v_separation", 6);
         _hp = AddBar(bars, "HP", EcoSimThemeBuilder.Hp);
         _hunger = AddBar(bars, "Food", EcoSimThemeBuilder.Hunger);
         _thirst = AddBar(bars, "Water", EcoSimThemeBuilder.Thirst);
@@ -46,11 +46,11 @@ public partial class PlayerHudPanel : PanelContainer
         vbox.AddChild(bars);
 
         _stateLabel = new Label { HorizontalAlignment = HorizontalAlignment.Center };
-        EcoSimFonts.ApplyFont(_stateLabel, EcoSimFonts.Small, EcoSimThemeBuilder.Text);
+        EcoSimFonts.ApplyFont(_stateLabel, EcoSimFonts.Body, EcoSimThemeBuilder.Text);
         vbox.AddChild(_stateLabel);
 
         _hintLabel = new Label { HorizontalAlignment = HorizontalAlignment.Center };
-        EcoSimFonts.ApplyFont(_hintLabel, EcoSimFonts.Small, EcoSimThemeBuilder.Dim);
+        EcoSimFonts.ApplyFont(_hintLabel, EcoSimFonts.Medium, EcoSimThemeBuilder.Dim);
         vbox.AddChild(_hintLabel);
 
         AddChild(vbox);
@@ -61,9 +61,9 @@ public partial class PlayerHudPanel : PanelContainer
     private static ProgressBar AddBar(GridContainer parent, string name, Color fill)
     {
         var row = new HBoxContainer();
-        row.AddThemeConstantOverride("separation", 6);
-        var label = new Label { Text = name, CustomMinimumSize = new Vector2(44, 0) };
-        EcoSimFonts.ApplyFont(label, EcoSimFonts.Small, EcoSimThemeBuilder.Dim);
+        row.AddThemeConstantOverride("separation", 10);
+        var label = new Label { Text = name, CustomMinimumSize = new Vector2(64, 0) };
+        EcoSimFonts.ApplyFont(label, EcoSimFonts.Body, EcoSimThemeBuilder.Dim);
         var bar = new ProgressBar
         {
             MinValue = 0,
@@ -73,7 +73,7 @@ public partial class PlayerHudPanel : PanelContainer
         };
         EcoSimThemeBuilder.StyleNeedBar(bar, fill);
         // StyleNeedBar resets CustomMinimumSize; give the bar its width afterwards.
-        bar.CustomMinimumSize = new Vector2(110, 10);
+        bar.CustomMinimumSize = new Vector2(170, 16);
         row.AddChild(label);
         row.AddChild(bar);
         parent.AddChild(row);
@@ -108,8 +108,8 @@ public partial class PlayerHudPanel : PanelContainer
         _stateLabel.Text = StatusLine(session, c);
         bool hunter = def.HuntsMask != 0;
         _hintLabel.Text = hunter
-            ? "WASD/click move · E attack · R mate · T evolve · P release"
-            : "WASD/click move · R mate · T evolve · P release";
+            ? "WASD/click move · Shift sprint · E attack · R mate · T evolve · P release"
+            : "WASD/click move · Shift sprint · R mate · T evolve · P release";
         Visible = true;
         Reposition();
     }
