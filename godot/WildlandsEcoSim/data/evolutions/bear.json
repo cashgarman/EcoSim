@@ -1,0 +1,12 @@
+{
+  "species": "bear",
+  "nodes": [
+    { "id": "thickFur", "label": "Thick Fur", "desc": "+0.1 climate tolerance", "cost": 1, "requires": [], "effects": { "genes": { "tol": { "add": 0.10 } } } },
+    { "id": "keenSnout", "label": "Keen Snout", "desc": "+15% sense range", "cost": 1, "requires": [], "effects": { "genes": { "sense": { "mul": 1.15 } } } },
+    { "id": "mightyPaws", "label": "Mighty Paws", "desc": "+0.15 aggression", "cost": 2, "requires": [], "effects": { "genes": { "agg": { "add": 0.15 } } } },
+    { "id": "hulkingMass", "label": "Hulking Mass", "desc": "+15% size", "cost": 2, "requires": ["mightyPaws"], "effects": { "genes": { "size": { "mul": 1.15 } } } },
+    { "id": "lumberingCharge", "label": "Lumbering Charge", "desc": "+12% speed", "cost": 3, "requires": ["hulkingMass"], "effects": { "genes": { "speed": { "mul": 1.12 } } } },
+    { "id": "twinCubs", "label": "Twin Cubs", "desc": "+0.8 litter size", "cost": 3, "requires": ["thickFur"], "effects": { "genes": { "litter": { "add": 0.8 } } } },
+    { "id": "greatElder", "label": "Great Elder", "desc": "+25% lifespan", "cost": 4, "requires": ["twinCubs", "keenSnout"], "effects": { "genes": { "lifespan": { "mul": 1.25 } } } }
+  ]
+}

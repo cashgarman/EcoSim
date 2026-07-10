@@ -47,6 +47,7 @@ public partial class HudController : CanvasLayer
     private BtEditorPanel? _btObserve;
     private DeathNoticePanel? _deathNotice;
     private PauseMenuPanel? _pauseMenu;
+    private PlayerModeController? _playerMode;
     private Button? _cpuGpuBtn;
     private Button? _btObserveBtn;
     private int? _watchFollowDeathId;
@@ -145,6 +146,11 @@ public partial class HudController : CanvasLayer
         _pauseMenu.Resumed += OnPauseMenuResume;
         _pauseMenu.QuitRequested += OnPauseMenuQuit;
         AddChild(_pauseMenu);
+        _playerMode = new PlayerModeController();
+        AddChild(_playerMode);
+        _playerMode.Setup(_host, _gameApp, _camera, uiTheme);
+        _playerMode.RestartRequested += OnPlayerRestartRequested;
+        _playerMode.PossessionChanged += OnPossessionChanged;
 
         _panels = [_gen, _ecosystem, _inspector, GetNode<StoryPanel>("%StoryPanel"), _speciesStats, _profiler, _timelineDbPanel, _btObserve!];
 
@@ -399,6 +405,7 @@ public partial class HudController : CanvasLayer
         _ecosystem.Reset();
         _deathNotice?.HideNotice();
         _pauseMenu?.HideMenu();
+        _playerMode?.OnWorldRegenerated();
         _watchFollowDeathId = null;
         _story.LogGodAction($"Day 0: World generated ({cfg.Size}, seed {seed})", session);
         RefreshHud();
@@ -713,6 +720,30 @@ public partial class HudController : CanvasLayer
         RefreshHud();
     }
 
+    private void OnPlayerRestartRequested()
+    {
+        var session = _host.Session;
+        if (session != null)
+        {
+            session.Evolutions.ResetAll();
+        }
+
+        OnGenerate();
+        _playerMode?.PossessRandom();
+    }
+
+    private void OnPossessionChanged()
+    {
+        SyncFollowButton();
+        SyncSpeedSliderFromSession();
+        var session = _host.Session;
+        if (session != null && _playerMode?.IsPossessing == true)
+        {
+            _watchFollowDeathId = null;
+            _inspector.Refresh(session.State.Selected, session.Creatures, session.State);
+        }
+    }
+
     private void OnFollowToggled()
     {
         _camera.FollowEnabled = !_camera.FollowEnabled;
@@ -734,6 +765,8 @@ public partial class HudController : CanvasLayer
     private void CheckFollowedCreatureDeath(SimSession session)
     {
         if (_deathNotice == null || _host.Species == null) return;
+        // Possession mode has its own death-transfer flow (TransferNoticePanel / GameOverPanel).
+        if (_playerMode?.IsPossessing == true) return;
 
         var selected = session.State.Selected;
         if (_camera.FollowEnabled && selected is { Dead: false })

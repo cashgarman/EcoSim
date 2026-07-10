@@ -55,6 +55,8 @@ public static class CreatureNotify
 
     public static int? InferKillerId(Creature prey, SimState state)
     {
+        if (prey.KilledById != null) return prey.KilledById;
+
         foreach (var c in state.Creatures)
         {
             if (c.Dead || c.Target != prey.Id) continue;

@@ -242,15 +242,5 @@ public class ThirstNavigationTests
         state.Biome[y * state.W + x] = (byte)biome;
     }
 
-    private static string FindRepoRoot()
-    {
-        string? dir = AppContext.BaseDirectory;
-        while (!string.IsNullOrEmpty(dir))
-        {
-            if (File.Exists(Path.Combine(dir, "data", "species.json"))) return dir;
-            dir = Directory.GetParent(dir)?.FullName;
-        }
-
-        throw new InvalidOperationException("Repo root not found");
-    }
+    private static string FindRepoRoot() => TestPaths.FindRepoRoot();
 }

@@ -29,6 +29,7 @@ public sealed class Creature
     public double Walk { get; set; }
     public bool Dead { get; set; }
     public string Cause { get; set; } = "";
+    public int? KilledById { get; set; }
     public List<int> ParentIds { get; } = [];
     public List<int> OffspringIds { get; } = [];
     public Genome? MatePartner { get; set; }

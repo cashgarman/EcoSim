@@ -27,6 +27,12 @@ public static class DataPaths
                     return dir;
                 }
 
+                string godotRoot = Path.Combine(dir, "godot", "WildlandsEcoSim");
+                if (File.Exists(Path.Combine(godotRoot, "data", "species.json")))
+                {
+                    return godotRoot;
+                }
+
                 dir = Directory.GetParent(dir)?.FullName;
             }
 
@@ -47,6 +53,10 @@ public static class DataPaths
     public static string BehaviorSchemaJson => Path.Combine(BehaviorsDirectory, "schema.json");
 
     public static string BehaviorFile(string stem) => Path.Combine(BehaviorsDirectory, stem + ".json");
+
+    public static string EvolutionsDirectory => Path.Combine(DataDirectory, "evolutions");
+
+    public static string EvolutionFile(string stem) => Path.Combine(EvolutionsDirectory, stem + ".json");
 
     public static string BehaviorEditorLayout(string stem) =>
         Path.Combine(BehaviorsDirectory, "_editor", stem + ".layout.json");

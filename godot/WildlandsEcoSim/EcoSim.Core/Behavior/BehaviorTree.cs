@@ -71,9 +71,7 @@ public sealed class BehaviorTree
       effective = BuildCommittedDecision(creature, creatures);
     }
 
-    double speed = creature.Genome.Speed;
-    if (!creatures.IsAdult(creature)) speed *= 0.8;
-    if (_state.IsNight) speed *= 0.6;
+    double speed = creatures.EffectiveSpeed(creature);
 
     if (executeActions)
     {

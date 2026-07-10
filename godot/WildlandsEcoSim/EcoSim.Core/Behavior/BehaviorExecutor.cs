@@ -182,7 +182,6 @@ public static class BehaviorExecutor
     public static bool ApplyActionEffects(SpeciesCatalog catalog, SimState state, JsonObject action, BehaviorContext ctx, CreatureSystem creatures, double dt, double speed)
     {
         var c = ctx.Creature;
-        var g = c.Genome;
         double speedMult = action.TryGetPropertyValue("speedMult", out var sm) ? sm!.GetValue<double>() : 1;
         double moveSpeed = speed * speedMult;
         string behaviorState = action["state"]?.GetValue<string>() ?? "";
@@ -193,7 +192,7 @@ public static class BehaviorExecutor
                 bool drinkAtShore = action.TryGetPropertyValue("drinkAtShore", out var ds) && ds!.GetValue<bool>();
                 if (drinkAtShore && Navigation.CanDrinkHere(state, c.X, c.Y, ctx.CanSwim) && c.Thirst < 55)
                 {
-                    c.Thirst = Math.Min(100, c.Thirst + 60 * dt);
+                    CreatureActions.Drink(c, dt);
                     c.Vx *= 0.7; c.Vy *= 0.7;
                     return false;
                 }
@@ -209,7 +208,7 @@ public static class BehaviorExecutor
             case "thirst":
                 if (Navigation.CanDrinkHere(state, c.X, c.Y, ctx.CanSwim))
                 {
-                    c.Thirst = Math.Min(100, c.Thirst + 60 * dt);
+                    CreatureActions.Drink(c, dt);
                     return false;
                 }
                 {
@@ -221,7 +220,7 @@ public static class BehaviorExecutor
                     {
                         c.X = gx;
                         c.Y = gy;
-                        c.Thirst = Math.Min(100, c.Thirst + 60 * dt);
+                        CreatureActions.Drink(c, dt);
                         return false;
                     }
                     if (!Navigation.CanDrinkOnTile(state, GridHelpers.TileX(state, gx), GridHelpers.TileY(state, gy), ctx.CanSwim))
@@ -271,7 +270,7 @@ public static class BehaviorExecutor
                 if (Navigation.CanDrinkHere(state, c.X, c.Y, ctx.CanSwim) && c.Thirst < thirstExit)
                 {
                     double thirstBefore = c.Thirst;
-                    c.Thirst = Math.Min(100, c.Thirst + 60 * dt);
+                    CreatureActions.Drink(c, dt);
                     // #region agent log
                     if (thirstBefore < 25)
                     {
@@ -292,10 +291,7 @@ public static class BehaviorExecutor
                 if (GrazeFood.IsEdible(state, ti))
                 {
                     double hungerBefore = c.Hunger;
-                    double bite = Math.Min(state.Veg[ti], 3.5 * dt);
-                    state.Veg[ti] -= (float)bite;
-                    c.Hunger = Math.Min(100, c.Hunger + bite * 26);
-                    state.VegDirty = true;
+                    CreatureActions.TryGrazeBite(state, c, dt);
                     // #region agent log
                     if (hungerBefore < 25 && DebugSessionLog.ShouldSample(c.Id, state.TGlobal))
                     {
@@ -306,7 +302,6 @@ public static class BehaviorExecutor
                                 sp = c.Sp,
                                 hungerBefore,
                                 hungerAfter = c.Hunger,
-                                bite,
                                 vegLeft = state.Veg[ti],
                                 vegCap = state.VegCap[ti],
                                 dt,
@@ -369,27 +364,13 @@ public static class BehaviorExecutor
                     }
                     else { c.Vx *= 0.25; c.Vy *= 0.25; }
 
-                    pp = creatures.SimPos(ctx.Prey);
-                    pos = creatures.SimPos(c);
-                    pdist = SimMath.Hypot(pp.X - pos.X, pp.Y - pos.Y);
-                    if (pdist < strikeR && GlobalRng.Next() < creatures.HuntStrikeChance(c))
-                    {
-                        ctx.Prey.Hp -= 30 + g.Size * 15;
-                        ctx.Prey.Cause = "predation";
-                        if (ctx.Prey.Hp <= 0)
-                        {
-                            creatures.Die(ctx.Prey, "predation");
-                            c.Hunger = Math.Min(100, c.Hunger + 50);
-                            c.Energy = Math.Min(100, c.Energy + 12);
-                        }
-                    }
+                    CreatureActions.TryHuntStrike(creatures, c, ctx.Prey);
                 }
                 else creatures.MoveTo(c, moveSpeed, dt);
                 return true;
 
             case "rest":
-                c.Energy = Math.Min(100, c.Energy + 9 * dt);
-                c.Vx *= 0.8; c.Vy *= 0.8;
+                CreatureActions.Rest(c, dt);
                 return false;
 
             case "mate":
@@ -415,25 +396,7 @@ public static class BehaviorExecutor
     public static bool TryConsummateMate(SpeciesCatalog catalog, Creature creature, BehaviorContext ctx, CreatureSystem creatures)
     {
         if (ctx.Mate == null) return false;
-        var pos = creatures.SimPos(creature);
-        var mpos = creatures.SimPos(ctx.Mate);
-        if (SimMath.Hypot(mpos.X - pos.X, mpos.Y - pos.Y) >= 1.0) return false;
-
-        var female = creature.Sex == "female" ? creature : ctx.Mate;
-        var male = creature.Sex == "male" ? creature : ctx.Mate;
-        if (female.Sex != "female" || male.Sex != "male") return false;
-        if (female.Pregnant > 0 || female.MateCd > 0 || male.MateCd > 0) return false;
-
-        female.Pregnant = catalog.SampleGestation(creature.Sp);
-        female.MatePartner = male.Genome;
-        female.MatePartnerId = male.Id;
-        female.LitterQ = Math.Max(1, (int)Math.Round(female.Genome.Litter * GlobalRng.Rf(0.7, 1.15)));
-        double cd = catalog.SampleMateCooldown(creature.Sp);
-        female.MateCd = cd;
-        male.MateCd = cd * 0.6;
-        female.Energy -= 20;
-        male.Energy -= 12;
-        return true;
+        return CreatureActions.TryConsummateMate(catalog, creature, ctx.Mate);
     }
 
     private static bool ShouldReuseGoals(SimState state, Creature creature, BehaviorDecision decision)

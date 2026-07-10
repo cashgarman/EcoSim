@@ -161,6 +161,22 @@ public partial class WorldRenderer : Node2D
 
             if (mb.Pressed)
             {
+                if (tool == "inspect" && _session.Player.IsControlling)
+                {
+                    // Possession mode: left click issues a move order instead of selecting.
+                    var controlled = _session.Player.Controlled;
+                    if (controlled != null)
+                    {
+                        bool canSwim = SpeciesCatalog.SpeciesCanSwim(_session.Species.Get(controlled.Sp));
+                        var goal = Navigation.UnsnappedWalkableGoal(_session.State, tilePos.X, tilePos.Y, canSwim);
+                        _session.Player.Intents.ClickGoalX = goal.X;
+                        _session.Player.Intents.ClickGoalY = goal.Y;
+                    }
+
+                    GetViewport().SetInputAsHandled();
+                    return;
+                }
+
                 double now = Time.GetTicksMsec() * 0.001;
                 bool dblClick = now - _lastClickTime < 0.35
                     && tilePos.DistanceTo(_lastClickTile) < 0.5;

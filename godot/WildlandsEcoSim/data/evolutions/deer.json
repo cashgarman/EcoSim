@@ -1,0 +1,12 @@
+{
+  "species": "deer",
+  "nodes": [
+    { "id": "longStride", "label": "Long Stride", "desc": "+10% speed", "cost": 1, "requires": [], "effects": { "genes": { "speed": { "mul": 1.10 } } } },
+    { "id": "watchfulEyes", "label": "Watchful Eyes", "desc": "+15% sense range", "cost": 1, "requires": [], "effects": { "genes": { "sense": { "mul": 1.15 } } } },
+    { "id": "twinFawns", "label": "Twin Fawns", "desc": "+1 litter size", "cost": 2, "requires": [], "effects": { "genes": { "litter": { "add": 1.0 } } } },
+    { "id": "winterCoat", "label": "Winter Coat", "desc": "+0.12 climate tolerance", "cost": 2, "requires": ["watchfulEyes"], "effects": { "genes": { "tol": { "add": 0.12 } } } },
+    { "id": "boundingLeap", "label": "Bounding Leap", "desc": "+12% speed", "cost": 3, "requires": ["longStride"], "effects": { "genes": { "speed": { "mul": 1.12 } } } },
+    { "id": "greatStag", "label": "Great Stag", "desc": "+15% size", "cost": 3, "requires": ["twinFawns"], "effects": { "genes": { "size": { "mul": 1.15 } } } },
+    { "id": "forestElder", "label": "Forest Elder", "desc": "+25% lifespan", "cost": 4, "requires": ["winterCoat", "greatStag"], "effects": { "genes": { "lifespan": { "mul": 1.25 } } } }
+  ]
+}

@@ -44,6 +44,12 @@ public partial class GameApp : Node
             speed = 0;
         }
 
+        // Direct control at fast-forward speeds is unplayable; cap while possessing.
+        if (speed > 1 && session.Player.IsControlling)
+        {
+            speed = 1;
+        }
+
         if (speed > 0)
         {
             profiler.Timed("frame.sim", () =>

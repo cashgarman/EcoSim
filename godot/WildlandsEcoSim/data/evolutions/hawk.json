@@ -1,0 +1,12 @@
+{
+  "species": "hawk",
+  "nodes": [
+    { "id": "eagleEye", "label": "Eagle Eye", "desc": "+15% sense range", "cost": 1, "requires": [], "effects": { "genes": { "sense": { "mul": 1.15 } } } },
+    { "id": "diveSpeed", "label": "Stoop Dive", "desc": "+10% speed", "cost": 1, "requires": [], "effects": { "genes": { "speed": { "mul": 1.10 } } } },
+    { "id": "talonGrip", "label": "Talon Grip", "desc": "+0.1 aggression", "cost": 2, "requires": ["diveSpeed"], "effects": { "genes": { "agg": { "add": 0.10 } } } },
+    { "id": "broadWings", "label": "Broad Wings", "desc": "+15% size", "cost": 2, "requires": ["eagleEye"], "effects": { "genes": { "size": { "mul": 1.15 } } } },
+    { "id": "secondClutch", "label": "Second Clutch", "desc": "+0.8 litter size", "cost": 3, "requires": ["broadWings"], "effects": { "genes": { "litter": { "add": 0.8 } } } },
+    { "id": "thermalRider", "label": "Thermal Rider", "desc": "-10% metabolism", "cost": 3, "requires": ["talonGrip"], "effects": { "genes": { "metab": { "mul": 0.90 } } } },
+    { "id": "skyTyrant", "label": "Sky Tyrant", "desc": "+20% lifespan", "cost": 4, "requires": ["secondClutch", "thermalRider"], "effects": { "genes": { "lifespan": { "mul": 1.20 } } } }
+  ]
+}

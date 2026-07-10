@@ -1,0 +1,12 @@
+{
+  "species": "mouse",
+  "nodes": [
+    { "id": "skitter", "label": "Skitter", "desc": "+10% speed", "cost": 1, "requires": [], "effects": { "genes": { "speed": { "mul": 1.10 } } } },
+    { "id": "whiskers", "label": "Fine Whiskers", "desc": "+20% sense range", "cost": 1, "requires": [], "effects": { "genes": { "sense": { "mul": 1.20 } } } },
+    { "id": "thriftyGut", "label": "Thrifty Gut", "desc": "-10% metabolism", "cost": 2, "requires": [], "effects": { "genes": { "metab": { "mul": 0.90 } } } },
+    { "id": "burrowWarmth", "label": "Burrow Warmth", "desc": "+0.12 climate tolerance", "cost": 2, "requires": ["whiskers"], "effects": { "genes": { "tol": { "add": 0.12 } } } },
+    { "id": "swarmBrood", "label": "Swarm Brood", "desc": "+0.5 litter size", "cost": 2, "requires": ["thriftyGut"], "effects": { "genes": { "litter": { "add": 0.5 } } } },
+    { "id": "greyElder", "label": "Grey Elder", "desc": "+30% lifespan", "cost": 3, "requires": ["swarmBrood"], "effects": { "genes": { "lifespan": { "mul": 1.30 } } } },
+    { "id": "shadowDart", "label": "Shadow Dart", "desc": "+10% speed", "cost": 3, "requires": ["skitter", "burrowWarmth"], "effects": { "genes": { "speed": { "mul": 1.10 } } } }
+  ]
+}

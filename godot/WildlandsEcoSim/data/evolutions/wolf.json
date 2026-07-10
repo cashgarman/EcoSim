@@ -1,0 +1,12 @@
+{
+  "species": "wolf",
+  "nodes": [
+    { "id": "packHowl", "label": "Pack Howl", "desc": "+15% sense range", "cost": 1, "requires": [], "effects": { "genes": { "sense": { "mul": 1.15 } } } },
+    { "id": "loping", "label": "Loping Gait", "desc": "+10% speed", "cost": 1, "requires": [], "effects": { "genes": { "speed": { "mul": 1.10 } } } },
+    { "id": "savageBite", "label": "Savage Bite", "desc": "+0.1 aggression", "cost": 2, "requires": ["loping"], "effects": { "genes": { "agg": { "add": 0.10 } } } },
+    { "id": "greatJaw", "label": "Great Jaw", "desc": "+15% size", "cost": 2, "requires": ["savageBite"], "effects": { "genes": { "size": { "mul": 1.15 } } } },
+    { "id": "denLitter", "label": "Den Litter", "desc": "+0.8 litter size", "cost": 2, "requires": ["packHowl"], "effects": { "genes": { "litter": { "add": 0.8 } } } },
+    { "id": "leanWinter", "label": "Lean Winter", "desc": "-10% metabolism", "cost": 3, "requires": ["denLitter"], "effects": { "genes": { "metab": { "mul": 0.90 } } } },
+    { "id": "direWolf", "label": "Dire Wolf", "desc": "+12% speed, +25% lifespan", "cost": 4, "requires": ["greatJaw", "leanWinter"], "effects": { "genes": { "speed": { "mul": 1.12 }, "lifespan": { "mul": 1.25 } } } }
+  ]
+}

@@ -14,6 +14,9 @@ public sealed class SimSession
     public Simulation Simulation { get; }
     public LifeStory LifeStory { get; } = new();
     public SpeciesStatsTracker SpeciesStats { get; } = new();
+    public PlayerProgress Progress { get; } = new();
+    public PlayerControlSystem Player { get; }
+    public EvolutionSystem Evolutions { get; }
 
     private SimSession(SimState state, SpeciesCatalog species, BehaviorLibrary behaviors)
     {
@@ -24,6 +27,9 @@ public sealed class SimSession
         Creatures = new CreatureSystem(state, species, BehaviorTree);
         Creatures.LifeStory = LifeStory;
         Creatures.SpeciesStats = SpeciesStats;
+        Player = new PlayerControlSystem(state, species, Creatures, Progress);
+        Creatures.PlayerControl = Player;
+        Evolutions = new EvolutionSystem(state, species, behaviors, EvolutionCatalog.Load(species), Progress);
         World = new WorldGenerator(state);
         Simulation = new Simulation(state, species, Creatures, World);
     }

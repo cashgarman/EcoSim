@@ -1,0 +1,12 @@
+{
+  "species": "elk",
+  "nodes": [
+    { "id": "herdSense", "label": "Herd Sense", "desc": "+15% sense range", "cost": 1, "requires": [], "effects": { "genes": { "sense": { "mul": 1.15 } } } },
+    { "id": "steadyTrot", "label": "Steady Trot", "desc": "+10% speed", "cost": 1, "requires": [], "effects": { "genes": { "speed": { "mul": 1.10 } } } },
+    { "id": "thickHide", "label": "Thick Hide", "desc": "+0.12 climate tolerance", "cost": 2, "requires": [], "effects": { "genes": { "tol": { "add": 0.12 } } } },
+    { "id": "massiveFrame", "label": "Massive Frame", "desc": "+15% size", "cost": 2, "requires": ["thickHide"], "effects": { "genes": { "size": { "mul": 1.15 } } } },
+    { "id": "twinCalves", "label": "Twin Calves", "desc": "+0.8 litter size", "cost": 3, "requires": ["herdSense"], "effects": { "genes": { "litter": { "add": 0.8 } } } },
+    { "id": "mountainBlood", "label": "Mountain Blood", "desc": "-10% metabolism", "cost": 3, "requires": ["massiveFrame"], "effects": { "genes": { "metab": { "mul": 0.90 } } } },
+    { "id": "ancientBull", "label": "Ancient Bull", "desc": "+25% lifespan", "cost": 4, "requires": ["mountainBlood", "twinCalves"], "effects": { "genes": { "lifespan": { "mul": 1.25 } } } }
+  ]
+}

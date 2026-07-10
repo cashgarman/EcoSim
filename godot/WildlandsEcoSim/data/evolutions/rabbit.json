@@ -1,0 +1,12 @@
+{
+  "species": "rabbit",
+  "nodes": [
+    { "id": "fleet1", "label": "Fleet Feet I", "desc": "+10% speed", "cost": 1, "requires": [], "effects": { "genes": { "speed": { "mul": 1.10 } } } },
+    { "id": "keenEars", "label": "Keen Ears", "desc": "+15% sense range", "cost": 1, "requires": [], "effects": { "genes": { "sense": { "mul": 1.15 } } } },
+    { "id": "fleet2", "label": "Fleet Feet II", "desc": "+10% speed", "cost": 2, "requires": ["fleet1"], "effects": { "genes": { "speed": { "mul": 1.10 } } } },
+    { "id": "bigLitters", "label": "Big Litters", "desc": "+1 litter size", "cost": 2, "requires": [], "effects": { "genes": { "litter": { "add": 1.0 } } } },
+    { "id": "hardyCoat", "label": "Hardy Coat", "desc": "+0.1 climate tolerance", "cost": 2, "requires": ["keenEars"], "effects": { "genes": { "tol": { "add": 0.10 } } } },
+    { "id": "elderBloodline", "label": "Elder Bloodline", "desc": "+25% lifespan", "cost": 3, "requires": ["bigLitters"], "effects": { "genes": { "lifespan": { "mul": 1.25 } } } },
+    { "id": "marshRabbit", "label": "Marsh Rabbit", "desc": "Can swim", "cost": 4, "requires": ["fleet2", "hardyCoat"], "effects": { "abilities": { "canSwim": true } } }
+  ]
+}

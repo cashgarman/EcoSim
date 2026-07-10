@@ -1,0 +1,12 @@
+{
+  "species": "beaver",
+  "nodes": [
+    { "id": "oilyFur", "label": "Oily Fur", "desc": "+0.1 climate tolerance", "cost": 1, "requires": [], "effects": { "genes": { "tol": { "add": 0.10 } } } },
+    { "id": "strongTail", "label": "Strong Tail", "desc": "+12% speed", "cost": 1, "requires": [], "effects": { "genes": { "speed": { "mul": 1.12 } } } },
+    { "id": "thriftyForager", "label": "Thrifty Forager", "desc": "-10% metabolism", "cost": 2, "requires": [], "effects": { "genes": { "metab": { "mul": 0.90 } } } },
+    { "id": "bigKits", "label": "Big Kits", "desc": "+0.8 litter size", "cost": 2, "requires": ["oilyFur"], "effects": { "genes": { "litter": { "add": 0.8 } } } },
+    { "id": "lodgeWisdom", "label": "Lodge Wisdom", "desc": "+15% sense range", "cost": 2, "requires": ["strongTail"], "effects": { "genes": { "sense": { "mul": 1.15 } } } },
+    { "id": "riverElder", "label": "River Elder", "desc": "+25% lifespan", "cost": 3, "requires": ["bigKits", "thriftyForager"], "effects": { "genes": { "lifespan": { "mul": 1.25 } } } },
+    { "id": "damBuilder", "label": "Dam Builder", "desc": "+15% size", "cost": 3, "requires": ["lodgeWisdom"], "effects": { "genes": { "size": { "mul": 1.15 } } } }
+  ]
+}

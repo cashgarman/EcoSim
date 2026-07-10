@@ -13,6 +13,7 @@ public sealed class CreatureSystem
     private readonly List<Creature> _nearbyScratch = [];
     public LifeStory? LifeStory { get; set; }
     public SpeciesStatsTracker? SpeciesStats { get; set; }
+    public PlayerControlSystem? PlayerControl { get; set; }
 
     public CreatureSystem(SimState state, SpeciesCatalog catalog, BehaviorTree behaviorTree)
     {
@@ -76,6 +77,14 @@ public sealed class CreatureSystem
     public double HuntStrikeChance(Creature hunter) => 0.35 + hunter.Genome.Agg * 0.35;
 
     public bool IsAdult(Creature c) => c.Age >= c.Genome.Lifespan * 0.25;
+
+    public double EffectiveSpeed(Creature c)
+    {
+        double speed = c.Genome.Speed;
+        if (!IsAdult(c)) speed *= 0.8;
+        if (_state.IsNight) speed *= 0.6;
+        return speed;
+    }
 
     public (double X, double Y) SimPos(Creature c) => (c.X, c.Y);
 
@@ -445,6 +454,7 @@ public sealed class CreatureSystem
         var partner = c.MatePartner ?? c.Genome;
         int? fatherId = c.MatePartnerId;
         int born = 0;
+        var newbornIds = new List<int>();
         LifeStory?.Record(c, _state, "gaveBirth", detail: q.ToString());
         for (int i = 0; i < q; i++)
         {
@@ -458,8 +468,10 @@ public sealed class CreatureSystem
             baby.Energy = 80;
             LinkBirthParents(baby, c, fatherId);
             LifeStory?.Record(baby, _state, "born");
+            newbornIds.Add(baby.Id);
             born++;
         }
+        PlayerControl?.NotifyBirth(c, fatherId, newbornIds);
         c.MatePartnerId = null;
         return born;
     }
@@ -560,6 +572,7 @@ public sealed class CreatureSystem
         {
             _state.Veg[ti] = Math.Min(_state.VegCap[ti], _state.Veg[ti] + 0.15f);
         }
+        PlayerControl?.NotifyDeath(c);
     }
 
     public bool StepNeeds(Creature c, double dt)
@@ -609,7 +622,14 @@ public sealed class CreatureSystem
     {
         if (!StepNeeds(c, dt)) return;
         string prevState = c.State;
-        _behaviorTree.Tick(c, dt, this, executeActions: true);
+        if (PlayerControl != null && PlayerControl.Controls(c))
+        {
+            PlayerControl.StepPlayer(c, dt);
+        }
+        else
+        {
+            _behaviorTree.Tick(c, dt, this, executeActions: true);
+        }
         if (c.State != prevState)
         {
             LifeStory?.ObserveDecision(c, _state, c.State);

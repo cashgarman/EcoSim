@@ -193,21 +193,7 @@ public class TimeScrubControllerTests
         return session;
     }
 
-    private static string FindRepoRoot()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir != null)
-        {
-            if (File.Exists(Path.Combine(dir.FullName, "EcoSim.sln")))
-            {
-                return dir.FullName;
-            }
-
-            dir = dir.Parent;
-        }
-
-        throw new InvalidOperationException("Could not locate repo root.");
-    }
+    private static string FindRepoRoot() => TestPaths.FindRepoRoot();
 
     private static TimelineDb OpenTempDb()
     {

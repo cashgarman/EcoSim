@@ -146,14 +146,5 @@ public class BehaviorEvaluatorTraceTests
     Assert.That(doc.Nodes.Select(n => n.X).Distinct().Count(), Is.GreaterThan(1));
   }
 
-  private static string FindRepoRoot()
-  {
-    string? dir = AppContext.BaseDirectory;
-    while (!string.IsNullOrEmpty(dir))
-    {
-      if (File.Exists(Path.Combine(dir, "data", "species.json"))) return dir;
-      dir = Directory.GetParent(dir)?.FullName;
-    }
-    throw new InvalidOperationException("Repo root not found");
-  }
+  private static string FindRepoRoot() => TestPaths.FindRepoRoot();
 }

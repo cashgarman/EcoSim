@@ -1,0 +1,12 @@
+{
+  "species": "fox",
+  "nodes": [
+    { "id": "pounce", "label": "Pounce", "desc": "+10% speed", "cost": 1, "requires": [], "effects": { "genes": { "speed": { "mul": 1.10 } } } },
+    { "id": "sharpNose", "label": "Sharp Nose", "desc": "+20% sense range", "cost": 1, "requires": [], "effects": { "genes": { "sense": { "mul": 1.20 } } } },
+    { "id": "killerInstinct", "label": "Killer Instinct", "desc": "+0.1 aggression", "cost": 2, "requires": ["pounce"], "effects": { "genes": { "agg": { "add": 0.10 } } } },
+    { "id": "denMother", "label": "Den Mother", "desc": "+0.8 litter size", "cost": 2, "requires": [], "effects": { "genes": { "litter": { "add": 0.8 } } } },
+    { "id": "winterPelt", "label": "Winter Pelt", "desc": "+0.1 climate tolerance", "cost": 2, "requires": ["sharpNose"], "effects": { "genes": { "tol": { "add": 0.10 } } } },
+    { "id": "cunningElder", "label": "Cunning Elder", "desc": "+25% lifespan", "cost": 3, "requires": ["denMother"], "effects": { "genes": { "lifespan": { "mul": 1.25 } } } },
+    { "id": "phantomStep", "label": "Phantom Step", "desc": "+12% speed", "cost": 4, "requires": ["killerInstinct", "winterPelt"], "effects": { "genes": { "speed": { "mul": 1.12 } } } }
+  ]
+}

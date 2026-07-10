@@ -1,0 +1,12 @@
+{
+  "species": "boar",
+  "nodes": [
+    { "id": "tuskGrowth", "label": "Tusk Growth", "desc": "+0.15 aggression", "cost": 1, "requires": [], "effects": { "genes": { "agg": { "add": 0.15 } } } },
+    { "id": "bristleHide", "label": "Bristle Hide", "desc": "+0.1 climate tolerance", "cost": 1, "requires": [], "effects": { "genes": { "tol": { "add": 0.10 } } } },
+    { "id": "rootedNose", "label": "Rooting Nose", "desc": "+15% sense range", "cost": 2, "requires": [], "effects": { "genes": { "sense": { "mul": 1.15 } } } },
+    { "id": "heavyShoulders", "label": "Heavy Shoulders", "desc": "+15% size", "cost": 2, "requires": ["tuskGrowth"], "effects": { "genes": { "size": { "mul": 1.15 } } } },
+    { "id": "bigFarrow", "label": "Big Farrow", "desc": "+0.8 litter size", "cost": 2, "requires": ["bristleHide"], "effects": { "genes": { "litter": { "add": 0.8 } } } },
+    { "id": "chargingBulk", "label": "Charging Bulk", "desc": "+12% speed", "cost": 3, "requires": ["heavyShoulders"], "effects": { "genes": { "speed": { "mul": 1.12 } } } },
+    { "id": "ironSow", "label": "Iron Sow", "desc": "+25% lifespan", "cost": 4, "requires": ["bigFarrow", "rootedNose"], "effects": { "genes": { "lifespan": { "mul": 1.25 } } } }
+  ]
+}
