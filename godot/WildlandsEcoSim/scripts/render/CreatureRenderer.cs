@@ -7,11 +7,27 @@ namespace WildlandsEcoSim.Render;
 
 public partial class CreatureRenderer : Node2D
 {
+    private enum CreatureLod
+    {
+        MapCircle,
+        Body,
+        Sprite,
+    }
+
+    // Thresholds are in web-style effective zoom (camera zoom × tile pixels).
+    private const float MapCircleEnterZoom = 3.3f;
+    private const float MapCircleExitZoom = 3.6f;
+    private const float SpriteEnterZoom = 4.45f;
+    private const float SpriteExitZoom = MapCircleExitZoom;
+
+    private static float EffectiveLodZoom(float camZoom) =>
+        camZoom * WorldRenderer.TilePixels;
+
     private SimSession? _session;
     private SpeciesCatalog? _catalog;
     private string? _lockedSpecies;
     private float _camZoom = 1f;
-    private int _frameCounter;
+    private CreatureLod _creatureLod = CreatureLod.Body;
     private readonly HashSet<long> _matingPairKeys = [];
 
     public override void _Ready()
@@ -30,17 +46,14 @@ public partial class CreatureRenderer : Node2D
 
     public void Invalidate() => QueueRedraw();
 
-    public void SetCameraZoom(float zoom) => _camZoom = Math.Max(0.25f, zoom);
+    public void SetCameraZoom(float zoom)
+    {
+        _camZoom = Math.Max(0.25f, zoom);
+        UpdateCreatureLod(_camZoom);
+    }
 
     public override void _Process(double delta)
     {
-        int decimation = PerfProfiler.Instance.RenderDecimation;
-        if (decimation > 1)
-        {
-            _frameCounter++;
-            if (_frameCounter % decimation != 0) return;
-        }
-
         QueueRedraw();
     }
 
@@ -53,6 +66,8 @@ public partial class CreatureRenderer : Node2D
         {
         var profiler = PerfProfiler.Instance;
         int detail = profiler.DetailTier;
+        UpdateCreatureLod(_camZoom);
+
         var selected = _session.State.Selected;
         double light = _session.State.LightLevel;
         var creatures = _session.Creatures;
@@ -62,7 +77,8 @@ public partial class CreatureRenderer : Node2D
         foreach (var c in _session.State.Creatures)
         {
             if (c.Dead) continue;
-            if (!IsVisible(c)) continue;
+            bool forceDraw = selected?.Id == c.Id;
+            if (!forceDraw && !IsVisible(c)) continue;
 
             var def = _catalog.Get(c.Sp);
             var rgb = CreatureDrawUtil.CreatureColor(def, c.Genome);
@@ -71,9 +87,8 @@ public partial class CreatureRenderer : Node2D
             Vector2 pos = CreatureDrawUtil.DisplayPos(c);
             float eSize = CreatureDrawUtil.EffectiveSize(creatures, c);
             float baseRadius = 0.35f + (float)c.Genome.Size * 0.12f;
-            bool useMapCircles = _camZoom < 3.5f || detail <= 0;
 
-            if (useMapCircles)
+            if (_creatureLod == CreatureLod.MapCircle)
             {
                 float r = CreatureDrawUtil.MapCircleRadiusTiles(_camZoom, (float)c.Genome.Size, eSize);
                 var mapColor = CreatureDrawUtil.SpeciesMapColor(c.Sp, def);
@@ -85,12 +100,17 @@ public partial class CreatureRenderer : Node2D
             }
 
             float s = baseRadius;
-            if (detail >= 2 && _camZoom > 4.2f)
+            if (_creatureLod == CreatureLod.Sprite)
             {
                 s = Math.Max(baseRadius, _camZoom * 0.22f * eSize);
             }
+            else if (EffectiveLodZoom(_camZoom) >= SpriteExitZoom)
+            {
+                // Keep body rects readable if we briefly leave sprite mode at high zoom.
+                s = Math.Max(baseRadius, _camZoom * 0.18f * eSize);
+            }
 
-            if (detail >= 2 && _camZoom > 4.2f)
+            if (_creatureLod == CreatureLod.Sprite)
             {
                 bool moving = Math.Sqrt(c.Vx * c.Vx + c.Vy * c.Vy) > 0.02;
                 bool juvenile = !creatures.IsAdult(c);
@@ -129,6 +149,40 @@ public partial class CreatureRenderer : Node2D
             PerfProfiler.Instance.RecordGpuDraw(drawn);
         }
         }));
+    }
+
+    private void UpdateCreatureLod(float camZoom)
+    {
+        float lodZoom = EffectiveLodZoom(camZoom);
+
+        switch (_creatureLod)
+        {
+            case CreatureLod.MapCircle:
+                if (lodZoom >= MapCircleExitZoom)
+                {
+                    _creatureLod = CreatureLod.Body;
+                }
+
+                break;
+            case CreatureLod.Body:
+                if (lodZoom < MapCircleEnterZoom)
+                {
+                    _creatureLod = CreatureLod.MapCircle;
+                }
+                else if (lodZoom >= SpriteEnterZoom)
+                {
+                    _creatureLod = CreatureLod.Sprite;
+                }
+
+                break;
+            case CreatureLod.Sprite:
+                if (lodZoom < SpriteExitZoom)
+                {
+                    _creatureLod = CreatureLod.Body;
+                }
+
+                break;
+        }
     }
 
     private void DrawMatingPairHearts(double animTime, int detail, CreatureSystem creatures)

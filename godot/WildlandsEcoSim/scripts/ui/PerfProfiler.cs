@@ -28,6 +28,7 @@ public sealed class PerfProfiler
 
     private const double EmaAlpha = 0.15;
     private const double SummaryAlpha = 0.12;
+    private const double TierHysteresisMs = 2.0;
     private const int HistoryLen = 90;
 
     private static readonly HashSet<string> AlwaysKeys = new(StringComparer.Ordinal)
@@ -147,14 +148,7 @@ public sealed class PerfProfiler
         _lastFrameMs = frameTotalMs;
         FrameMsAvg = Lerp(FrameMsAvg, frameTotalMs, SummaryAlpha);
         _frameRing[_frameRingIdx++ % _frameRing.Length] = frameTotalMs;
-        QualityTier = FrameMsAvg switch
-        {
-            <= 16.8 => 0,
-            <= 22 => 1,
-            <= 30 => 2,
-            _ => 3,
-        };
-        QualityTier = Math.Max(QualityTier, Gpu.GpuThrottle.MinQualityTier);
+        UpdateQualityTier();
 
         if (!_enabled && !_detailEnabled)
         {
@@ -414,6 +408,48 @@ public sealed class PerfProfiler
             (float)(gr + (rr - gr) * t),
             (float)(gg + (rg - gg) * t),
             (float)(gb + (rb - gb) * t));
+    }
+
+    private static double TierThreshold(int tier) => tier switch
+    {
+        0 => 0,
+        1 => 16.8,
+        2 => 22,
+        _ => 30,
+    };
+
+    private static int TierFromFrameMs(double ms)
+    {
+        if (ms > 30) return 3;
+        if (ms > 22) return 2;
+        if (ms > 16.8) return 1;
+        return 0;
+    }
+
+    private void UpdateQualityTier()
+    {
+        int candidate = TierFromFrameMs(FrameMsAvg);
+        int nextTier = QualityTier;
+
+        if (candidate > QualityTier)
+        {
+            double threshold = TierThreshold(candidate);
+            if (FrameMsAvg >= threshold + TierHysteresisMs)
+            {
+                // Step up at most one tier per frame to avoid sprite-render feedback spikes.
+                nextTier = Math.Min(candidate, QualityTier + 1);
+            }
+        }
+        else if (candidate < QualityTier)
+        {
+            double threshold = TierThreshold(QualityTier);
+            if (FrameMsAvg <= threshold - TierHysteresisMs)
+            {
+                nextTier = candidate;
+            }
+        }
+
+        QualityTier = Math.Max(nextTier, Gpu.GpuThrottle.MinQualityTier);
     }
 
     private bool ShouldRecord(string key)

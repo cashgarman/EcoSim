@@ -141,13 +141,16 @@ public static class CreatureDrawUtil
     {
         float eSize = EffectiveSize(creatures, c);
         float baseRadius = 0.35f + (float)c.Genome.Size * 0.12f;
-        if (detailTier >= 2 && camZoom > 4.2f)
+        float lodZoom = camZoom * WorldRenderer.TilePixels;
+        if (lodZoom >= 4.2f)
         {
             return Math.Max(baseRadius, camZoom * 0.22f * eSize);
         }
 
         return baseRadius;
     }
+
+    private static float EffectiveLodZoom(float camZoom) => camZoom * WorldRenderer.TilePixels;
 
     public static CreatureHighlightBounds GetHighlightBounds(
         Creature c,
@@ -157,7 +160,8 @@ public static class CreatureDrawUtil
         string shape,
         CreatureSpriteDef? spriteDef)
     {
-        if (camZoom < 3.5f || detailTier <= 0)
+        float lodZoom = EffectiveLodZoom(camZoom);
+        if (lodZoom < 3.5f)
         {
             float mapR = MapCircleRadiusTiles(camZoom, (float)c.Genome.Size, EffectiveSize(creatures, c)) * 1.22f;
             return new CreatureHighlightBounds { CenterOffset = Vector2.Zero, RadiusTiles = mapR };
@@ -165,7 +169,7 @@ public static class CreatureDrawUtil
 
         float sizeTiles = CreatureDrawSizeTiles(c, creatures, camZoom, detailTier);
 
-        if (detailTier >= 2 && camZoom > 4.2f)
+        if (lodZoom >= 4.2f)
         {
             if (spriteDef != null)
             {
