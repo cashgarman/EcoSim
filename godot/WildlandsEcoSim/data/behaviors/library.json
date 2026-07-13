@@ -42,7 +42,7 @@
       "label": "Fleeing!",
       "state": "flee",
       "goal": "awayFromThreat",
-      "speedMult": 1.25,
+      "speedMult": 2.0,
       "interruptTier": 0
     },
     "SeekWater": {
@@ -61,7 +61,7 @@
       "label": "Hunting",
       "state": "hunt",
       "goal": "chasePrey",
-      "speedMult": 1.15,
+      "speedMult": 2.0,
       "interruptTier": 1
     },
     "StalkPrey": {

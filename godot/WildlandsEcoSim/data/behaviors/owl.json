@@ -1,4 +1,4 @@
 {
   "extends": "carnivore",
-  "actions": { "HuntNearby": { "speedMult": 1.2 } }
+  "actions": { "HuntNearby": { "speedMult": 2.0 } }
 }

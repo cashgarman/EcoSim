@@ -1,4 +1,4 @@
 {
   "extends": "herbivore_prey",
-  "actions": { "Flee": { "speedMult": 1.4 } }
+  "actions": { "Flee": { "speedMult": 2.0 } }
 }

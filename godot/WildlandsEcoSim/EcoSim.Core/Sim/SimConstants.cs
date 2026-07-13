@@ -33,4 +33,8 @@ public static class SimConstants
     public const double SprintSpeedMult = 1.6;
     public const double SprintEnergyPerSec = 2.2;
     public const double SprintMinEnergy = 5;
+
+    /// <summary>AI flee/hunt sprint: speedMult on BT actions and movement-energy multiplier while sprinting.</summary>
+    public const double AISprintSpeedMult = 2.0;
+    public const double AISprintEnergyMult = 2.0;
 }

@@ -599,7 +599,10 @@ public sealed class CreatureSystem
         double drain = SimConstants.NeedsDrainScale;
         c.Hunger -= (0.9 * load + (c.State == "hunt" ? 0.6 : 0)) * drain * dt;
         c.Thirst -= 1.0 * load * drain * dt;
-        c.Energy -= (0.6 * load + (c.Vx * c.Vx + c.Vy * c.Vy > 0.02 ? 0.9 : 0)) * drain * dt;
+        double moveBonus = c.Vx * c.Vx + c.Vy * c.Vy > 0.02 ? 0.9 : 0;
+        if (moveBonus > 0 && c.State is "flee" or "hunt" && c.BtSpeedMult >= SimConstants.AISprintSpeedMult)
+            moveBonus *= SimConstants.AISprintEnergyMult;
+        c.Energy -= (0.6 * load + moveBonus) * drain * dt;
         c.Age += dt / 24;
         if (c.MateCd > 0) c.MateCd -= dt;
 
