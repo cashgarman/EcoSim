@@ -4,39 +4,84 @@ using Godot;
 
 namespace WildlandsEcoSim.UI;
 
-/// <summary>Toast shown when control transfers to a new body (killer, sibling, or same species).</summary>
-public partial class TransferNoticePanel : PanelContainer
+/// <summary>
+/// Modal shown when control transfers to a new body (killer, sibling, or same species).
+/// Pauses the sim until the player dismisses it.
+/// </summary>
+public partial class TransferNoticePanel : Control
 {
-    private Label _label = null!;
-    private double _hideAt;
+    [Signal]
+    public delegate void ConfirmedEventHandler();
+
+    private Label _body = null!;
+
+    public bool IsOpen => Visible;
 
     public override void _Ready()
     {
         Visible = false;
-        MouseFilter = MouseFilterEnum.Ignore;
+        MouseFilter = MouseFilterEnum.Stop;
         TopLevel = true;
-        ZIndex = 150;
+        ZIndex = 250;
 
-        AddThemeStyleboxOverride("panel", UiSliceCatalog.MakeStonePanel());
-        AddThemeConstantOverride("margin_left", 14);
-        AddThemeConstantOverride("margin_right", 14);
-        AddThemeConstantOverride("margin_top", 8);
-        AddThemeConstantOverride("margin_bottom", 8);
-
-        _label = new Label
+        var dim = new ColorRect
         {
-            HorizontalAlignment = HorizontalAlignment.Center,
-            AutowrapMode = TextServer.AutowrapMode.WordSmart,
+            Color = new Color(0, 0, 0, 0.45f),
+            MouseFilter = MouseFilterEnum.Stop,
         };
-        EcoSimFonts.ApplyFont(_label, EcoSimFonts.Scaled7, EcoSimThemeBuilder.Text);
-        AddChild(_label);
+        dim.SetAnchorsPreset(LayoutPreset.FullRect);
+        AddChild(dim);
+
+        var center = new CenterContainer { MouseFilter = MouseFilterEnum.Stop };
+        center.SetAnchorsPreset(LayoutPreset.FullRect);
+        AddChild(center);
+
+        var panel = new PanelContainer { CustomMinimumSize = new Vector2(420, 0) };
+        panel.AddThemeStyleboxOverride("panel", UiSliceCatalog.MakeStonePanel());
+        panel.AddThemeConstantOverride("margin_left", 16);
+        panel.AddThemeConstantOverride("margin_right", 16);
+        panel.AddThemeConstantOverride("margin_top", 14);
+        panel.AddThemeConstantOverride("margin_bottom", 14);
+        center.AddChild(panel);
+
+        var vbox = new VBoxContainer();
+        vbox.AddThemeConstantOverride("separation", 12);
+
+        var title = new Label
+        {
+            Text = "Control transferred",
+            HorizontalAlignment = HorizontalAlignment.Center,
+        };
+        EcoSimFonts.StylePanelTitle(title);
+
+        _body = new Label
+        {
+            AutowrapMode = TextServer.AutowrapMode.WordSmart,
+            HorizontalAlignment = HorizontalAlignment.Center,
+        };
+        EcoSimFonts.ApplyFont(_body, EcoSimFonts.Body, EcoSimThemeBuilder.Text);
+
+        var ok = new Button { Text = "OK" };
+        EcoSimThemeBuilder.StylePrimaryButton(ok);
+        ok.Pressed += Dismiss;
+
+        vbox.AddChild(title);
+        vbox.AddChild(_body);
+        vbox.AddChild(ok);
+        panel.AddChild(vbox);
+
+        GetViewport().SizeChanged += FitToViewport;
+        FitToViewport();
     }
 
-    public override void _Process(double delta)
+    public override void _UnhandledInput(InputEvent @event)
     {
-        if (Visible && Time.GetTicksMsec() * 0.001 > _hideAt)
+        if (!Visible) return;
+        if (@event is InputEventKey key && key.Pressed && !key.Echo
+            && key.Keycode is Key.Enter or Key.KpEnter or Key.Space)
         {
-            Visible = false;
+            Dismiss();
+            GetViewport().SetInputAsHandled();
         }
     }
 
@@ -45,23 +90,26 @@ public partial class TransferNoticePanel : PanelContainer
         var fromDef = catalog.Get(ev.From.Sp);
         var toDef = catalog.Get(ev.To.Sp);
         string cause = CreatureNotify.RefineDeathCause(ev.From);
-        _label.Text = ev.Reason switch
+        _body.Text = ev.Reason switch
         {
             "killer" => $"{fromDef.Emoji} Your {fromDef.Label} was killed — you are now the {toDef.Emoji} {toDef.Label} that killed it!",
             "sibling" => $"{fromDef.Emoji} Your {fromDef.Label} {CreatureNotify.DeathCausePhrase(cause)} — you live on as its sibling.",
             _ => $"{fromDef.Emoji} Your {fromDef.Label} {CreatureNotify.DeathCausePhrase(cause)} — you continue as another {toDef.Label}.",
         };
-        _hideAt = Time.GetTicksMsec() * 0.001 + 5.0;
+        FitToViewport();
         Visible = true;
-        Reposition();
     }
 
-    private void Reposition()
+    private void Dismiss()
+    {
+        Visible = false;
+        EmitSignal(SignalName.Confirmed);
+    }
+
+    private void FitToViewport()
     {
         var rect = GetViewport().GetVisibleRect();
-        ResetSize();
-        Vector2 size = GetMinimumSize();
-        CustomMinimumSize = new Vector2(Mathf.Min(520, rect.Size.X - 40), 0);
-        Position = new Vector2(rect.Size.X * 0.5f - Mathf.Max(size.X, CustomMinimumSize.X) * 0.5f, 64);
+        Position = Vector2.Zero;
+        Size = rect.Size;
     }
 }

@@ -78,6 +78,23 @@ public sealed class CreatureSystem
 
     public bool IsAdult(Creature c) => c.Age >= c.Genome.Lifespan * 0.25;
 
+    /// <summary>
+    /// Living opposite-sex adults of the same species within sense range that can still mate.
+    /// Matches behavior-tree mate candidacy (excluding hunger/thirst gates on canMate).
+    /// </summary>
+    public void CollectEligibleMatesInRange(Creature c, List<Creature> outMates)
+    {
+        outMates.Clear();
+        if (c.Dead || !IsAdult(c) || c.MateCd > 0 || c.Pregnant > 0 || c.Energy <= 45) return;
+
+        foreach (var o in Nearby(c, c.Genome.Sense, _nearbyScratch))
+        {
+            if (o.Sp != c.Sp || o.Sex == c.Sex) continue;
+            if (!IsAdult(o) || o.MateCd > 0 || o.Pregnant > 0 || o.Energy <= 45) continue;
+            outMates.Add(o);
+        }
+    }
+
     public double EffectiveSpeed(Creature c)
     {
         double speed = c.Genome.Speed;

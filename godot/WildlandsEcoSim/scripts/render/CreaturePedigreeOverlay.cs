@@ -12,7 +12,9 @@ public partial class CreaturePedigreeOverlay : Node2D
 
     private SimSession? _session;
     private float _camZoom = 1f;
+    private readonly List<Creature> _mateScratch = [];
 
+    private const string MateHintRgb = "62,207,106";
     private float PixelsPerTile => WorldRenderer.TilePixels * _camZoom;
 
     private float LineWidthTiles() => LineWidthScreenPx / PixelsPerTile;
@@ -35,6 +37,12 @@ public partial class CreaturePedigreeOverlay : Node2D
         PerfProfiler.Instance.Timed("render", () =>
         PerfProfiler.Instance.Timed("render.pedigree", () =>
         {
+        var controlled = _session.Player.Controlled;
+        if (controlled != null)
+        {
+            DrawMateHintLines(controlled);
+        }
+
         var focus = _session.State.Selected;
         if (focus == null || focus.Dead) return;
 
@@ -63,6 +71,22 @@ public partial class CreaturePedigreeOverlay : Node2D
                 focus.Id * 23 + oid * 5);
         }
         }));
+    }
+
+    private void DrawMateHintLines(Creature controlled)
+    {
+        _session!.Creatures.CollectEligibleMatesInRange(controlled, _mateScratch);
+        if (_mateScratch.Count == 0) return;
+
+        Vector2 from = CreatureDrawUtil.DisplayPos(controlled);
+        foreach (var mate in _mateScratch)
+        {
+            DrawAnimatedDashedLine(
+                from,
+                CreatureDrawUtil.DisplayPos(mate),
+                ParseRgb(MateHintRgb, 0.92f),
+                controlled.Id * 41 + mate.Id * 11);
+        }
     }
 
     private void DrawTargetLine(Creature focus)

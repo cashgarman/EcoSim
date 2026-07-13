@@ -36,6 +36,7 @@ public partial class BtEditorPanel : DraggablePanel
     private string? _currentSpecies;
     private bool _dirty;
     private bool _schemaSet;
+    private bool _hasSavedLayout;
 
     public override void _Ready()
     {
@@ -44,15 +45,18 @@ public partial class BtEditorPanel : DraggablePanel
         CustomMinimumSize = MinSize;
         ClipContents = false;
         ZIndex = 55;
+        SetAnchorsPreset(LayoutPreset.TopLeft);
 
-        _shell = new Control { MouseFilter = MouseFilterEnum.Ignore };
-        _shell.SetAnchorsPreset(LayoutPreset.FullRect);
-        _shell.SetOffsetsPreset(LayoutPreset.FullRect);
+        _shell = new Control { Name = "Shell", MouseFilter = MouseFilterEnum.Ignore };
+        UseAnchorsLayout(_shell);
         AddChild(_shell);
 
-        var root = new VBoxContainer();
-        root.SetAnchorsPreset(LayoutPreset.FullRect);
-        root.SetOffsetsPreset(LayoutPreset.FullRect);
+        var root = new VBoxContainer
+        {
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ExpandFill,
+        };
+        UseAnchorsLayout(root);
         _shell.AddChild(root);
 
         var head = new HBoxContainer { Name = "PanelHead" };
@@ -71,6 +75,7 @@ public partial class BtEditorPanel : DraggablePanel
         root.AddChild(body);
 
         base._Ready();
+        SetAnchorsPreset(LayoutPreset.TopLeft);
 
         var toolbar = new HBoxContainer();
         toolbar.AddThemeConstantOverride("separation", 6);
@@ -127,12 +132,14 @@ public partial class BtEditorPanel : DraggablePanel
 
         _resizeGrip = new Control
         {
+            Name = "ResizeGrip",
             CustomMinimumSize = new Vector2(20, 20),
             MouseFilter = MouseFilterEnum.Stop,
             MouseDefaultCursorShape = CursorShape.Bdiagsize,
             TooltipText = "Drag to resize",
-            ZIndex = 1,
+            ZIndex = 100,
         };
+        UseAnchorsLayout(_resizeGrip);
         _resizeGrip.SetAnchorsPreset(LayoutPreset.BottomRight);
         _resizeGrip.OffsetLeft = -20;
         _resizeGrip.OffsetTop = -20;
@@ -140,7 +147,10 @@ public partial class BtEditorPanel : DraggablePanel
         _resizeGrip.OffsetBottom = 0;
         _resizeGrip.GuiInput += OnResizeGripInput;
         _shell.AddChild(_resizeGrip);
+        _resizeGrip.MoveToFront();
 
+        Resized += OnPanelResized;
+        SetProcess(true);
         Callable.From(EnsureLayout).CallDeferred();
 
         _canvas.NodeSelected += id => _inspector.ShowNode(id);
@@ -165,19 +175,32 @@ public partial class BtEditorPanel : DraggablePanel
         }
 
         Vector2 deltaSize = GetGlobalMousePosition() - _resizeStartMouse;
-        Size = new Vector2(
-            Mathf.Max(MinSize.X, _resizeStartSize.X + deltaSize.X),
-            Mathf.Max(MinSize.Y, _resizeStartSize.Y + deltaSize.Y));
+        SetPanelSize(_resizeStartSize + deltaSize);
         PanelLayoutService.ClampToViewport(this);
         _canvas.QueueRedraw();
+        QueueRedraw();
+    }
+
+    public override void _Notification(int what)
+    {
+        if (what == NotificationResized)
+        {
+            _canvas.QueueRedraw();
+        }
+    }
+
+    private void OnPanelResized()
+    {
+        _canvas.QueueRedraw();
+        QueueRedraw();
     }
 
     public override void _Draw()
     {
         base._Draw();
-        if (_resizeGrip == null) return;
+        if (_resizeGrip == null || !IsVisibleInTree()) return;
 
-        Vector2 p = _resizeGrip.Position + new Vector2(6, 6);
+        Vector2 p = _resizeGrip.GlobalPosition - GlobalPosition + new Vector2(6, 6);
         Color c = EcoSimThemeBuilder.Dim;
         for (int i = 0; i < 3; i++)
         {
@@ -192,11 +215,19 @@ public partial class BtEditorPanel : DraggablePanel
         if (!string.IsNullOrEmpty(LayoutKey))
         {
             PanelLayoutService.SaveBounds(this, LayoutKey);
+            _hasSavedLayout = true;
         }
     }
 
     private void EnsureLayout()
     {
+        if (_hasSavedLayout)
+        {
+            SetPanelSize(Size);
+            PanelLayoutService.ClampToViewport(this);
+            return;
+        }
+
         Vector2 defaultPos = GlobalPosition;
         if (defaultPos == Vector2.Zero)
         {
@@ -204,12 +235,33 @@ public partial class BtEditorPanel : DraggablePanel
             defaultPos = new Vector2((vp.X - DefaultSize.X) * 0.5f, 88);
         }
 
-        if (!PanelLayoutService.ApplyBounds(this, LayoutKey, defaultPos, DefaultSize))
+        _hasSavedLayout = PanelLayoutService.ApplyBounds(this, LayoutKey, defaultPos, DefaultSize);
+        if (!_hasSavedLayout)
         {
-            Size = DefaultSize;
+            SetPanelSize(DefaultSize);
+        }
+        else
+        {
+            SetPanelSize(Size);
         }
 
         PanelLayoutService.ClampToViewport(this);
+    }
+
+    private void SetPanelSize(Vector2 newSize)
+    {
+        newSize = new Vector2(
+            Mathf.Max(MinSize.X, newSize.X),
+            Mathf.Max(MinSize.Y, newSize.Y));
+        Size = newSize;
+        OffsetRight = OffsetLeft + newSize.X;
+        OffsetBottom = OffsetTop + newSize.Y;
+    }
+
+    private static void UseAnchorsLayout(Control control)
+    {
+        control.Set("layout_mode", 1);
+        control.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
     }
 
     private void OnResizeGripInput(InputEvent @event)

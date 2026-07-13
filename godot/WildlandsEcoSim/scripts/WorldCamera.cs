@@ -29,13 +29,23 @@ public partial class WorldCamera : Camera2D
         _host = GetNode<EcoSimHost>("/root/EcoSimHost");
     }
 
+    private static bool IsPossessionLocked(SimSession session) => session.Player.IsControlling;
+
     /// <summary>World-viewport mouse input (wheel, RMB/MMB pan). Returns true if consumed.</summary>
     public bool HandleWorldInput(InputEvent @event)
     {
+        var session = _host.Session;
+        bool possessionLock = session != null && IsPossessionLocked(session);
+
         if (@event is InputEventMouseButton mb)
         {
             if (mb.ButtonIndex is MouseButton.Middle or MouseButton.Right)
             {
+                if (possessionLock)
+                {
+                    return true;
+                }
+
                 if (mb.Pressed)
                 {
                     _panning = true;
@@ -90,7 +100,17 @@ public partial class WorldCamera : Camera2D
         var session = _host.Session;
         if (session == null || !session.State.Ready) return;
 
-        if (_followEnabled && session.State.Selected != null && !session.State.Selected.Dead)
+        bool possessionLock = IsPossessionLocked(session);
+        if (possessionLock)
+        {
+            _followEnabled = true;
+            var controlled = session.Player.Controlled;
+            if (controlled != null)
+            {
+                _followTarget = controlled;
+            }
+        }
+        else if (_followEnabled && session.State.Selected != null && !session.State.Selected.Dead)
         {
             _followTarget = session.State.Selected;
         }
@@ -98,7 +118,8 @@ public partial class WorldCamera : Camera2D
         if (_followEnabled && _followTarget != null && !_followTarget.Dead)
         {
             Vector2 target = CreatureDrawUtil.DisplayPos(_followTarget);
-            Position = Position.Lerp(target, (float)Math.Min(1, delta * 4));
+            float followRate = possessionLock ? 10f : 4f;
+            Position = Position.Lerp(target, (float)Math.Min(1, delta * followRate));
             ClampToLand();
         }
     }

@@ -37,33 +37,33 @@ public partial class EvolutionPanel : Control
         center.SetAnchorsPreset(LayoutPreset.FullRect);
         AddChild(center);
 
-        var panel = new PanelContainer { CustomMinimumSize = new Vector2(520, 0) };
+        var panel = new PanelContainer { CustomMinimumSize = new Vector2(580, 0) };
         panel.AddThemeStyleboxOverride("panel", UiSliceCatalog.MakeStonePanel());
-        panel.AddThemeConstantOverride("margin_left", 16);
-        panel.AddThemeConstantOverride("margin_right", 16);
-        panel.AddThemeConstantOverride("margin_top", 14);
-        panel.AddThemeConstantOverride("margin_bottom", 14);
+        panel.AddThemeConstantOverride("margin_left", 20);
+        panel.AddThemeConstantOverride("margin_right", 20);
+        panel.AddThemeConstantOverride("margin_top", 16);
+        panel.AddThemeConstantOverride("margin_bottom", 16);
         center.AddChild(panel);
 
         var vbox = new VBoxContainer();
-        vbox.AddThemeConstantOverride("separation", 10);
+        vbox.AddThemeConstantOverride("separation", 12);
         panel.AddChild(vbox);
 
         _title = new Label { HorizontalAlignment = HorizontalAlignment.Center };
-        EcoSimFonts.StylePanelTitle(_title);
+        EcoSimFonts.StylePanelTitle(_title, 14);
         vbox.AddChild(_title);
 
         _pointsLabel = new Label { HorizontalAlignment = HorizontalAlignment.Center };
-        EcoSimFonts.ApplyFont(_pointsLabel, EcoSimFonts.Body, EcoSimThemeBuilder.Gold);
+        EcoSimFonts.ApplyFont(_pointsLabel, EcoSimFonts.Scaled7, EcoSimThemeBuilder.Gold);
         vbox.AddChild(_pointsLabel);
 
         var scroll = new ScrollContainer
         {
-            CustomMinimumSize = new Vector2(0, 340),
+            CustomMinimumSize = new Vector2(0, 380),
             HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled,
         };
         _nodeList = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
-        _nodeList.AddThemeConstantOverride("separation", 6);
+        _nodeList.AddThemeConstantOverride("separation", 8);
         scroll.AddChild(_nodeList);
         vbox.AddChild(scroll);
 
@@ -138,20 +138,28 @@ public partial class EvolutionPanel : Control
         row.AddChild(hbox);
 
         var textBox = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        textBox.AddThemeConstantOverride("separation", 3);
         var name = new Label { Text = owned ? $"✓ {node.Label}" : node.Label };
-        EcoSimFonts.ApplyFont(name, EcoSimFonts.Scaled7,
+        EcoSimFonts.ApplyFont(name, EcoSimFonts.Scaled8,
             owned ? EcoSimThemeBuilder.Gold : EcoSimThemeBuilder.Text);
         var desc = new Label { Text = node.Desc, AutowrapMode = TextServer.AutowrapMode.WordSmart };
-        EcoSimFonts.ApplyFont(desc, EcoSimFonts.Small, EcoSimThemeBuilder.Dim);
+        EcoSimFonts.ApplyFont(desc, EcoSimFonts.Body, EcoSimThemeBuilder.Dim);
         textBox.AddChild(name);
         textBox.AddChild(desc);
         if (!owned && !canBuy && !string.IsNullOrEmpty(reason))
         {
             var lockLabel = new Label { Text = $"🔒 {reason}" };
-            EcoSimFonts.ApplyFont(lockLabel, EcoSimFonts.Small, EcoSimThemeBuilder.PopDeltaDown);
+            EcoSimFonts.ApplyFont(lockLabel, EcoSimFonts.Medium, EcoSimThemeBuilder.PopDeltaDown);
             textBox.AddChild(lockLabel);
         }
-        hbox.AddChild(textBox);
+
+        var margin = new MarginContainer();
+        margin.AddThemeConstantOverride("margin_left", 8);
+        margin.AddThemeConstantOverride("margin_right", 8);
+        margin.AddThemeConstantOverride("margin_top", 6);
+        margin.AddThemeConstantOverride("margin_bottom", 6);
+        margin.AddChild(textBox);
+        hbox.AddChild(margin);
 
         if (!owned)
         {

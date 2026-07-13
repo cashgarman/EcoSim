@@ -41,6 +41,7 @@ public partial class PlayerModeController : Node
         _playerHud = new PlayerHudPanel { Theme = theme };
         AddChild(_playerHud);
         _transferNotice = new TransferNoticePanel { Theme = theme };
+        _transferNotice.Confirmed += OnTransferConfirmed;
         AddChild(_transferNotice);
         _birthChoice = new BirthChoicePanel { Theme = theme };
         _birthChoice.ContinueChosen += OnBirthContinue;
@@ -62,7 +63,8 @@ public partial class PlayerModeController : Node
     }
 
     private bool ModalOpen =>
-        _birthChoice.IsOpen || _evolution.IsOpen || _gameOver.IsOpen || _speciesSelect.IsOpen;
+        _birthChoice.IsOpen || _evolution.IsOpen || _gameOver.IsOpen || _speciesSelect.IsOpen
+        || _transferNotice.IsOpen;
 
     /// <summary>Opens the new-game species picker (pauses the sim while open).</summary>
     public void ShowSpeciesSelect()
@@ -181,6 +183,7 @@ public partial class PlayerModeController : Node
                 }
                 case TransferEvent transfer:
                 {
+                    PauseForModal();
                     _transferNotice.ShowTransfer(transfer, session.Species, session.State);
                     _camera.FollowEnabled = true;
                     _camera.FocusCreature(transfer.To);
@@ -218,6 +221,8 @@ public partial class PlayerModeController : Node
     }
 
     private void OnBirthContinue() => ResumeFromModal();
+
+    private void OnTransferConfirmed() => ResumeFromModal();
 
     private void OnBirthNewborn(int newbornId)
     {
@@ -308,6 +313,7 @@ public partial class PlayerModeController : Node
         session.Player.PendingEvents.Clear();
         _playerHud.Visible = false;
         _birthChoice.Visible = false;
+        _transferNotice.Visible = false;
         _evolution.Visible = false;
         _gameOver.HidePanel();
         _speciesSelect.Visible = false;

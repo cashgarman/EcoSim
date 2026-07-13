@@ -298,7 +298,7 @@ public partial class HudController : CanvasLayer
                 }
                 GetViewport().SetInputAsHandled();
             }
-            else if (key.Keycode == Key.F)
+            else if (key.Keycode == Key.F && _playerMode?.IsPossessing != true)
             {
                 OnFollowToggled();
                 GetViewport().SetInputAsHandled();
@@ -523,8 +523,11 @@ public partial class HudController : CanvasLayer
         _ecosystem.ClearSpeciesLock();
         OnSpeciesLocked("");
         OnSpeciesHovered("");
-        _camera.FollowEnabled = false;
-        _watchFollowDeathId = null;
+        if (_playerMode?.IsPossessing != true)
+        {
+            _camera.FollowEnabled = false;
+            _watchFollowDeathId = null;
+        }
         SyncFollowButton();
         _inspector.Refresh(null);
     }
@@ -741,12 +744,20 @@ public partial class HudController : CanvasLayer
         if (session != null && _playerMode?.IsPossessing == true)
         {
             _watchFollowDeathId = null;
+            var controlled = session.Player.Controlled;
+            if (controlled != null)
+            {
+                _camera.FollowEnabled = true;
+                _camera.FocusCreature(controlled);
+            }
             _inspector.Refresh(session.State.Selected, session.Creatures, session.State);
         }
     }
 
     private void OnFollowToggled()
     {
+        if (_playerMode?.IsPossessing == true) return;
+
         _camera.FollowEnabled = !_camera.FollowEnabled;
         SyncFollowButton();
         if (!_camera.FollowEnabled)
@@ -758,8 +769,10 @@ public partial class HudController : CanvasLayer
     private void SyncFollowButton()
     {
         var btn = GetNode<Button>("%FollowBtn");
-        bool following = _camera.FollowEnabled;
+        bool possessing = _playerMode?.IsPossessing == true;
+        bool following = possessing || _camera.FollowEnabled;
         btn.Text = following ? "Following" : "Follow";
+        btn.Disabled = possessing;
         EcoSimThemeBuilder.StyleActiveButton(btn, following);
     }
 
@@ -969,7 +982,16 @@ public partial class HudController : CanvasLayer
         var sel = session.State.Selected;
         Creature? target = null;
 
-        if (_camera.FollowEnabled && sel is { Dead: false })
+        if (session.Player.IsControlling)
+        {
+            if (IsMouseOverWorldViewport())
+            {
+                target = PickHoverCreature(session, tile);
+            }
+
+            target ??= session.Player.Controlled;
+        }
+        else if (_camera.FollowEnabled && sel is { Dead: false })
         {
             target = sel;
         }
