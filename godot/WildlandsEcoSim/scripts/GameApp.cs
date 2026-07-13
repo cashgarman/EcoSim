@@ -1,7 +1,6 @@
 using EcoSim.Core.Sim;
 using Godot;
 using WildlandsEcoSim.UI;
-
 namespace WildlandsEcoSim;
 
 /// <summary>Autoload — advances simulation each frame when not paused.</summary>
@@ -88,27 +87,14 @@ public partial class GameApp : Node
             });
         }
 
-        EmitSignal(SignalName.SimTicked);
-    }
-
-    public override void _PhysicsProcess(double delta)
-    {
-        if (Engine.IsEditorHint()) return;
-        var session = _host.Session;
-        if (session == null || !session.State.Ready) return;
-
         bool scrubbing = _scrub?.ScrubActive ?? false;
-        var profiler = PerfProfiler.Instance;
-        if (IsSimAdvancing(session))
+        if (IsSimAdvancing(session) || scrubbing)
         {
             profiler.Timed("displaySmooth", () =>
                 session.Creatures.AdvanceDisplayPositions(delta, scrubbing));
         }
-        else if (scrubbing)
-        {
-            profiler.Timed("displaySmooth", () =>
-                session.Creatures.AdvanceDisplayPositions(delta, scrubbing: true));
-        }
+
+        EmitSignal(SignalName.SimTicked);
     }
 
     public void TogglePause()

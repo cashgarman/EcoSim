@@ -32,7 +32,7 @@ public partial class CreaturePedigreeOverlay : Node2D
 
     public void SetCameraZoom(float zoom) => _camZoom = Math.Max(0.25f, zoom);
 
-    public override void _Process(double delta) => QueueRedraw();
+    public void Invalidate() => QueueRedraw();
 
     public override void _Draw()
     {

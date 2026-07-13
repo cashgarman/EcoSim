@@ -339,8 +339,6 @@ public sealed class CreatureSystem
         (int X, int Y)? best = null;
         double bv = 0;
         int ix = (int)Math.Round(c.X), iy = (int)Math.Round(c.Y);
-        int scanned = 0;
-        int edibleCount = 0;
         int stride = Math.Max(1, step);
         for (int dy = -r; dy <= r; dy += stride)
         {
@@ -348,11 +346,9 @@ public sealed class CreatureSystem
             {
                 int nx = ix + dx, ny = iy + dy;
                 if (!GridHelpers.InBounds(_state, nx, ny)) continue;
-                scanned++;
                 int ti = GridHelpers.Idx(_state, nx, ny);
                 if (BiomeData.IsWater(_state.Biome[ti])) continue;
                 if (!GrazeFood.IsEdible(_state, ti)) continue;
-                edibleCount++;
                 if (_state.Veg[ti] > bv)
                 {
                     bv = _state.Veg[ti];
@@ -360,24 +356,6 @@ public sealed class CreatureSystem
                 }
             }
         }
-        // #region agent log
-        if (best == null && c.State == "graze" && c.Hunger < 15
-            && DebugSessionLog.ShouldSample(c.Id, _state.TGlobal, 3.0))
-        {
-            DebugSessionLog.Write("H1", "CreatureSystem.FindFood", "no food found in sense range",
-                new
-                {
-                    id = c.Id,
-                    sp = c.Sp,
-                    hunger = c.Hunger,
-                    senseR = r,
-                    scanned,
-                    edibleCount,
-                    x = c.X,
-                    y = c.Y,
-                }, "post-fix");
-        }
-        // #endregion
         return best;
     }
 
@@ -443,24 +421,6 @@ public sealed class CreatureSystem
         goalTi = GridHelpers.Idx(_state,
             (int)SimMath.Clamp(Math.Round(c.Tx), 0, _state.W - 1),
             (int)SimMath.Clamp(Math.Round(c.Ty), 0, _state.H - 1));
-        // #region agent log
-        if (BiomeData.IsWater(_state.Biome[ti])
-            && SimMath.Hypot(c.Tx - c.X, c.Ty - c.Y) < 1.0)
-        {
-            DebugSessionLog.Write("H3", "CreatureSystem.ResolveGrazeSearchGoal", "stuck on water - no land goal",
-                new
-                {
-                    id = c.Id,
-                    sp = c.Sp,
-                    hunger = c.Hunger,
-                    x = c.X,
-                    y = c.Y,
-                    goalX = c.Tx,
-                    goalY = c.Ty,
-                    senseR,
-                }, "post-fix");
-        }
-        // #endregion
         return (c.Tx, c.Ty);
     }
 
@@ -517,74 +477,6 @@ public sealed class CreatureSystem
         int ti = GridHelpers.Idx(_state,
             (int)SimMath.Clamp(Math.Round(c.X), 0, _state.W - 1),
             (int)SimMath.Clamp(Math.Round(c.Y), 0, _state.H - 1));
-        // #region agent log
-        bool canSwim = SpeciesCatalog.SpeciesCanSwim(_catalog.Get(c.Sp));
-        bool onWater = BiomeData.IsWater(_state.Biome[ti]);
-        bool atEdge = Navigation.AtWaterEdge(_state, c.X, c.Y);
-        bool canDrink = Navigation.CanDrinkHere(_state, c.X, c.Y, canSwim);
-        float waterDist = Navigation.WaterDistAt(_state, c.X, c.Y);
-        DebugSessionLog.Write("DEATH", "CreatureSystem.Die", "creature died",
-            new
-            {
-                id = c.Id,
-                sp = c.Sp,
-                deathKey,
-                cause = c.Cause,
-                state = c.State,
-                hunger = c.Hunger,
-                thirst = c.Thirst,
-                hp = c.Hp,
-                day = _state.Day,
-                tGlobal = _state.TGlobal,
-            }, "post-fix");
-
-        if (deathKey.Contains("starvation", StringComparison.OrdinalIgnoreCase)
-            || deathKey.Contains("dehydration", StringComparison.OrdinalIgnoreCase))
-        {
-            var food = FindFood(c, (int)Math.Round(c.Genome.Sense));
-            DebugSessionLog.Write("T1-T5", "CreatureSystem.Die",
-                deathKey.Contains("dehydration", StringComparison.OrdinalIgnoreCase)
-                    ? "dehydration death" : "starvation death",
-                new
-                {
-                    id = c.Id,
-                    sp = c.Sp,
-                    deathKey,
-                    state = c.State,
-                    hunger = c.Hunger,
-                    thirst = c.Thirst,
-                    hp = c.Hp,
-                    x = c.X,
-                    y = c.Y,
-                    tileX = GridHelpers.TileX(_state, c.X),
-                    tileY = GridHelpers.TileY(_state, c.Y),
-                    biome = _state.Biome[ti],
-                    onWater,
-                    atEdge,
-                    canDrink,
-                    waterDist,
-                    veg = _state.Veg[ti],
-                    vegCap = _state.VegCap[ti],
-                    edible = GrazeFood.IsEdible(_state, ti),
-                    minEdible = GrazeFood.MinEdibleAmount(_state.VegCap[ti]),
-                    findFood = food.HasValue,
-                    findFoodDist = food.HasValue
-                        ? Math.Sqrt(Math.Pow(food.Value.X - c.X, 2) + Math.Pow(food.Value.Y - c.Y, 2))
-                        : -1,
-                    navGoalDist = double.IsFinite(c.NavGoalX)
-                        ? SimMath.Hypot(c.NavGoalX - c.X, c.NavGoalY - c.Y)
-                        : -1,
-                    navGoalCanDrink = double.IsFinite(c.NavGoalX)
-                        && Navigation.CanDrinkOnTile(_state,
-                            GridHelpers.TileX(_state, c.NavGoalX),
-                            GridHelpers.TileY(_state, c.NavGoalY),
-                            canSwim),
-                    sense = c.Genome.Sense,
-                    day = _state.Day,
-                    tGlobal = _state.TGlobal,
-                }, "post-fix");
-        }
-        // #endregion
         if (!BiomeData.IsWater(_state.Biome[ti]))
         {
             _state.Veg[ti] = Math.Min(_state.VegCap[ti], _state.Veg[ti] + 0.15f);

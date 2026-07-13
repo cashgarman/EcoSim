@@ -30,9 +30,12 @@ public partial class WorldRenderer : Node2D
     private Func<string>? _activeTool;
     private Action<double, double>? _toolApply;
     private bool _painting;
-    private int _vegRefreshCounter;
     private double _scrubVegBakeAt;
+    private double _lastVegBakeMs;
+    private const double LiveVegBakeIntervalMs = 1500.0;
     private const double ScrubVegBakeMs = 320;
+    private Vector2 _lastCamPos = new(float.NaN, float.NaN);
+    private float _lastCamZoom = float.NaN;
     private float _waterAnimPhase;
     private string? _lockedSpecies;
     private string? _hoveredSpecies;
@@ -105,8 +108,32 @@ public partial class WorldRenderer : Node2D
                 {
                     ApplyToolAtMouse();
                 }
+
+                MaybeInvalidateDynamicLayers();
             }
         }));
+    }
+
+    private void MaybeInvalidateDynamicLayers()
+    {
+        if (_session == null) return;
+
+        var camera = GetNode<WorldCamera>("Camera2D");
+        bool simLive = _gameApp.IsSimAdvancing(_session) || (_gameApp.Scrub?.ScrubActive ?? false);
+        bool cameraMoved = camera.GlobalPosition != _lastCamPos || Math.Abs(camera.Zoom.X - _lastCamZoom) > 0.001f;
+        if (simLive || cameraMoved)
+        {
+            _lastCamPos = camera.GlobalPosition;
+            _lastCamZoom = camera.Zoom.X;
+            InvalidateDynamicLayers();
+        }
+    }
+
+    private void InvalidateDynamicLayers()
+    {
+        _creatures.Invalidate();
+        _highlights.Invalidate();
+        _pedigree.Invalidate();
     }
 
     private void PushWaterAnimPhase()
@@ -321,12 +348,14 @@ public partial class WorldRenderer : Node2D
         _lockedSpecies = speciesKey;
         _creatures.SetLockedSpecies(speciesKey);
         UpdateRenderContext();
+        _highlights.Invalidate();
     }
 
     public void SetHoveredSpecies(string? speciesKey)
     {
         _hoveredSpecies = speciesKey;
         UpdateRenderContext();
+        _highlights.Invalidate();
     }
 
     public void RefreshVegIfDirty()
@@ -334,12 +363,15 @@ public partial class WorldRenderer : Node2D
         PerfProfiler.Instance.Timed("render.vegBake", () =>
         {
             if (_session == null || !_session.State.VegDirty) return;
-            _vegRefreshCounter++;
-            if (_vegRefreshCounter < 10) return;
-            _vegRefreshCounter = 0;
+
+            double now = Time.GetTicksMsec();
+            if (now - _lastVegBakeMs < LiveVegBakeIntervalMs) return;
+
             _session.State.VegDirty = false;
-            var vegImg = TerrainBaker.BakeVegImage(_session.State);
+            var vegImg = TerrainBaker.BakeVegImageFast(_session.State);
             _veg.Texture = ImageTexture.CreateFromImage(vegImg);
+            _veg.Scale = Vector2.One;
+            _lastVegBakeMs = now;
         });
     }
 

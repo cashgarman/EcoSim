@@ -52,11 +52,6 @@ public partial class CreatureRenderer : Node2D
         UpdateCreatureLod(_camZoom);
     }
 
-    public override void _Process(double delta)
-    {
-        QueueRedraw();
-    }
-
     public override void _Draw()
     {
         if (_session == null || _catalog == null || !_session.State.Ready) return;

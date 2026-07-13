@@ -110,6 +110,30 @@ public static class TerrainBaker
         return Image.CreateFromData(w, h, false, Image.Format.Rgba8, data);
     }
 
+    /// <summary>One texel per tile — ~64× cheaper than subpixel bake; used for live veg refresh.</summary>
+    public static Image BakeVegImageFast(SimState state)
+    {
+        int w = state.W;
+        int h = state.H;
+        byte[] data = new byte[w * h * 4];
+
+        for (int y = 0; y < h; y++)
+        {
+            for (int x = 0; x < w; x++)
+            {
+                float alpha = TileVegAlpha(state, x, y) * 0.85f;
+                if (alpha <= 0.001f)
+                {
+                    continue;
+                }
+
+                WriteColor(data, (y * w + x) * 4, new Color(0.18f, 0.72f, 0.22f, alpha));
+            }
+        }
+
+        return Image.CreateFromData(w, h, false, Image.Format.Rgba8, data);
+    }
+
     public static Image BakeWaterMaskImage(SimState state)
     {
         int w = state.W * Tx;

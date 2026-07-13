@@ -61,6 +61,10 @@ public partial class HudController : CanvasLayer
     private double? _pendingSeekT;
     private DraggablePanel[] _panels = [];
     private PopHistoryTracker _popHistory = new();
+    private double _lastHudPanelsRefreshMs;
+    private double _lastVegSampleMs;
+    private double _cachedVegPct;
+    private const double HudPanelsRefreshMs = 200.0;
 
     public override void _Ready()
     {
@@ -328,7 +332,8 @@ public partial class HudController : CanvasLayer
                 }
                 else
                 {
-                    RefreshHud();
+                    RefreshHudChrome();
+                    RefreshHudPanelsIfDue();
                 }
             });
             _profiler.Refresh();
@@ -731,7 +736,6 @@ public partial class HudController : CanvasLayer
         CheckFollowedCreatureDeath(session);
         CaptureHeartbeatIfDue(session);
         _story.OnSimTicked(session);
-        RefreshHud();
     }
 
     private void OnPlayerRestartRequested()
@@ -884,6 +888,12 @@ public partial class HudController : CanvasLayer
 
     private void RefreshHud()
     {
+        RefreshHudChrome();
+        RefreshHudPanels(forceVegSample: true);
+    }
+
+    private void RefreshHudChrome()
+    {
         var session = _host.Session;
         if (session == null) return;
 
@@ -899,11 +909,34 @@ public partial class HudController : CanvasLayer
             if (!c.Dead && c.Gen > maxGen) maxGen = c.Gen;
         }
         _genLabel.Text = $"🧬 Gen {maxGen}";
-        _vegLabel.Text = $"🌱 {ComputeVegPercent(session.State):F0}%";
 
         double fps = PerfProfiler.Instance.FrameMsAvg > 0 ? 1000.0 / PerfProfiler.Instance.FrameMsAvg : 0;
         double frameMs = PerfProfiler.Instance.FrameMsAvg;
         _simFpsLabel.Text = $"⚙ {fps:F0} FPS · {frameMs:F1}ms";
+    }
+
+    private void RefreshHudPanelsIfDue()
+    {
+        double now = Time.GetTicksMsec();
+        if (now - _lastHudPanelsRefreshMs < HudPanelsRefreshMs) return;
+        _lastHudPanelsRefreshMs = now;
+
+        RefreshHudPanels(forceVegSample: false);
+    }
+
+    private void RefreshHudPanels(bool forceVegSample)
+    {
+        var session = _host.Session;
+        if (session == null) return;
+
+        double now = Time.GetTicksMsec();
+        if (forceVegSample || now - _lastVegSampleMs >= 1000.0)
+        {
+            _cachedVegPct = ComputeVegPercent(session.State);
+            _lastVegSampleMs = now;
+        }
+
+        _vegLabel.Text = $"🌱 {_cachedVegPct:F0}%";
 
         _popHistory.SampleIfDue(session, _gameApp.Paused);
         _ecosystem.Refresh(session);
