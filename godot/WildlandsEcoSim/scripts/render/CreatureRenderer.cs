@@ -12,6 +12,7 @@ public partial class CreatureRenderer : Node2D
     private string? _lockedSpecies;
     private float _camZoom = 1f;
     private int _frameCounter;
+    private readonly HashSet<long> _matingPairKeys = [];
 
     public override void _Ready()
     {
@@ -55,6 +56,7 @@ public partial class CreatureRenderer : Node2D
         var selected = _session.State.Selected;
         double light = _session.State.LightLevel;
         var creatures = _session.Creatures;
+        double animTime = Time.GetTicksMsec() * 0.001;
 
         int drawn = 0;
         foreach (var c in _session.State.Creatures)
@@ -77,6 +79,8 @@ public partial class CreatureRenderer : Node2D
                 var mapColor = CreatureDrawUtil.SpeciesMapColor(c.Sp, def);
                 float mapBright = CreatureDrawUtil.MapMarkerBrightness(light);
                 CreatureDrawUtil.DrawMapCircle(this, pos, r, mapColor, mapBright, _camZoom);
+
+                drawn++;
                 continue;
             }
 
@@ -118,11 +122,48 @@ public partial class CreatureRenderer : Node2D
             drawn++;
         }
 
+        DrawMatingPairHearts(animTime, detail, creatures);
+
         if (drawn > 0)
         {
             PerfProfiler.Instance.RecordGpuDraw(drawn);
         }
         }));
+    }
+
+    private void DrawMatingPairHearts(double animTime, int detail, CreatureSystem creatures)
+    {
+        if (_session == null || _catalog == null || _camZoom < 3.5f) return;
+
+        _matingPairKeys.Clear();
+        foreach (var c in _session.State.Creatures)
+        {
+            if (c.Dead || c.State != "mate" || c.Target is not { } mateId) continue;
+
+            var mate = creatures.GetById(mateId);
+            if (mate is not { Dead: false, State: "mate" }) continue;
+
+            int aId = Math.Min(c.Id, mateId);
+            int bId = Math.Max(c.Id, mateId);
+            long pairKey = ((long)aId << 32) | (uint)bId;
+            if (!_matingPairKeys.Add(pairKey)) continue;
+
+            var creatureA = aId == c.Id ? c : mate;
+            var creatureB = bId == mateId ? mate : c;
+
+            var defA = _catalog.Get(creatureA.Sp);
+            var defB = _catalog.Get(creatureB.Sp);
+            CreatureSpriteCatalog.TryGetSpeciesSprite(creatureA.Sp, out var spriteA);
+            CreatureSpriteCatalog.TryGetSpeciesSprite(creatureB.Sp, out var spriteB);
+
+            Vector2 anchorA = CreatureDrawUtil.GetVisualCenter(
+                creatureA, creatures, _camZoom, detail, defA, spriteA);
+            Vector2 anchorB = CreatureDrawUtil.GetVisualCenter(
+                creatureB, creatures, _camZoom, detail, defB, spriteB);
+            Vector2 mid = (anchorA + anchorB) * 0.5f;
+
+            CreatureDrawUtil.DrawMatingHeartFx(this, mid, aId ^ bId, animTime, _camZoom);
+        }
     }
 
     private bool IsVisible(Creature c)

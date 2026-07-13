@@ -194,6 +194,19 @@ public static class CreatureDrawUtil
         CreatureSpriteDef? spriteDef) =>
         GetHighlightBounds(c, creatures, camZoom, detailTier, shape, spriteDef).RadiusTiles;
 
+    /// <summary>Sprite/highlight center in tile space — use as line anchor for the creature body.</summary>
+    public static Vector2 GetVisualCenter(
+        Creature c,
+        CreatureSystem creatures,
+        float camZoom,
+        int detailTier,
+        SpeciesDefinition def,
+        CreatureSpriteDef? spriteDef)
+    {
+        var bounds = GetHighlightBounds(c, creatures, camZoom, detailTier, def.Shape, spriteDef);
+        return DisplayPos(c) + bounds.CenterOffset;
+    }
+
     private static CreatureHighlightBounds SpriteHighlightBounds(Creature c, float sizeTiles, CreatureSpriteDef def)
     {
         Rect2 src = def.ContentRegion;
@@ -406,6 +419,78 @@ public static class CreatureDrawUtil
             for (int x = 0; x < gridSize && x < row.Length; x++)
             {
                 if (!TryIconColor(row[x], out Color col)) continue;
+                canvas.DrawRect(new Rect2(
+                    origin.X + x * cellLocal,
+                    origin.Y + y * cellLocal,
+                    cellLocal,
+                    cellLocal), col);
+            }
+        }
+    }
+
+    /// <summary>Pixel heart sprite for mating FX (MateIcon grid).</summary>
+    public static void DrawHeartSprite(
+        CanvasItem canvas,
+        Vector2 center,
+        float iconSizeTiles,
+        float alpha,
+        float camZoom)
+    {
+        DrawIconGrid(canvas, MateIcon, center, iconSizeTiles, alpha, camZoom);
+    }
+
+    /// <summary>Rising pixel hearts between a mating pair (wall-clock animated).</summary>
+    public static void DrawMatingHeartFx(
+        CanvasItem canvas,
+        Vector2 anchor,
+        int pairSeed,
+        double animTimeSec,
+        float camZoom)
+    {
+        float worldScale = WorldRenderer.TilePixels * Math.Max(camZoom, 0.01f);
+        const float heartScreenPx = 16f;
+        float baseSize = heartScreenPx / worldScale;
+
+        for (int i = 0; i < 5; i++)
+        {
+            float phase = pairSeed * 0.41f + i * 0.87f;
+            float cycle = (float)((animTimeSec * 1.4 + phase) % 1.6);
+            float t = cycle / 1.6f;
+            float alpha = (1f - t) * (1f - t);
+            if (alpha < 0.04f) continue;
+
+            float rise = t * 2.2f;
+            float spread = (i - 2f) * 0.12f;
+            float wobble = MathF.Sin((float)animTimeSec * 5.5f + phase * 2f) * 0.1f;
+            Vector2 pos = anchor + new Vector2(spread + wobble, -0.15f - rise);
+            float pulse = 0.88f + 0.12f * MathF.Sin((float)animTimeSec * 11f + phase);
+            DrawHeartSprite(canvas, pos, baseSize * pulse, alpha, camZoom);
+        }
+    }
+
+    private static void DrawIconGrid(
+        CanvasItem canvas,
+        string[] grid,
+        Vector2 center,
+        float iconSizeTiles,
+        float alpha,
+        float camZoom)
+    {
+        int gridSize = grid.Length;
+        float worldScale = WorldRenderer.TilePixels * Math.Max(camZoom, 0.01f);
+        float cellLocal = iconSizeTiles / gridSize;
+        float cellScreen = Math.Max(1f, Mathf.Round(cellLocal * worldScale));
+        cellLocal = cellScreen / worldScale;
+        iconSizeTiles = cellLocal * gridSize;
+        Vector2 origin = center - new Vector2(iconSizeTiles * 0.5f, iconSizeTiles * 0.5f);
+
+        for (int y = 0; y < gridSize; y++)
+        {
+            string row = grid[y];
+            for (int x = 0; x < gridSize && x < row.Length; x++)
+            {
+                if (!TryIconColor(row[x], out Color col)) continue;
+                col.A = alpha;
                 canvas.DrawRect(new Rect2(
                     origin.X + x * cellLocal,
                     origin.Y + y * cellLocal,
