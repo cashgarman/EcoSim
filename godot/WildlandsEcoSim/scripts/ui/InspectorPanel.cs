@@ -18,10 +18,12 @@ public partial class InspectorPanel : DraggablePanel
     private Label _hunVal = null!;
     private Label _thiVal = null!;
     private Label _eneVal = null!;
+    private Label _lifeVal = null!;
     private ProgressBar _hp = null!;
     private ProgressBar _hunger = null!;
     private ProgressBar _thirst = null!;
     private ProgressBar _energy = null!;
+    private ProgressBar _lifespan = null!;
     private GridContainer _genes = null!;
     private RichTextLabel _storyLog = null!;
     private RichTextLabel _lineageLog = null!;
@@ -42,16 +44,19 @@ public partial class InspectorPanel : DraggablePanel
         _hunVal = Req<Label>("HunVal");
         _thiVal = Req<Label>("ThiVal");
         _eneVal = Req<Label>("EneVal");
+        _lifeVal = Req<Label>("LifeVal");
         _hp = Req<ProgressBar>("HpBar");
         _hunger = Req<ProgressBar>("HungerBar");
         _thirst = Req<ProgressBar>("ThirstBar");
         _energy = Req<ProgressBar>("EnergyBar");
+        _lifespan = Req<ProgressBar>("LifespanBar");
         _genes = Req<GridContainer>("GeneGrid");
         _storyLog = Req<RichTextLabel>("LifeStoryLog");
         EcoSimThemeBuilder.StyleNeedBar(_hp, EcoSimThemeBuilder.Hp);
         EcoSimThemeBuilder.StyleNeedBar(_hunger, EcoSimThemeBuilder.Hunger);
         EcoSimThemeBuilder.StyleNeedBar(_thirst, EcoSimThemeBuilder.Thirst);
         EcoSimThemeBuilder.StyleNeedBar(_energy, EcoSimThemeBuilder.Energy);
+        EcoSimThemeBuilder.StyleNeedBar(_lifespan, EcoSimThemeBuilder.Lifespan);
         _statsTabBtn.Pressed += () => SetTab(false);
         _storyTabBtn.Pressed += () => SetTab(true);
         EcoSimFonts.StylePanelTitle(_header, EcoSimFonts.InspectorTitle);
@@ -193,6 +198,7 @@ public partial class InspectorPanel : DraggablePanel
         SetBar(_hunger, _hunVal, c.Hunger);
         SetBar(_thirst, _thiVal, c.Thirst);
         SetBar(_energy, _eneVal, c.Energy);
+        SetLifespanBar(c);
 
         foreach (Node child in _genes.GetChildren())
         {
@@ -276,6 +282,14 @@ public partial class InspectorPanel : DraggablePanel
         }
 
         return $"[url={rel.Id}][u][color=#ffdc3c]{label}[/color][/u][/url]";
+    }
+
+    private void SetLifespanBar(Creature c)
+    {
+        double maxYears = Math.Max(0.01, c.Genome.Lifespan);
+        double pct = Math.Clamp(c.Age / maxYears * 100, 0, 100);
+        _lifespan.Value = pct;
+        _lifeVal.Text = $"{pct:F0}%";
     }
 
     private static void SetBar(ProgressBar bar, Label label, double value)

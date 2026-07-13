@@ -19,6 +19,7 @@ public static class EcoSimThemeBuilder
     public static readonly Color Hunger = new("d98a3a");
     public static readonly Color Thirst = new("3aa8d8");
     public static readonly Color Energy = new("d8c23a");
+    public static readonly Color Lifespan = new("9a8cc4");
     public static readonly Color PageBg = new("1e4878");
     public static readonly Color UiShellBg = new("0c100a");
     public static readonly Color PopDeltaUp = new("3ecf6a");

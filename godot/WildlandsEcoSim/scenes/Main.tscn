@@ -489,6 +489,25 @@ unique_name_in_owner = true
 layout_mode = 2
 show_percentage = false
 
+[node name="LifeRow" type="HBoxContainer" parent="Hud/InspectorPanel/VBox/PanelBody/StatsTab" unique_id=812611675]
+layout_mode = 2
+
+[node name="LifeLabel" type="Label" parent="Hud/InspectorPanel/VBox/PanelBody/StatsTab/LifeRow" unique_id=551488576]
+layout_mode = 2
+text = "⏳ Lifespan"
+
+[node name="LifeVal" type="Label" parent="Hud/InspectorPanel/VBox/PanelBody/StatsTab/LifeRow" unique_id=1867764432]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+text = "—"
+horizontal_alignment = 2
+
+[node name="LifespanBar" type="ProgressBar" parent="Hud/InspectorPanel/VBox/PanelBody/StatsTab" unique_id=1349352190]
+unique_name_in_owner = true
+layout_mode = 2
+show_percentage = false
+
 [node name="GeneGrid" type="GridContainer" parent="Hud/InspectorPanel/VBox/PanelBody/StatsTab" unique_id=1641440189]
 unique_name_in_owner = true
 layout_mode = 2
