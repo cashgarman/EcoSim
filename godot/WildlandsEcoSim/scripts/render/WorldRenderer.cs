@@ -24,6 +24,7 @@ public partial class WorldRenderer : Node2D
     private CreatureHighlightOverlay _highlights = null!;
     private ToolFxOverlay _toolFx = null!;
     private Node2D _terrainLayer = null!;
+    private ColorRect _worldBackdrop = null!;
     private GameApp _gameApp = null!;
     private SimSession? _session;
     private Func<string>? _activeTool;
@@ -40,6 +41,15 @@ public partial class WorldRenderer : Node2D
 
     public override void _Ready()
     {
+        _worldBackdrop = new ColorRect
+        {
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+            ZIndex = -100,
+            Position = new Vector2(-4096, -4096),
+            Size = new Vector2(8192, 8192),
+        };
+        AddChild(_worldBackdrop);
+
         _terrainLayer = new Node2D();
         AddChild(_terrainLayer);
 
@@ -81,7 +91,7 @@ public partial class WorldRenderer : Node2D
         {
             if (_session != null && _session.State.Ready)
             {
-                if (!_gameApp.Paused)
+                if (_gameApp.IsSimAdvancing(_session))
                 {
                     _waterAnimPhase += (float)(delta * WaterAnimSpeed);
                 }
@@ -244,16 +254,20 @@ public partial class WorldRenderer : Node2D
         _terrain.Texture = ImageTexture.CreateFromImage(terrainImg);
         _terrain.Scale = new Vector2(1f / TerrainBaker.Tx, 1f / TerrainBaker.Tx);
 
+        var camera = GetNode<WorldCamera>("Camera2D");
+
         var vegImg = TerrainBaker.BakeVegImage(session.State);
         _veg.Texture = ImageTexture.CreateFromImage(vegImg);
+        _veg.Scale = new Vector2(1f / TerrainBaker.Tx, 1f / TerrainBaker.Tx);
 
         var waterMaskImg = TerrainBaker.BakeWaterMaskImage(session.State);
         _water.Texture = ImageTexture.CreateFromImage(waterMaskImg);
+        _water.Scale = new Vector2(1f / TerrainBaker.Tx, 1f / TerrainBaker.Tx);
         _waterMaterial.SetShaderParameter(TileOriginParam, Vector2.Zero);
 
-        var camera = GetNode<WorldCamera>("Camera2D");
+        _worldBackdrop.Color = TerrainBaker.BackdropOceanColor(session.State);
+
         _infiniteOcean.Bind(camera, session.State, session.State.W, session.State.H);
-        _infiniteOcean.Invalidate();
         PushWaterAnimPhase();
 
         _creatures.Bind(session, catalog);
@@ -263,6 +277,8 @@ public partial class WorldRenderer : Node2D
         UpdateDayNight();
         UpdateRenderContext();
     }
+
+    public void SyncOceanAfterCamera() => _infiniteOcean.ForceSyncAfterCamera();
 
     public void ApplyScrubState(SimSession session, SpeciesCatalog catalog, bool light)
     {
@@ -281,6 +297,7 @@ public partial class WorldRenderer : Node2D
                     {
                         var vegImg = TerrainBaker.BakeVegImage(session.State);
                         _veg.Texture = ImageTexture.CreateFromImage(vegImg);
+                        _veg.Scale = new Vector2(1f / TerrainBaker.Tx, 1f / TerrainBaker.Tx);
                         session.State.VegDirty = false;
                         if (light) _scrubVegBakeAt = nowMs;
                     });

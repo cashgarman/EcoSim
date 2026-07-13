@@ -19,6 +19,33 @@ public partial class GameApp : Node
 
     public void SetScrubController(TimeScrubController scrub) => _scrub = scrub;
 
+    /// <summary>True when sim time and creature logic should advance.</summary>
+    public bool IsSimAdvancing(SimSession session) => GetEffectiveSpeed(session) > 0;
+
+    public double GetEffectiveSpeed(SimSession session)
+    {
+        if (Paused || session.State.Speed <= 0) return 0;
+        if (_scrub != null && _scrub.ScrubActive) return 0;
+
+        double speed = session.State.Speed;
+        if (speed > 1 && session.Player.IsControlling)
+        {
+            speed = 1;
+        }
+
+        return speed;
+    }
+
+    /// <summary>Resume live sim after timeline/modal pause when speed &gt; 0.</summary>
+    public void ResumeLiveSim(double speed)
+    {
+        var session = _host.Session;
+        if (session == null) return;
+
+        Paused = false;
+        session.State.Speed = Math.Max(0, speed);
+    }
+
     public override void _Ready()
     {
         if (Engine.IsEditorHint())
@@ -38,17 +65,7 @@ public partial class GameApp : Node
         if (session == null || !session.State.Ready) return;
 
         var profiler = PerfProfiler.Instance;
-        double speed = Paused ? 0 : session.State.Speed;
-        if (_scrub != null && _scrub.ScrubActive)
-        {
-            speed = 0;
-        }
-
-        // Direct control at fast-forward speeds is unplayable; cap while possessing.
-        if (speed > 1 && session.Player.IsControlling)
-        {
-            speed = 1;
-        }
+        double speed = GetEffectiveSpeed(session);
 
         if (speed > 0)
         {
@@ -82,7 +99,7 @@ public partial class GameApp : Node
 
         bool scrubbing = _scrub?.ScrubActive ?? false;
         var profiler = PerfProfiler.Instance;
-        if (!Paused && !scrubbing && session.State.Speed > 0)
+        if (IsSimAdvancing(session))
         {
             profiler.Timed("displaySmooth", () =>
                 session.Creatures.AdvanceDisplayPositions(delta, scrubbing));
@@ -102,7 +119,7 @@ public partial class GameApp : Node
         if (Paused)
         {
             Paused = false;
-            session.State.Speed = LastSpeedBeforePause > 0 ? LastSpeedBeforePause : 1;
+            session.State.Speed = LastSpeedBeforePause;
         }
         else
         {

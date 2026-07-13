@@ -43,7 +43,7 @@ public partial class GameOverPanel : Control
         center.SetAnchorsPreset(LayoutPreset.FullRect);
         AddChild(center);
 
-        var panel = new PanelContainer { CustomMinimumSize = new Vector2(560, 0) };
+        var panel = new PanelContainer { CustomMinimumSize = new Vector2(640, 0) };
         panel.AddThemeStyleboxOverride("panel", UiSliceCatalog.MakeStonePanel());
         panel.AddThemeConstantOverride("margin_left", 18);
         panel.AddThemeConstantOverride("margin_right", 18);
@@ -73,12 +73,12 @@ public partial class GameOverPanel : Control
 
         var scroll = new ScrollContainer
         {
-            CustomMinimumSize = new Vector2(0, 260),
+            CustomMinimumSize = new Vector2(0, 280),
             HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled,
         };
         _statsGrid = new GridContainer { Columns = 5, SizeFlagsHorizontal = SizeFlags.ExpandFill };
-        _statsGrid.AddThemeConstantOverride("h_separation", 14);
-        _statsGrid.AddThemeConstantOverride("v_separation", 4);
+        _statsGrid.AddThemeConstantOverride("h_separation", 12);
+        _statsGrid.AddThemeConstantOverride("v_separation", 7);
         scroll.AddChild(_statsGrid);
         vbox.AddChild(scroll);
 
@@ -93,8 +93,13 @@ public partial class GameOverPanel : Control
         pickRow.AddChild(_possessBtn);
         vbox.AddChild(pickRow);
 
-        var restart = new Button { Text = "Start Over (new world)" };
-        EcoSimThemeBuilder.StyleDangerButton(restart);
+        var restart = new Button
+        {
+            Text = "Start Over (new world)",
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            CustomMinimumSize = new Vector2(0, 44),
+        };
+        StylePaddedDangerButton(restart);
         restart.Pressed += () =>
         {
             Visible = false;
@@ -165,15 +170,36 @@ public partial class GameOverPanel : Control
     private void AddHeader(string text)
     {
         var label = new Label { Text = text };
-        EcoSimFonts.ApplyFont(label, EcoSimFonts.Small, EcoSimThemeBuilder.Gold);
+        EcoSimFonts.ApplyFont(label, EcoSimFonts.Scaled8, EcoSimThemeBuilder.Gold);
         _statsGrid.AddChild(label);
     }
 
     private void AddCell(string text, Color color)
     {
-        var label = new Label { Text = text };
-        EcoSimFonts.ApplyFont(label, EcoSimFonts.Small, color);
+        var label = new Label { Text = text, AutowrapMode = TextServer.AutowrapMode.WordSmart };
+        EcoSimFonts.ApplyFont(label, EcoSimFonts.Scaled7, color);
         _statsGrid.AddChild(label);
+    }
+
+    private static void StylePaddedDangerButton(Button button)
+    {
+        EcoSimThemeBuilder.StyleDangerButton(button);
+        ApplyButtonPadding(button, 12, 16);
+    }
+
+    private static void ApplyButtonPadding(Button button, int vertical, int horizontal)
+    {
+        foreach (string state in new[] { "normal", "hover", "pressed" })
+        {
+            var style = button.GetThemeStylebox(state);
+            if (style == null) continue;
+            var padded = (StyleBoxFlat)style.Duplicate();
+            padded.ContentMarginTop = vertical;
+            padded.ContentMarginBottom = vertical;
+            padded.ContentMarginLeft = horizontal;
+            padded.ContentMarginRight = horizontal;
+            button.AddThemeStyleboxOverride(state, padded);
+        }
     }
 
     private void RebuildPicker(SimSession session)

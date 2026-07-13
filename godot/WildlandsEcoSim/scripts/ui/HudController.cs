@@ -124,7 +124,7 @@ public partial class HudController : CanvasLayer
         _worldViewportContainer = GetNode<SubViewportContainer>("../WorldViewportContainer");
 
         _worldViewport = GetNode<SubViewport>("%WorldViewport");
-        _worldViewport.TransparentBg = true;
+        _worldViewport.TransparentBg = false;
         _world = _worldViewport.GetNode<WorldRenderer>("WorldRoot");
         _camera = _worldViewport.GetNode<WorldCamera>("WorldRoot/Camera2D");
         Callable.From(SyncWorldViewportSize).CallDeferred();
@@ -401,6 +401,7 @@ public partial class HudController : CanvasLayer
 
         _world.BindWorld(session, _host.Species!);
         _camera.CenterOnWorld();
+        _world.SyncOceanAfterCamera();
         _story.Reset();
         _ecosystem.Reset();
         _deathNotice?.HideNotice();
@@ -454,9 +455,12 @@ public partial class HudController : CanvasLayer
 
     private void OnSpeedChanged(double v)
     {
-        if (_host.Session != null && !_gameApp.Paused)
+        if (_host.Session == null) return;
+
+        _host.Session.State.Speed = v;
+        if (v > 0 && _gameApp.Paused && (_scrub == null || !_scrub.IsViewingPast()))
         {
-            _host.Session.State.Speed = v;
+            _gameApp.ResumeLiveSim(v);
         }
     }
 
@@ -710,6 +714,12 @@ public partial class HudController : CanvasLayer
         var session = _host.Session;
         if (session == null || _host.Species == null) return;
         _world.ApplyScrubState(session, _host.Species, light: false);
+        if (_speedControl.Value > 0)
+        {
+            _gameApp.ResumeLiveSim(_speedControl.Value);
+        }
+
+        SyncSpeedSliderFromSession();
         RefreshHud();
         RefreshTimelineStrip();
     }

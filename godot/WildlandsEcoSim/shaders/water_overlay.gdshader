@@ -33,7 +33,8 @@ void vertex()
 
 void fragment()
 {
-	if (texture(TEXTURE, UV).a < 0.01)
+	float mask = texture(TEXTURE, UV).a;
+	if (mask < 0.01)
 	{
 		discard;
 	}
@@ -43,5 +44,5 @@ void fragment()
 	float shimmer = 0.15 + (sin((tile.x + tile.y) * 0.3 + anim_phase) * 0.5 + 0.5) * 0.2;
 	float a = clamp(0.25 + n * 0.15 + shimmer * 0.3, 0.0, 0.65);
 	// Day/night via parent CanvasItem modulate — do not multiply light here.
-	COLOR = vec4(0.2, 0.55, 0.9, a);
+	COLOR = vec4(0.2, 0.55, 0.9, a * mask);
 }

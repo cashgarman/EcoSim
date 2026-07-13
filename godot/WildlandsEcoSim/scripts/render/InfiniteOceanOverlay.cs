@@ -1,3 +1,4 @@
+using EcoSim.Core.Data;
 using EcoSim.Core.Sim;
 using Godot;
 using WildlandsEcoSim;
@@ -6,13 +7,15 @@ using WildlandsEcoSim.UI;
 namespace WildlandsEcoSim.Render;
 
 /// <summary>
-/// Deep-ocean backdrop outside the sim grid — baked terrain base + GPU-animated water overlay.
+/// Deep-ocean backdrop outside the sim grid — solid fill + GPU-animated water overlay.
 /// </summary>
 public partial class InfiniteOceanOverlay : Node2D
 {
     private const int PadTiles = 6;
     private const int BoundsSnapTiles = 8;
     private const int MaxBakeTiles = 2048;
+    /// <summary>Subpixel bleed at sim-grid edges to hide 1px seams vs main water.</summary>
+    private const int SeamBleedSubpixels = 3;
 
     private static readonly StringName AnimPhaseParam = "anim_phase";
     private static readonly StringName TileOriginParam = "tile_origin";
@@ -22,7 +25,7 @@ public partial class InfiniteOceanOverlay : Node2D
     private int _worldW;
     private int _worldH;
 
-    private Sprite2D _terrainSprite = null!;
+    private ColorRect _baseFill = null!;
     private Sprite2D _waterSprite = null!;
     private ShaderMaterial _waterMaterial = null!;
     private string _cacheKey = "";
@@ -33,10 +36,9 @@ public partial class InfiniteOceanOverlay : Node2D
     public override void _Ready()
     {
         ZIndex = -1;
-        _terrainSprite = new Sprite2D
+        _baseFill = new ColorRect
         {
-            Centered = false,
-            TextureFilter = TextureFilterEnum.Nearest,
+            MouseFilter = Control.MouseFilterEnum.Ignore,
         };
         var waterShader = GD.Load<Shader>("res://shaders/water_overlay.gdshader");
         _waterMaterial = new ShaderMaterial { Shader = waterShader };
@@ -45,8 +47,9 @@ public partial class InfiniteOceanOverlay : Node2D
             Centered = false,
             TextureFilter = TextureFilterEnum.Nearest,
             Material = _waterMaterial,
+            Scale = new Vector2(1f / TerrainBaker.Tx, 1f / TerrainBaker.Tx),
         };
-        AddChild(_terrainSprite);
+        AddChild(_baseFill);
         AddChild(_waterSprite);
     }
 
@@ -56,12 +59,7 @@ public partial class InfiniteOceanOverlay : Node2D
         _state = state;
         _worldW = worldW;
         _worldH = worldH;
-        _cacheKey = "";
-        _lastBounds = (0, 0, 0, 0);
-        _lastZoomSample = float.NaN;
-        _zoomStableFrames = 0;
-        RebuildIfNeeded(VisibleTileBounds(), force: true);
-        SyncWaterShader();
+        ResetCache();
     }
 
     public void SetAnimPhase(float phase)
@@ -70,7 +68,17 @@ public partial class InfiniteOceanOverlay : Node2D
         _waterMaterial.SetShaderParameter(AnimPhaseParam, phase);
     }
 
-    public void Invalidate() => _cacheKey = "";
+    public void Invalidate() => ResetCache();
+
+    /// <summary>Rebuild immediately after camera jumps (e.g. CenterOnWorld).</summary>
+    public void ForceSyncAfterCamera()
+    {
+        if (_camera == null || _state == null) return;
+        ResetCache();
+        _lastZoomSample = _camera.Zoom.X;
+        _zoomStableFrames = 2;
+        RebuildIfNeeded(VisibleTileBounds(), force: true);
+    }
 
     public override void _Process(double delta)
     {
@@ -95,10 +103,35 @@ public partial class InfiniteOceanOverlay : Node2D
         RebuildIfNeeded(bounds);
     }
 
-    private void SyncWaterShader()
+    private void ResetCache()
+    {
+        _cacheKey = "";
+        _lastBounds = (0, 0, 0, 0);
+        _lastZoomSample = float.NaN;
+        _zoomStableFrames = 0;
+    }
+
+    private void SyncWaterShader(Vector2 originTiles)
     {
         if (_waterMaterial == null) return;
-        _waterMaterial.SetShaderParameter(TileOriginParam, _terrainSprite.Position);
+        float tx = TerrainBaker.Tx;
+        _waterMaterial.SetShaderParameter(TileOriginParam, new Vector2(originTiles.X * tx, originTiles.Y * tx));
+    }
+
+    private float TileScale()
+    {
+        Node? node = this;
+        while (node != null)
+        {
+            if (node is WorldRenderer renderer)
+            {
+                return renderer.Scale.X;
+            }
+
+            node = node.GetParent();
+        }
+
+        return WorldRenderer.TilePixels;
     }
 
     private void RebuildIfNeeded((int x0, int y0, int iw, int ih) bounds, bool force = false)
@@ -112,20 +145,32 @@ public partial class InfiniteOceanOverlay : Node2D
 
         PerfProfiler.Instance.Timed("render.oceanBake", () =>
         {
-            int stride = iw * 4;
-            byte[] terrainData = new byte[stride * ih];
-            byte[] maskData = new byte[stride * ih];
-            for (int j = 0; j < ih; j++)
-            {
-                int wy = y0 + j;
-                int row = j * stride;
-                for (int i = 0; i < iw; i++)
-                {
-                    int wx = x0 + i;
-                    int o = row + i * 4;
-                    if (wx >= 0 && wx < _worldW && wy >= 0 && wy < _worldH) continue;
+            int tx = TerrainBaker.Tx;
+            int tw = iw * tx;
+            int th = ih * tx;
+            byte[] maskData = new byte[tw * th * 4];
 
-                    TerrainBaker.WriteOceanTerrainPixel(terrainData, o, wx, wy, _state);
+            for (int py = 0; py < th; py++)
+            {
+                for (int px = 0; px < tw; px++)
+                {
+                    float worldTileX = x0 + (px + 0.5f) / tx;
+                    float worldTileY = y0 + (py + 0.5f) / tx;
+                    int o = (py * tw + px) * 4;
+
+                    bool insideWorld = worldTileX >= 0 && worldTileX < _worldW &&
+                                       worldTileY >= 0 && worldTileY < _worldH;
+                    if (insideWorld)
+                    {
+                        float bleed = SeamBleedSubpixels / (float)tx;
+                        bool nearAabb = worldTileX < bleed || worldTileX >= _worldW - bleed ||
+                                        worldTileY < bleed || worldTileY >= _worldH - bleed;
+                        if (!nearAabb)
+                        {
+                            continue;
+                        }
+                    }
+
                     maskData[o] = 255;
                     maskData[o + 1] = 255;
                     maskData[o + 2] = 255;
@@ -133,23 +178,24 @@ public partial class InfiniteOceanOverlay : Node2D
                 }
             }
 
-            var terrainImg = Image.CreateFromData(iw, ih, false, Image.Format.Rgba8, terrainData);
-            var maskImg = Image.CreateFromData(iw, ih, false, Image.Format.Rgba8, maskData);
+            var maskImg = Image.CreateFromData(tw, th, false, Image.Format.Rgba8, maskData);
             var pos = new Vector2(x0, y0);
-            _terrainSprite.Texture = ImageTexture.CreateFromImage(terrainImg);
-            _terrainSprite.Position = pos;
+            Color backdrop = TerrainBaker.BackdropOceanColor(_state);
+            _baseFill.Color = backdrop;
+            _baseFill.Position = pos;
+            _baseFill.Size = new Vector2(iw, ih);
             _waterSprite.Texture = ImageTexture.CreateFromImage(maskImg);
             _waterSprite.Position = pos;
             _cacheKey = key;
             _lastBounds = bounds;
-            SyncWaterShader();
+            SyncWaterShader(pos);
         });
     }
 
     private (int x0, int y0, int iw, int ih) VisibleTileBounds()
     {
         Vector2 vp = GetViewport().GetVisibleRect().Size;
-        float tileScale = GetParent<Node2D>().Scale.X;
+        float tileScale = TileScale();
         float zoom = Math.Max(0.05f, _camera!.Zoom.X);
         float vw = vp.X / (zoom * tileScale);
         float vh = vp.Y / (zoom * tileScale);
@@ -163,16 +209,14 @@ public partial class InfiniteOceanOverlay : Node2D
         int ih = Math.Max(1, y1 - y0);
         if (iw > MaxBakeTiles)
         {
-            int cx = (x0 + x1) / 2;
             iw = MaxBakeTiles;
-            x0 = cx - iw / 2;
+            x1 = x0 + iw;
         }
 
         if (ih > MaxBakeTiles)
         {
-            int cy = (y0 + y1) / 2;
             ih = MaxBakeTiles;
-            y0 = cy - ih / 2;
+            y1 = y0 + ih;
         }
 
         return (x0, y0, iw, ih);
