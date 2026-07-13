@@ -9,6 +9,9 @@ public partial class GameApp : Node
     [Signal]
     public delegate void SimTickedEventHandler();
 
+    [Signal]
+    public delegate void SpeedStateChangedEventHandler();
+
     private EcoSimHost _host = null!;
     private TimeScrubController? _scrub;
 
@@ -26,13 +29,7 @@ public partial class GameApp : Node
         if (Paused || session.State.Speed <= 0) return 0;
         if (_scrub != null && _scrub.ScrubActive) return 0;
 
-        double speed = session.State.Speed;
-        if (speed > 1 && session.Player.IsControlling)
-        {
-            speed = 1;
-        }
-
-        return speed;
+        return session.State.Speed;
     }
 
     /// <summary>Resume live sim after timeline/modal pause when speed &gt; 0.</summary>
@@ -43,6 +40,8 @@ public partial class GameApp : Node
 
         Paused = false;
         session.State.Speed = Math.Max(0, speed);
+        LastSpeedBeforePause = session.State.Speed;
+        EmitSignal(SignalName.SpeedStateChanged);
     }
 
     public override void _Ready()
@@ -113,6 +112,8 @@ public partial class GameApp : Node
             Paused = true;
             session.State.Speed = 0;
         }
+
+        EmitSignal(SignalName.SpeedStateChanged);
     }
 
     public void PauseForTimeline()
@@ -127,5 +128,6 @@ public partial class GameApp : Node
 
         Paused = true;
         session.State.Speed = 0;
+        EmitSignal(SignalName.SpeedStateChanged);
     }
 }

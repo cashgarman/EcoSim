@@ -35,7 +35,7 @@ public partial class SpeedSliderControl : VBoxContainer
             MinValue = MinSpeed,
             MaxValue = MaxSpeed,
             Step = 1,
-            Value = 2,
+            Value = 1,
             TickCount = MaxSpeed + 1,
             TicksOnBorders = true,
         };

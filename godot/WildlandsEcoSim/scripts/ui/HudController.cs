@@ -167,6 +167,7 @@ public partial class HudController : CanvasLayer
         _ecosystem.SpeciesGodMenu += OnSpeciesGodMenu;
         _godMenu.KillAllRequested += OnKillAll;
         _gameApp.SimTicked += OnSimTicked;
+        _gameApp.SpeedStateChanged += SyncSpeedSliderFromSession;
         _timeline.SeekRequested += OnTimelineSeek;
         _timeline.PresentRequested += OnTimelinePresent;
         _timeline.ScrubDragStarted += OnTimelineScrubDragStarted;
@@ -210,6 +211,7 @@ public partial class HudController : CanvasLayer
         if (!Engine.IsEditorHint())
         {
             InitTimeline();
+            SyncSpeedSliderFromSession();
             OnGenerate();
         }
 
@@ -463,6 +465,7 @@ public partial class HudController : CanvasLayer
         if (_host.Session == null) return;
 
         _host.Session.State.Speed = v;
+        _gameApp.LastSpeedBeforePause = Math.Max(0, v);
         if (v > 0 && _gameApp.Paused && (_scrub == null || !_scrub.IsViewingPast()))
         {
             _gameApp.ResumeLiveSim(v);
